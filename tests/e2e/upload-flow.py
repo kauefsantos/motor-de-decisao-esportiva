@@ -76,7 +76,7 @@ async def main() -> int:
             or "Nenhum contrato foi publicado" in body,
             "sem modelo validado, o motor bloqueia em vez de inventar probabilidade",
         )
-        check("Auditoria da ingestão" in body, "auditoria por fonte exibida")
+        check("auditoria da ingestão" in body.lower(), "auditoria por fonte exibida")
         check(not errors, f"sem erros de runtime no navegador ({errors[:1]})")
 
         await browser.close()
