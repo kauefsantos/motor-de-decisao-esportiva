@@ -211,6 +211,33 @@ export function teamRoster(fixtures: ResearchFixture[]): string[] {
   return [...set].sort();
 }
 
+const STOP_TOKENS = new Set(["fc", "cf", "ac", "sc", "afc", "club", "clube", "de", "do", "da"]);
+
+function tokens(value: string): string[] {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 0 && !STOP_TOKENS.has(t));
+}
+
+/**
+ * Reconhece abreviações usadas nos datasets públicos ("Man City" ↔ "Manchester City").
+ * Só pontua quando todos os tokens do nome curto prefixam tokens do nome longo, na ordem.
+ */
+function abbreviationScore(a: string, b: string): number {
+  const [short, long] = tokens(a).length <= tokens(b).length ? [tokens(a), tokens(b)] : [tokens(b), tokens(a)];
+  if (short.length === 0 || short.length !== long.length) return 0;
+  for (let i = 0; i < short.length; i++) {
+    const s = short[i]!;
+    const l = long[i]!;
+    if (!(l === s || (s.length >= 3 && l.startsWith(s)))) return 0;
+  }
+  return 0.92;
+}
+
 export function resolveTeam(name: string | null, roster: string[]): TeamResolution {
   if (!name || roster.length === 0) {
     return {
@@ -222,9 +249,13 @@ export function resolveTeam(name: string | null, roster: string[]): TeamResoluti
     };
   }
   const scored = roster
-    .map((team) => ({ team, score: Number(nameSimilarity(name, team).toFixed(4)) }))
+    .map((team) => ({
+      team,
+      score: Number(Math.max(nameSimilarity(name, team), abbreviationScore(name, team)).toFixed(4)),
+    }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
+
   const best = scored[0]!;
   const gap = scored[1] ? Number((best.score - scored[1].score).toFixed(4)) : 1;
 
