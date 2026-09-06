@@ -15,11 +15,33 @@ import type { CsvMatchQuery, MatchResolution, NormalizedStat } from "./sofascore
 export const API_FOOTBALL_DEFINITION_VERSION = "api_football-v1";
 export const API_FOOTBALL_SOURCE = "api_football";
 
-const DEFAULT_BASE = "https://v3.football.api-sports.io";
+// Provider server-side. O contrato HTTP é o mesmo (API-Football v3);
+// muda apenas host, credencial e a identidade da fonte no lineage.
+export type FootballApiProvider = "api_sports" | "five_dollar";
+
+const PROVIDERS = {
+  api_sports: {
+    base: "https://v3.football.api-sports.io",
+    envKey: "API_FOOTBALL_KEY",
+    source: API_FOOTBALL_SOURCE,
+    definitionVersion: API_FOOTBALL_DEFINITION_VERSION,
+  },
+  five_dollar: {
+    base: "https://api-football.5dollarfootballapi.com",
+    envKey: "FIVE_DOLLAR_FOOTBALL_API_KEY",
+    source: "five_dollar_football",
+    definitionVersion: "five-dollar-v1",
+  },
+} as const satisfies Record<
+  FootballApiProvider,
+  { base: string; envKey: string; source: string; definitionVersion: string }
+>;
+
 const TIMEOUT_MS = 10000;
 const MAX_ATTEMPTS = 3;
 const MIN_INTERVAL_MS = 1200;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+
 
 export type ApiFootballFetchStatus = "OK" | "UNAVAILABLE" | "NOT_CONFIGURED";
 
