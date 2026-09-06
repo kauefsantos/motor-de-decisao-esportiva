@@ -85,6 +85,7 @@ async function resolveMatches(db: Db, runId: string) {
   let ambiguous = 0;
   let notFound = 0;
   let sourceUnavailable = 0;
+  let externalResearch = 0;
   let sourceError: string | null = null;
 
   for (const m of matches ?? []) {
@@ -406,8 +407,14 @@ async function resolveMatches(db: Db, runId: string) {
   const summary = sourceUnavailable
     ? `${resolved} partidas normalizadas localmente; SofaScore indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
     : `${resolved} partidas normalizadas; ${external} com evento SofaScore, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
-  await log(db, runId, "RESOLVE", summary, external ? "INFO" : "WARN");
-  return { resolved, failed, external, ambiguous, notFound, sourceUnavailable };
+  await log(
+    db,
+    runId,
+    "RESOLVE",
+    `${summary} Desk research reconheceu ${externalResearch} partidas em fontes públicas.`,
+    external || externalResearch ? "INFO" : "WARN",
+  );
+  return { resolved, failed, external, externalResearch, ambiguous, notFound, sourceUnavailable };
 }
 
 async function collect(db: Db, runId: string) {
