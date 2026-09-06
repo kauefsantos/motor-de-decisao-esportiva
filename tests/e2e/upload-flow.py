@@ -63,7 +63,9 @@ async def main() -> int:
 
         # O pipeline deve terminar: ou avança para oportunidades, ou expõe erro — nunca fica preso.
         await page.wait_for_url("**/oportunidades", timeout=180000)
-        await page.get_by_text("Auditoria da ingestão").wait_for(timeout=60000)
+        await page.get_by_text("Mercados para observar").wait_for(timeout=60000)
+        await page.get_by_text("Estado das fontes nesta rodada").wait_for(timeout=60000)
+        await page.wait_for_timeout(3000)
         body = await page.locator("body").inner_text()
 
         check("/oportunidades" in page.url, "pipeline concluído sem travar em loading")
