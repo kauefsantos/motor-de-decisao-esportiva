@@ -37,6 +37,9 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
   return (
     <section className="panel mt-8 p-6">
       <p className="label-eyebrow">Auditoria da ingestão</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Modo de coleta: <span className="font-medium text-foreground">{audit.mode}</span>
+      </p>
 
       <ul className="mt-4 space-y-2">
         {audit.sources.map((s) => (
@@ -58,17 +61,30 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
       <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
         <div>
           <dt className="label-eyebrow">Eventos resolvidos</dt>
-          <dd className="num mt-1 text-2xl">{audit.resolvedEvents}</dd>
+          <dd className="num mt-1 text-2xl">{audit.resolvedEvents + audit.researchResolved}</dd>
+        </div>
+        <div>
+          <dt className="label-eyebrow">Observações brutas</dt>
+          <dd className="num mt-1 text-2xl">{audit.rawObservations}</dd>
         </div>
         <div>
           <dt className="label-eyebrow">Observações normalizadas</dt>
           <dd className="num mt-1 text-2xl">{audit.normalizedObservations}</dd>
         </div>
         <div>
+          <dt className="label-eyebrow">Confirmadas entre fontes</dt>
+          <dd className="num mt-1 text-2xl">{audit.crossChecked}</dd>
+        </div>
+        <div>
+          <dt className="label-eyebrow">Conflitos entre fontes</dt>
+          <dd className="num mt-1 text-2xl">{audit.sourceConflicts}</dd>
+        </div>
+        <div>
           <dt className="label-eyebrow">Partidas</dt>
           <dd className="num mt-1 text-2xl">{audit.matches.length}</dd>
         </div>
       </dl>
+
 
       <ul className="mt-5 divide-y divide-border border-t border-border">
         {audit.matches.map((m) => (
@@ -109,6 +125,50 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
                 ) : (
                   <p className="mt-2">Nenhum dado normalizado passou nos gates de definição.</p>
                 )}
+                {m.research && (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="font-medium text-foreground">Desk Research / Dados Públicos</p>
+                    {m.research.urls.length > 0 && (
+                      <ul className="num mt-1 space-y-0.5">
+                        {m.research.urls.map((u) => (
+                          <li key={u} className="truncate">
+                            <a href={u} target="_blank" rel="noreferrer" className="underline">
+                              {u}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="num mt-1">
+                      histórico {m.research.historyStatus ?? "—"} · {m.research.fixtures.length} jogos
+                      anteriores · {m.research.reusedFromCache} observações reaproveitadas do cache
+                    </p>
+                    {m.research.fixtures.length > 0 && (
+                      <ul className="num mt-1 space-y-0.5">
+                        {m.research.fixtures.map((f) => (
+                          <li key={f.id}>
+                            {f.date} · {f.team} x {f.opponent} · {f.id}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="num mt-2">
+                      aceitas:{" "}
+                      {m.research.accepted.length > 0
+                        ? m.research.accepted.map((a) => `${a.metric} (${a.count})`).join(" · ")
+                        : "—"}
+                    </p>
+                    <p className="num mt-1">
+                      rejeitadas:{" "}
+                      {m.research.rejected.length > 0
+                        ? m.research.rejected
+                            .map((r) => `${r.metric} (${r.count}${r.note ? ` — ${r.note}` : ""})`)
+                            .join(" · ")
+                        : "—"}
+                    </p>
+                  </div>
+                )}
+
               </div>
             )}
           </li>

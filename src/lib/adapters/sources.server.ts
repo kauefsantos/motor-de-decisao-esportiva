@@ -101,4 +101,11 @@ export async function collectFromSources(query: AdapterQuery): Promise<AdapterRe
 }
 
 // sofascore é tratado pelo adapter dedicado (sofascore.server.ts) nas etapas RESOLVE/COLLECT.
-export const adapterSources = ["api_football", "sofascore", ...definitions.map((d) => d.source)];
+// research_adapter é o modo Desk Research / Dados Públicos (research.server.ts).
+export const adapterSources = [
+  "api_football",
+  "sofascore",
+  "research_adapter",
+  ...definitions.map((d) => d.source),
+];
+

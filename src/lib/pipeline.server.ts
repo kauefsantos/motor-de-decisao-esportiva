@@ -85,6 +85,7 @@ async function resolveMatches(db: Db, runId: string) {
   let ambiguous = 0;
   let notFound = 0;
   let sourceUnavailable = 0;
+  let externalResearch = 0;
   let sourceError: string | null = null;
 
   for (const m of matches ?? []) {
@@ -281,6 +282,109 @@ async function resolveMatches(db: Db, runId: string) {
       );
     }
 
+    // Desk Research (fontes públicas e abertas). Não substitui os adapters acima:
+    // roda sempre que houver times normalizados, para permitir coleta histórica.
+    if (localOk) {
+      const { researchResolveMatch, RESEARCH_SOURCE, RESEARCH_DEFINITION_VERSION } = await import(
+        "./adapters/research.server"
+      );
+      const predictionAt = kickoff ?? new Date().toISOString();
+      const research = await researchResolveMatch(
+        { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
+        predictionAt,
+      );
+
+      for (const f of research.dataset.fetches) {
+        await db.from("source_fetches").insert({
+          run_id: runId,
+          match_id: m.id,
+          source: RESEARCH_SOURCE,
+          status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+          http_status: f.httpStatus,
+          error_message: f.errorMessage ?? (f.status === "OK" ? `${f.url} (${f.rows} jogos)` : null),
+          fetched_at: f.fetchedAt,
+        });
+      }
+
+      if (research.dataset.fetches.length === 0) {
+        reason = `${reason} Desk research: competição fora do catálogo público coberto.`;
+      } else if (!research.resolution) {
+        sourceUnavailable++;
+        sourceError = research.dataset.fetches.find((f) => f.errorMessage)?.errorMessage ?? null;
+        reason = `${reason} Desk research indisponível: ${sourceError ?? "nenhum dataset público legível"}.`;
+      } else {
+        const r = research.resolution;
+        const url = research.dataset.fetches.find((f) => f.status === "OK")?.url ?? null;
+        if (r.status === "MATCH_RESOLVED") {
+          externalResearch++;
+          if (!resolvedByApiFootball && status !== "RESOLVED_SOFASCORE") {
+            status = "RESOLVED_RESEARCH";
+            confidence = r.confidence;
+          }
+          reason = `${reason} Desk research: ${r.reason}`;
+          await db.from("match_external_ids").insert([
+            {
+              match_id: m.id,
+              source: "research_team_home",
+              external_id: r.home.team!,
+              confidence: r.home.confidence,
+            },
+            {
+              match_id: m.id,
+              source: "research_team_away",
+              external_id: r.away.team!,
+              confidence: r.away.confidence,
+            },
+            ...(r.fixtureKey
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "research_fixture",
+                    external_id: r.fixtureKey,
+                    confidence: r.confidence,
+                  },
+                ]
+              : []),
+            ...(research.dataset.leagueKey
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "research_league",
+                    external_id: research.dataset.leagueKey,
+                    confidence: research.dataset.leagueSimilarity,
+                  },
+                ]
+              : []),
+          ]);
+        } else {
+          reason = `${reason} Desk research (${r.status}): ${r.reason}`;
+        }
+
+        await log(
+          db,
+          runId,
+          "RESOLVE",
+          `Desk research para ${m.raw_partida}: ${r.status}`,
+          r.status === "MATCH_RESOLVED" ? "INFO" : "WARN",
+          {
+            mode: "Desk Research / Dados Públicos",
+            definitionVersion: RESEARCH_DEFINITION_VERSION,
+            sourceUrl: url,
+            league: research.dataset.leagueLabel,
+            resolvedAt: new Date().toISOString(),
+            homeRaw: home,
+            awayRaw: away,
+            homeNormalized: r.home.team,
+            awayNormalized: r.away.team,
+            confidence: r.confidence,
+            candidates: { home: r.home.candidates, away: r.away.candidates },
+          },
+        );
+      }
+    }
+
+
+
     await db
       .from("matches")
       .update({
@@ -303,8 +407,14 @@ async function resolveMatches(db: Db, runId: string) {
   const summary = sourceUnavailable
     ? `${resolved} partidas normalizadas localmente; SofaScore indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
     : `${resolved} partidas normalizadas; ${external} com evento SofaScore, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
-  await log(db, runId, "RESOLVE", summary, external ? "INFO" : "WARN");
-  return { resolved, failed, external, ambiguous, notFound, sourceUnavailable };
+  await log(
+    db,
+    runId,
+    "RESOLVE",
+    `${summary} Desk research reconheceu ${externalResearch} partidas em fontes públicas.`,
+    external || externalResearch ? "INFO" : "WARN",
+  );
+  return { resolved, failed, external, externalResearch, ambiguous, notFound, sourceUnavailable };
 }
 
 async function collect(db: Db, runId: string) {
@@ -457,6 +567,168 @@ async function collect(db: Db, runId: string) {
     }
   }
 
+  // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos.
+  {
+    const {
+      researchDataset,
+      researchTeamHistory,
+      RESEARCH_SOURCE,
+      RESEARCH_DEFINITION_VERSION,
+    } = await import("./adapters/research.server");
+
+    // Cache: observações já coletadas antes (qualquer run) para a mesma chave.
+    const { data: cachedRows } = await db
+      .from("raw_observations")
+      .select("metric, raw_value, observed_at, fetched_at")
+      .eq("source", RESEARCH_SOURCE)
+      .eq("definition_version", RESEARCH_DEFINITION_VERSION)
+      .limit(5000);
+    const cacheIndex = new Map<string, typeof cachedRows>();
+    for (const row of cachedRows ?? []) {
+      const key = (row.raw_value as { cacheKey?: string } | null)?.cacheKey;
+      if (!key) continue;
+      const list = cacheIndex.get(key) ?? [];
+      list.push(row);
+      cacheIndex.set(key, list);
+    }
+
+    let researchObservations = 0;
+    let reusedFromCache = 0;
+    let insufficient = 0;
+
+    for (const m of matches ?? []) {
+      const teams = (externalIds ?? []).filter(
+        (e) =>
+          e.match_id === m.id &&
+          (e.source === "research_team_home" || e.source === "research_team_away"),
+      );
+      if (teams.length === 0) {
+        perSource[`${RESEARCH_SOURCE}:NO_TEAM_RESOLVED`] =
+          (perSource[`${RESEARCH_SOURCE}:NO_TEAM_RESOLVED`] ?? 0) + 1;
+        continue;
+      }
+
+      const predictionAt = m.kickoff_local ?? new Date().toISOString();
+      const cutoffDay = predictionAt.slice(0, 10);
+      let dataset: Awaited<ReturnType<typeof researchDataset>> | null = null;
+
+      for (const team of teams) {
+        const scope = team.source === "research_team_home" ? "HOME" : "AWAY";
+        const cacheKey = `${RESEARCH_DEFINITION_VERSION}|${team.external_id}|${cutoffDay}`;
+        const cached = cacheIndex.get(cacheKey);
+
+        if (cached && cached.length > 0) {
+          reusedFromCache += cached.length;
+          researchObservations += cached.length;
+          await db.from("raw_observations").insert(
+            cached.map((c) => ({
+              run_id: runId,
+              match_id: m.id,
+              source: RESEARCH_SOURCE,
+              metric: c.metric,
+              raw_value: { ...(c.raw_value as object), reusedFromCache: true } as never,
+              observed_at: c.observed_at,
+              fetched_at: c.fetched_at,
+              definition_version: RESEARCH_DEFINITION_VERSION,
+            })),
+          );
+          continue;
+        }
+
+        if (!dataset) {
+          dataset = await researchDataset(m.competition, predictionAt);
+          for (const f of dataset.fetches) {
+            perSource[`${RESEARCH_SOURCE}:${f.status}`] =
+              (perSource[`${RESEARCH_SOURCE}:${f.status}`] ?? 0) + 1;
+            await db.from("source_fetches").insert({
+              run_id: runId,
+              match_id: m.id,
+              source: RESEARCH_SOURCE,
+              status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+              http_status: f.httpStatus,
+              error_message:
+                f.errorMessage ?? (f.status === "OK" ? `${f.url} (${f.rows} jogos)` : null),
+              fetched_at: f.fetchedAt,
+            });
+          }
+        }
+
+        const history = researchTeamHistory(team.external_id, dataset, predictionAt);
+        if (history.historyStatus === "INSUFFICIENT_HISTORY") insufficient += 1;
+
+        if (history.observations.length === 0) {
+          perSource[`${RESEARCH_SOURCE}:NO_HISTORY`] =
+            (perSource[`${RESEARCH_SOURCE}:NO_HISTORY`] ?? 0) + 1;
+          continue;
+        }
+
+        researchObservations += history.observations.length;
+        const fetchedAt = new Date().toISOString();
+        const rows = history.observations.map((o) => ({
+          run_id: runId,
+          match_id: m.id,
+          source: RESEARCH_SOURCE,
+          metric: `${scope}:${o.canonical}`,
+          raw_value: {
+            value: o.value,
+            valueRaw: o.valueRaw,
+            metricLabelRaw: o.metricLabelRaw,
+            unit: o.unit,
+            period: o.period,
+            sourceLabel: o.metricLabelRaw,
+            teamScope: scope,
+            statScope: o.venue,
+            contractCompatible: o.contractCompatible,
+            note: o.note,
+            sourceUrl: o.sourceUrl,
+            team: team.external_id,
+            externalMatchId: o.fixtureKey,
+            fixtureDate: o.fixtureDate,
+            opponent: o.opponent,
+            predictionAt,
+            historyStatus: history.historyStatus,
+            cacheKey,
+            mode: "Desk Research / Dados Públicos",
+          } as never,
+          observed_at: `${o.fixtureDate}T00:00:00Z`,
+          fetched_at: fetchedAt,
+          definition_version: RESEARCH_DEFINITION_VERSION,
+        }));
+        for (let i = 0; i < rows.length; i += 200) {
+          await db.from("raw_observations").insert(rows.slice(i, i + 200));
+        }
+
+        await log(
+          db,
+          runId,
+          "COLLECT",
+          `Desk research: ${history.found}/${history.requested} jogos anteriores de ${team.external_id} (${history.historyStatus}).`,
+          history.historyStatus === "OK" ? "INFO" : "WARN",
+          {
+            mode: "Desk Research / Dados Públicos",
+            definitionVersion: RESEARCH_DEFINITION_VERSION,
+            team: team.external_id,
+            predictionAt,
+            fixtures: history.fixturesUsed,
+            observations: history.observations.length,
+          },
+        );
+      }
+    }
+
+    await log(
+      db,
+      runId,
+      "COLLECT",
+      researchObservations
+        ? `Desk research coletou ${researchObservations} observações brutas em fontes públicas (${reusedFromCache} reaproveitadas do cache); ${insufficient} times com histórico insuficiente.`
+        : "Desk research não encontrou fonte pública utilizável para as partidas desta rodada.",
+      researchObservations ? "INFO" : "WARN",
+      { reusedFromCache, insufficient },
+    );
+  }
+
+
   // 2) Demais fontes (não configuradas até haver credencial/endpoint).
   for (const m of matches ?? []) {
     const results = await collectFromSources({
@@ -515,12 +787,20 @@ async function clean(db: Db, runId: string) {
 
   await db.from("normalized_match_stats").delete().eq("run_id", runId);
 
+  const { crossCheck } = await import("./adapters/research.parse");
+
   type RawValue = {
     value?: number;
     sourceLabel?: string;
     statScope?: "HOME" | "AWAY";
     contractCompatible?: boolean;
     note?: string;
+    sourceUrl?: string;
+    metricLabelRaw?: string;
+    valueRaw?: string;
+    externalMatchId?: string;
+    fixtureDate?: string;
+    predictionAt?: string;
   };
 
   // Agrega por (partida, escopo, métrica) apenas o que passou no definition gate.
@@ -531,57 +811,83 @@ async function clean(db: Db, runId: string) {
       scope: string;
       metric: string;
       values: number[];
-      source: string;
+      perSource: Map<string, number[]>;
       definitionVersion: string | null;
       lineage: Array<Record<string, unknown>>;
     }
   >();
   let rejectedByDefinition = 0;
+  const rejectedDetail: Record<string, number> = {};
 
   for (const r of raws ?? []) {
     const v = (r.raw_value ?? {}) as RawValue;
     if (typeof v.value !== "number" || !Number.isFinite(v.value)) continue;
-    if (v.contractCompatible !== true) {
-      rejectedByDefinition += 1;
-      continue;
-    }
     const [teamScope, canonical] = r.metric.split(":");
     if (!teamScope || !canonical) continue;
+    if (v.contractCompatible !== true) {
+      rejectedByDefinition += 1;
+      const key = `${r.source}:${canonical}`;
+      rejectedDetail[key] = (rejectedDetail[key] ?? 0) + 1;
+      continue;
+    }
     const key = `${r.match_id}|${teamScope}|${canonical}`;
     const bucket = buckets.get(key) ?? {
       matchId: r.match_id,
       scope: teamScope,
       metric: canonical,
       values: [],
-      source: r.source,
+      perSource: new Map<string, number[]>(),
       definitionVersion: r.definition_version,
       lineage: [],
     };
     bucket.values.push(v.value);
+    const bySource = bucket.perSource.get(r.source) ?? [];
+    bySource.push(v.value);
+    bucket.perSource.set(r.source, bySource);
     bucket.lineage.push({
       rawObservationId: r.id,
       source: r.source,
+      sourceUrl: v.sourceUrl ?? null,
       fetchedAt: r.fetched_at,
-      rawValue: v.value,
+      rawValue: v.valueRaw ?? v.value,
+      normalizedValue: v.value,
+      canonicalMetric: canonical,
+      metricLabelRaw: v.metricLabelRaw ?? v.sourceLabel ?? null,
       sourceLabel: v.sourceLabel ?? null,
       statScope: v.statScope ?? null,
+      externalMatchId: v.externalMatchId ?? null,
+      observedDate: v.fixtureDate ?? null,
+      predictionAt: v.predictionAt ?? null,
       definitionVersion: r.definition_version,
       note: v.note ?? null,
     });
     buckets.set(key, bucket);
   }
 
-  const rows = [...buckets.values()].map((b) => ({
-    run_id: runId,
-    match_id: b.matchId,
-    scope: b.scope,
-    metric: b.metric,
-    normalized_value: b.values.reduce((a, c) => a + c, 0) / b.values.length,
-    sample_size: b.values.length,
-    source: b.source,
-    definition_version: b.definitionVersion,
-    lineage: { observations: b.lineage } as never,
-  }));
+  let conflicts = 0;
+  let confirmed = 0;
+
+  const rows = [...buckets.values()].map((b) => {
+    const perSource = [...b.perSource.entries()].map(([source, values]) => ({
+      source,
+      value: values.reduce((a, c) => a + c, 0) / values.length,
+      sampleSize: values.length,
+    }));
+    const status = crossCheck(perSource);
+    if (status === "SOURCE_CONFLICT") conflicts += 1;
+    if (status === "CROSS_SOURCE_CONFIRMED") confirmed += 1;
+    return {
+      run_id: runId,
+      match_id: b.matchId,
+      scope: b.scope,
+      metric: b.metric,
+      normalized_value: b.values.reduce((a, c) => a + c, 0) / b.values.length,
+      sample_size: b.values.length,
+      source: perSource.map((p) => p.source).join("+"),
+      definition_version: b.definitionVersion,
+      lineage: { observations: b.lineage, crossCheck: { status, perSource } } as never,
+    };
+  });
 
   for (let i = 0; i < rows.length; i += 200) {
     await db.from("normalized_match_stats").insert(rows.slice(i, i + 200));
@@ -592,13 +898,21 @@ async function clean(db: Db, runId: string) {
     runId,
     "CLEAN",
     rows.length
-      ? `${rows.length} métricas normalizadas com lineage; ${rejectedByDefinition} observações descartadas por definição incompatível.`
+      ? `${rows.length} métricas normalizadas com lineage; ${rejectedByDefinition} observações descartadas por definição incompatível; ${confirmed} confirmadas entre fontes e ${conflicts} em conflito.`
       : `Nenhuma métrica normalizada (${rejectedByDefinition} observações descartadas por definição incompatível). Nada foi preenchido com média global.`,
     rows.length ? "INFO" : "WARN",
-    { rejectedByDefinition },
+    { rejectedByDefinition, rejectedDetail, crossSourceConfirmed: confirmed, sourceConflicts: conflicts },
   );
-  return { normalized: rows.length, rejectedByDefinition, rawObservations: raws?.length ?? 0 };
+  return {
+    normalized: rows.length,
+    rejectedByDefinition,
+    rejectedDetail,
+    crossSourceConfirmed: confirmed,
+    sourceConflicts: conflicts,
+    rawObservations: raws?.length ?? 0,
+  };
 }
+
 
 
 async function features(db: Db, runId: string) {

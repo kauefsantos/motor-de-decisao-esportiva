@@ -322,24 +322,35 @@ export const getAudit = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ runId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
     const supabase = await db();
-    const [{ data: fetches }, { data: matches }, { data: externalIds }, { data: normalized }] =
-      await Promise.all([
-        supabase
-          .from("source_fetches")
-          .select("source, status, http_status, error_message, fetched_at, match_id")
-          .eq("run_id", data.runId),
-        supabase
-          .from("matches")
-          .select(
-            "id, raw_partida, home_team, away_team, competition, kickoff_local, resolution_status, resolution_reason, resolver_confidence",
-          )
-          .eq("run_id", data.runId),
-        supabase.from("match_external_ids").select("match_id, source, external_id, confidence"),
-        supabase
-          .from("normalized_match_stats")
-          .select("match_id, scope, metric, normalized_value, sample_size, source, definition_version")
-          .eq("run_id", data.runId),
-      ]);
+    const [
+      { data: fetches },
+      { data: matches },
+      { data: externalIds },
+      { data: normalized },
+      { data: raws },
+      { data: definitions },
+    ] = await Promise.all([
+      supabase
+        .from("source_fetches")
+        .select("source, status, http_status, error_message, fetched_at, match_id")
+        .eq("run_id", data.runId),
+      supabase
+        .from("matches")
+        .select(
+          "id, raw_partida, home_team, away_team, competition, kickoff_local, resolution_status, resolution_reason, resolver_confidence",
+        )
+        .eq("run_id", data.runId),
+      supabase.from("match_external_ids").select("match_id, source, external_id, confidence"),
+      supabase
+        .from("normalized_match_stats")
+        .select("match_id, scope, metric, normalized_value, sample_size, source, definition_version, lineage")
+        .eq("run_id", data.runId),
+      supabase
+        .from("raw_observations")
+        .select("match_id, source, metric, raw_value, definition_version")
+        .eq("run_id", data.runId),
+      supabase.from("source_definitions").select("source, definition_version, notes, metric_definitions"),
+    ]);
 
     const matchIds = new Set((matches ?? []).map((m) => m.id));
     const sources = new Map<
@@ -365,13 +376,82 @@ export const getAudit = createServerFn({ method: "POST" })
       sources.set(f.source, s);
     }
 
-    const perMatch = (matches ?? []).map((m) => ({
-      ...m,
-      externalIds: (externalIds ?? []).filter((e) => e.match_id === m.id),
-      normalized: (normalized ?? []).filter((n) => n.match_id === m.id),
-    }));
+    type ResearchRaw = {
+      value?: number;
+      valueRaw?: string;
+      metricLabelRaw?: string;
+      contractCompatible?: boolean;
+      note?: string;
+      sourceUrl?: string;
+      team?: string;
+      externalMatchId?: string;
+      fixtureDate?: string;
+      opponent?: string;
+      historyStatus?: string;
+      reusedFromCache?: boolean;
+      mode?: string;
+    };
+
+    const researchRaws = (raws ?? []).filter((r) => r.source === "research_adapter");
+    const researchMode =
+      (definitions ?? []).find((d) => d.source === "research_adapter")?.notes ??
+      "Desk Research / Dados Públicos";
+
+    const perMatch = (matches ?? []).map((m) => {
+      const mine = researchRaws.filter((r) => r.match_id === m.id);
+      const accepted = new Map<string, number>();
+      const rejected = new Map<string, { count: number; note: string | null }>();
+      const fixtures = new Map<string, { date: string; team: string; opponent: string }>();
+      const urls = new Set<string>();
+      let historyStatus: string | null = null;
+      let reused = 0;
+
+      for (const r of mine) {
+        const v = (r.raw_value ?? {}) as ResearchRaw;
+        const canonical = r.metric.split(":")[1] ?? r.metric;
+        if (v.sourceUrl) urls.add(v.sourceUrl);
+        if (v.historyStatus) historyStatus = v.historyStatus;
+        if (v.reusedFromCache) reused += 1;
+        if (v.externalMatchId) {
+          fixtures.set(v.externalMatchId, {
+            date: v.fixtureDate ?? "—",
+            team: v.team ?? "—",
+            opponent: v.opponent ?? "—",
+          });
+        }
+        if (v.contractCompatible === true) {
+          accepted.set(canonical, (accepted.get(canonical) ?? 0) + 1);
+        } else {
+          const prev = rejected.get(canonical);
+          rejected.set(canonical, { count: (prev?.count ?? 0) + 1, note: v.note ?? prev?.note ?? null });
+        }
+      }
+
+      return {
+        ...m,
+        externalIds: (externalIds ?? []).filter((e) => e.match_id === m.id),
+        normalized: (normalized ?? []).filter((n) => n.match_id === m.id),
+        research:
+          mine.length > 0
+            ? {
+                mode: researchMode,
+                urls: [...urls],
+                historyStatus,
+                reusedFromCache: reused,
+                fixtures: [...fixtures.entries()].map(([id, f]) => ({ id, ...f })),
+                accepted: [...accepted.entries()].map(([metric, count]) => ({ metric, count })),
+                rejected: [...rejected.entries()].map(([metric, r]) => ({
+                  metric,
+                  count: r.count,
+                  note: r.note,
+                })),
+              }
+            : null,
+      };
+    });
 
     return {
+      mode: researchRaws.length > 0 ? "Desk Research / Dados Públicos" : "APIs configuradas",
       sources: [...sources.values()].map((s) => ({
         ...s,
         status: s.ok > 0 ? (s.unavailable > 0 ? "PARTIAL" : "OK") : s.notConfigured > 0 && s.unavailable === 0 ? "NOT_CONFIGURED" : "UNAVAILABLE",
@@ -379,7 +459,22 @@ export const getAudit = createServerFn({ method: "POST" })
       resolvedEvents: (externalIds ?? []).filter(
         (e) => e.source === "sofascore_event" && matchIds.has(e.match_id),
       ).length,
+      researchResolved: (externalIds ?? []).filter(
+        (e) => e.source === "research_fixture" && matchIds.has(e.match_id),
+      ).length,
       normalizedObservations: (normalized ?? []).length,
+      rawObservations: (raws ?? []).length,
+      crossChecked: (normalized ?? []).filter(
+        (n) =>
+          ((n.lineage as { crossCheck?: { status?: string } } | null)?.crossCheck?.status ?? "") ===
+          "CROSS_SOURCE_CONFIRMED",
+      ).length,
+      sourceConflicts: (normalized ?? []).filter(
+        (n) =>
+          ((n.lineage as { crossCheck?: { status?: string } } | null)?.crossCheck?.status ?? "") ===
+          "SOURCE_CONFLICT",
+      ).length,
       matches: perMatch,
     };
   });
+
