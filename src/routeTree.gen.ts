@@ -10,33 +10,76 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RunRunIdOportunidadesRouteImport } from './routes/run.$runId.oportunidades'
+import { Route as RunRunIdProcessamentoRouteImport } from './routes/run.$runId.processamento'
+import { Route as RunRunIdResultadoRouteImport } from './routes/run.$runId.resultado'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RunRunIdOportunidadesRoute = RunRunIdOportunidadesRouteImport.update({
+  id: '/run/$runId/oportunidades',
+  path: '/run/$runId/oportunidades',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RunRunIdProcessamentoRoute = RunRunIdProcessamentoRouteImport.update({
+  id: '/run/$runId/processamento',
+  path: '/run/$runId/processamento',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RunRunIdResultadoRoute = RunRunIdResultadoRouteImport.update({
+  id: '/run/$runId/resultado',
+  path: '/run/$runId/resultado',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
+  '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
+  '/run/$runId/resultado': typeof RunRunIdResultadoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
+  '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
+  '/run/$runId/resultado': typeof RunRunIdResultadoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
+  '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
+  '/run/$runId/resultado': typeof RunRunIdResultadoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/run/$runId/oportunidades'
+    | '/run/$runId/processamento'
+    | '/run/$runId/resultado'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/run/$runId/oportunidades'
+    | '/run/$runId/processamento'
+    | '/run/$runId/resultado'
+  id:
+    | '__root__'
+    | '/'
+    | '/run/$runId/oportunidades'
+    | '/run/$runId/processamento'
+    | '/run/$runId/resultado'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  RunRunIdOportunidadesRoute: typeof RunRunIdOportunidadesRoute
+  RunRunIdProcessamentoRoute: typeof RunRunIdProcessamentoRoute
+  RunRunIdResultadoRoute: typeof RunRunIdResultadoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +91,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/run/$runId/oportunidades': {
+      id: '/run/$runId/oportunidades'
+      path: '/run/$runId/oportunidades'
+      fullPath: '/run/$runId/oportunidades'
+      preLoaderRoute: typeof RunRunIdOportunidadesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/run/$runId/processamento': {
+      id: '/run/$runId/processamento'
+      path: '/run/$runId/processamento'
+      fullPath: '/run/$runId/processamento'
+      preLoaderRoute: typeof RunRunIdProcessamentoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/run/$runId/resultado': {
+      id: '/run/$runId/resultado'
+      path: '/run/$runId/resultado'
+      fullPath: '/run/$runId/resultado'
+      preLoaderRoute: typeof RunRunIdResultadoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  RunRunIdOportunidadesRoute: RunRunIdOportunidadesRoute,
+  RunRunIdProcessamentoRoute: RunRunIdProcessamentoRoute,
+  RunRunIdResultadoRoute: RunRunIdResultadoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
