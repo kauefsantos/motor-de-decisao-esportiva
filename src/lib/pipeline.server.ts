@@ -107,9 +107,11 @@ async function resolveMatches(db: Db, runId: string) {
       const {
         apiFootballResolveMatch,
         apiFootballConfigured,
-        API_FOOTBALL_DEFINITION_VERSION,
-        API_FOOTBALL_SOURCE,
+        apiFootballDefinitionVersion,
+        apiFootballSource,
       } = await import("./adapters/api_football.server");
+      const API_FOOTBALL_DEFINITION_VERSION = apiFootballDefinitionVersion();
+      const API_FOOTBALL_SOURCE = apiFootballSource();
 
       if (apiFootballConfigured()) {
         const af = await apiFootballResolveMatch(
