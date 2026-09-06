@@ -58,10 +58,13 @@ async def main() -> int:
         check("RESEARCH_ADAPTER" in body.upper(), "fonte research_adapter presente na auditoria")
 
         # Espera a coleta terminar (auditoria já com observações brutas) antes de abrir o detalhe.
+        valor = "0"
         for _ in range(120):
-            txt = await page.locator("body").inner_text()
-            idx = txt.find("Observações brutas")
-            valor = txt[idx:idx + 60].split("\n")[1].strip() if idx >= 0 else "0"
+            valor = (
+                await page.locator("dt", has_text="Observações brutas")
+                .locator("xpath=following-sibling::dd[1]")
+                .first.inner_text()
+            ).strip()
             if valor.isdigit() and int(valor) > 0:
                 break
             await page.wait_for_timeout(2000)
