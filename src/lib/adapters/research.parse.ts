@@ -250,6 +250,20 @@ function abbreviationScore(a: string, b: string): number {
   return 0.92;
 }
 
+/**
+ * Nome curto publicado pela fonte contido no nome do CSV ("Real Sociedad" ↔ "Sociedad").
+ * Só pontua quando TODOS os tokens do nome curto aparecem no nome longo.
+ */
+function tokenSubsetScore(a: string, b: string): number {
+  const ta = tokens(a);
+  const tb = tokens(b);
+  if (ta.length === 0 || tb.length === 0 || ta.length === tb.length) return 0;
+  const [short, long] = ta.length < tb.length ? [ta, tb] : [tb, ta];
+  const set = new Set(long);
+  if (!short.every((t) => set.has(t))) return 0;
+  return 0.9;
+}
+
 export function resolveTeam(name: string | null, roster: string[]): TeamResolution {
   if (!name || roster.length === 0) {
     return {
@@ -263,7 +277,13 @@ export function resolveTeam(name: string | null, roster: string[]): TeamResoluti
   const scored = roster
     .map((team) => ({
       team,
-      score: Number(Math.max(nameSimilarity(name, team), abbreviationScore(name, team)).toFixed(4)),
+      score: Number(
+        Math.max(
+          nameSimilarity(name, team),
+          abbreviationScore(name, team),
+          tokenSubsetScore(name, team),
+        ).toFixed(4),
+      ),
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
