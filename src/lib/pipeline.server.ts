@@ -281,6 +281,109 @@ async function resolveMatches(db: Db, runId: string) {
       );
     }
 
+    // Desk Research (fontes públicas e abertas). Não substitui os adapters acima:
+    // roda sempre que houver times normalizados, para permitir coleta histórica.
+    if (localOk) {
+      const { researchResolveMatch, RESEARCH_SOURCE, RESEARCH_DEFINITION_VERSION } = await import(
+        "./adapters/research.server"
+      );
+      const predictionAt = kickoff ?? new Date().toISOString();
+      const research = await researchResolveMatch(
+        { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
+        predictionAt,
+      );
+
+      for (const f of research.dataset.fetches) {
+        await db.from("source_fetches").insert({
+          run_id: runId,
+          match_id: m.id,
+          source: RESEARCH_SOURCE,
+          status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+          http_status: f.httpStatus,
+          error_message: f.errorMessage ?? (f.status === "OK" ? `${f.url} (${f.rows} jogos)` : null),
+          fetched_at: f.fetchedAt,
+        });
+      }
+
+      if (research.dataset.fetches.length === 0) {
+        reason = `${reason} Desk research: competição fora do catálogo público coberto.`;
+      } else if (!research.resolution) {
+        sourceUnavailable++;
+        sourceError = research.dataset.fetches.find((f) => f.errorMessage)?.errorMessage ?? null;
+        reason = `${reason} Desk research indisponível: ${sourceError ?? "nenhum dataset público legível"}.`;
+      } else {
+        const r = research.resolution;
+        const url = research.dataset.fetches.find((f) => f.status === "OK")?.url ?? null;
+        if (r.status === "MATCH_RESOLVED") {
+          externalResearch++;
+          if (!resolvedByApiFootball && status !== "RESOLVED_SOFASCORE") {
+            status = "RESOLVED_RESEARCH";
+            confidence = r.confidence;
+          }
+          reason = `${reason} Desk research: ${r.reason}`;
+          await db.from("match_external_ids").insert([
+            {
+              match_id: m.id,
+              source: "research_team_home",
+              external_id: r.home.team!,
+              confidence: r.home.confidence,
+            },
+            {
+              match_id: m.id,
+              source: "research_team_away",
+              external_id: r.away.team!,
+              confidence: r.away.confidence,
+            },
+            ...(r.fixtureKey
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "research_fixture",
+                    external_id: r.fixtureKey,
+                    confidence: r.confidence,
+                  },
+                ]
+              : []),
+            ...(research.dataset.leagueKey
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "research_league",
+                    external_id: research.dataset.leagueKey,
+                    confidence: research.dataset.leagueSimilarity,
+                  },
+                ]
+              : []),
+          ]);
+        } else {
+          reason = `${reason} Desk research (${r.status}): ${r.reason}`;
+        }
+
+        await log(
+          db,
+          runId,
+          "RESOLVE",
+          `Desk research para ${m.raw_partida}: ${r.status}`,
+          r.status === "MATCH_RESOLVED" ? "INFO" : "WARN",
+          {
+            mode: "Desk Research / Dados Públicos",
+            definitionVersion: RESEARCH_DEFINITION_VERSION,
+            sourceUrl: url,
+            league: research.dataset.leagueLabel,
+            resolvedAt: new Date().toISOString(),
+            homeRaw: home,
+            awayRaw: away,
+            homeNormalized: r.home.team,
+            awayNormalized: r.away.team,
+            confidence: r.confidence,
+            candidates: { home: r.home.candidates, away: r.away.candidates },
+          },
+        );
+      }
+    }
+
+
+
     await db
       .from("matches")
       .update({
