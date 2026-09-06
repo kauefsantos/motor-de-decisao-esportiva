@@ -787,12 +787,20 @@ async function clean(db: Db, runId: string) {
 
   await db.from("normalized_match_stats").delete().eq("run_id", runId);
 
+  const { crossCheck } = await import("./adapters/research.parse");
+
   type RawValue = {
     value?: number;
     sourceLabel?: string;
     statScope?: "HOME" | "AWAY";
     contractCompatible?: boolean;
     note?: string;
+    sourceUrl?: string;
+    metricLabelRaw?: string;
+    valueRaw?: string;
+    externalMatchId?: string;
+    fixtureDate?: string;
+    predictionAt?: string;
   };
 
   // Agrega por (partida, escopo, métrica) apenas o que passou no definition gate.
@@ -803,57 +811,83 @@ async function clean(db: Db, runId: string) {
       scope: string;
       metric: string;
       values: number[];
-      source: string;
+      perSource: Map<string, number[]>;
       definitionVersion: string | null;
       lineage: Array<Record<string, unknown>>;
     }
   >();
   let rejectedByDefinition = 0;
+  const rejectedDetail: Record<string, number> = {};
 
   for (const r of raws ?? []) {
     const v = (r.raw_value ?? {}) as RawValue;
     if (typeof v.value !== "number" || !Number.isFinite(v.value)) continue;
-    if (v.contractCompatible !== true) {
-      rejectedByDefinition += 1;
-      continue;
-    }
     const [teamScope, canonical] = r.metric.split(":");
     if (!teamScope || !canonical) continue;
+    if (v.contractCompatible !== true) {
+      rejectedByDefinition += 1;
+      const key = `${r.source}:${canonical}`;
+      rejectedDetail[key] = (rejectedDetail[key] ?? 0) + 1;
+      continue;
+    }
     const key = `${r.match_id}|${teamScope}|${canonical}`;
     const bucket = buckets.get(key) ?? {
       matchId: r.match_id,
       scope: teamScope,
       metric: canonical,
       values: [],
-      source: r.source,
+      perSource: new Map<string, number[]>(),
       definitionVersion: r.definition_version,
       lineage: [],
     };
     bucket.values.push(v.value);
+    const bySource = bucket.perSource.get(r.source) ?? [];
+    bySource.push(v.value);
+    bucket.perSource.set(r.source, bySource);
     bucket.lineage.push({
       rawObservationId: r.id,
       source: r.source,
+      sourceUrl: v.sourceUrl ?? null,
       fetchedAt: r.fetched_at,
-      rawValue: v.value,
+      rawValue: v.valueRaw ?? v.value,
+      normalizedValue: v.value,
+      canonicalMetric: canonical,
+      metricLabelRaw: v.metricLabelRaw ?? v.sourceLabel ?? null,
       sourceLabel: v.sourceLabel ?? null,
       statScope: v.statScope ?? null,
+      externalMatchId: v.externalMatchId ?? null,
+      observedDate: v.fixtureDate ?? null,
+      predictionAt: v.predictionAt ?? null,
       definitionVersion: r.definition_version,
       note: v.note ?? null,
     });
     buckets.set(key, bucket);
   }
 
-  const rows = [...buckets.values()].map((b) => ({
-    run_id: runId,
-    match_id: b.matchId,
-    scope: b.scope,
-    metric: b.metric,
-    normalized_value: b.values.reduce((a, c) => a + c, 0) / b.values.length,
-    sample_size: b.values.length,
-    source: b.source,
-    definition_version: b.definitionVersion,
-    lineage: { observations: b.lineage } as never,
-  }));
+  let conflicts = 0;
+  let confirmed = 0;
+
+  const rows = [...buckets.values()].map((b) => {
+    const perSource = [...b.perSource.entries()].map(([source, values]) => ({
+      source,
+      value: values.reduce((a, c) => a + c, 0) / values.length,
+      sampleSize: values.length,
+    }));
+    const status = crossCheck(perSource);
+    if (status === "SOURCE_CONFLICT") conflicts += 1;
+    if (status === "CROSS_SOURCE_CONFIRMED") confirmed += 1;
+    return {
+      run_id: runId,
+      match_id: b.matchId,
+      scope: b.scope,
+      metric: b.metric,
+      normalized_value: b.values.reduce((a, c) => a + c, 0) / b.values.length,
+      sample_size: b.values.length,
+      source: perSource.map((p) => p.source).join("+"),
+      definition_version: b.definitionVersion,
+      lineage: { observations: b.lineage, crossCheck: { status, perSource } } as never,
+    };
+  });
 
   for (let i = 0; i < rows.length; i += 200) {
     await db.from("normalized_match_stats").insert(rows.slice(i, i + 200));
@@ -864,13 +898,21 @@ async function clean(db: Db, runId: string) {
     runId,
     "CLEAN",
     rows.length
-      ? `${rows.length} métricas normalizadas com lineage; ${rejectedByDefinition} observações descartadas por definição incompatível.`
+      ? `${rows.length} métricas normalizadas com lineage; ${rejectedByDefinition} observações descartadas por definição incompatível; ${confirmed} confirmadas entre fontes e ${conflicts} em conflito.`
       : `Nenhuma métrica normalizada (${rejectedByDefinition} observações descartadas por definição incompatível). Nada foi preenchido com média global.`,
     rows.length ? "INFO" : "WARN",
-    { rejectedByDefinition },
+    { rejectedByDefinition, rejectedDetail, crossSourceConfirmed: confirmed, sourceConflicts: conflicts },
   );
-  return { normalized: rows.length, rejectedByDefinition, rawObservations: raws?.length ?? 0 };
+  return {
+    normalized: rows.length,
+    rejectedByDefinition,
+    rejectedDetail,
+    crossSourceConfirmed: confirmed,
+    sourceConflicts: conflicts,
+    rawObservations: raws?.length ?? 0,
+  };
 }
+
 
 
 async function features(db: Db, runId: string) {
