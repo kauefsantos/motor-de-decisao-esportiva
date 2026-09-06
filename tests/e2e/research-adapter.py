@@ -57,6 +57,16 @@ async def main() -> int:
         check("Desk Research / Dados Públicos" in body, "modo de coleta Desk Research exibido")
         check("RESEARCH_ADAPTER" in body.upper(), "fonte research_adapter presente na auditoria")
 
+        # Espera a coleta terminar (auditoria já com observações brutas) antes de abrir o detalhe.
+        for _ in range(120):
+            txt = await page.locator("body").inner_text()
+            idx = txt.find("Observações brutas")
+            valor = txt[idx:idx + 60].split("\n")[1].strip() if idx >= 0 else "0"
+            if valor.isdigit() and int(valor) > 0:
+                break
+            await page.wait_for_timeout(2000)
+        check(valor.isdigit() and int(valor) > 0, f"observações brutas coletadas ({valor})")
+
         # Abre o detalhe da primeira partida e confere fontes/histórico/métricas.
         await page.get_by_role("button", name="Manchester City").first.click()
         await page.wait_for_timeout(1500)
