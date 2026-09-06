@@ -100,7 +100,104 @@ async function resolveMatches(db: Db, runId: string) {
       : "Não foi possível separar mandante/visitante ou horário.";
     let confidence = localOk ? 0.6 : 0;
 
+    let resolvedByApiFootball = false;
     if (localOk) {
+      // Fonte principal: API-Football (credencial server-side). Nunca fabrica dados.
+      const {
+        apiFootballResolveMatch,
+        apiFootballConfigured,
+        API_FOOTBALL_DEFINITION_VERSION,
+        API_FOOTBALL_SOURCE,
+      } = await import("./adapters/api_football.server");
+
+      if (apiFootballConfigured()) {
+        const af = await apiFootballResolveMatch(
+          { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
+          targetDate,
+        );
+
+        await db.from("source_fetches").insert({
+          run_id: runId,
+          match_id: m.id,
+          source: API_FOOTBALL_SOURCE,
+          status: af.fetch.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+          http_status: af.fetch.httpStatus,
+          error_message: af.fetch.errorMessage,
+          fetched_at: af.fetch.fetchedAt,
+        });
+
+        if (af.resolution?.status === "MATCH_RESOLVED") {
+          resolvedByApiFootball = true;
+          external++;
+          status = "RESOLVED_API_FOOTBALL";
+          confidence = af.resolution.confidence;
+          reason = af.resolution.reason;
+          const event = af.events.find((e) => e.eventId === af.resolution!.eventId);
+          await db.from("match_external_ids").insert([
+            {
+              match_id: m.id,
+              source: "api_football_fixture",
+              external_id: String(af.resolution.eventId),
+              confidence: af.resolution.confidence,
+            },
+            ...(event?.homeTeamId
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "api_football_team_home",
+                    external_id: String(event.homeTeamId),
+                    confidence: af.resolution.confidence,
+                  },
+                ]
+              : []),
+            ...(event?.awayTeamId
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "api_football_team_away",
+                    external_id: String(event.awayTeamId),
+                    confidence: af.resolution.confidence,
+                  },
+                ]
+              : []),
+          ]);
+        } else if (af.resolution) {
+          reason = `${reason} API-Football: ${af.resolution.reason}`;
+        } else {
+          sourceUnavailable++;
+          sourceError = af.fetch.errorMessage;
+          reason = `${reason} API-Football indisponível: ${af.fetch.errorMessage ?? "sem detalhe"}.`;
+        }
+
+        await log(
+          db,
+          runId,
+          "RESOLVE",
+          `Resolução API-Football para ${m.raw_partida}: ${af.resolution?.status ?? af.fetch.status}`,
+          resolvedByApiFootball ? "INFO" : "WARN",
+          {
+            definitionVersion: API_FOOTBALL_DEFINITION_VERSION,
+            endpoint: af.fetch.endpoint,
+            httpStatus: af.fetch.httpStatus,
+            fetchedAt: af.fetch.fetchedAt,
+            candidates: af.resolution?.candidates ?? [],
+          },
+        );
+      } else {
+        await db.from("source_fetches").insert({
+          run_id: runId,
+          match_id: m.id,
+          source: API_FOOTBALL_SOURCE,
+          status: "NOT_CONFIGURED",
+          http_status: null,
+          error_message: "API_FOOTBALL_KEY ausente no servidor.",
+          fetched_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    if (localOk && !resolvedByApiFootball) {
+
       const { sofascoreResolveMatch, SOFASCORE_DEFINITION_VERSION } = await import(
         "./adapters/sofascore.server"
       );
@@ -228,9 +325,86 @@ async function collect(db: Db, runId: string) {
       (matches ?? []).map((m) => m.id),
     );
 
+  // 1a) API-Football: fonte principal, histórico pré-jogo por time resolvido.
+  {
+    const {
+      apiFootballTeamHistory,
+      apiFootballConfigured,
+      API_FOOTBALL_DEFINITION_VERSION,
+      API_FOOTBALL_SOURCE,
+    } = await import("./adapters/api_football.server");
+
+    let apiFootballObservations = 0;
+    if (apiFootballConfigured()) {
+      for (const m of matches ?? []) {
+        const teams = (externalIds ?? []).filter(
+          (e) =>
+            e.match_id === m.id &&
+            (e.source === "api_football_team_home" || e.source === "api_football_team_away"),
+        );
+        if (teams.length === 0) {
+          perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] =
+            (perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
+          continue;
+        }
+        for (const team of teams) {
+          const scope = team.source === "api_football_team_home" ? "HOME" : "AWAY";
+          const history = await apiFootballTeamHistory(Number(team.external_id), predictionAt);
+          for (const f of history.fetches) {
+            perSource[`${API_FOOTBALL_SOURCE}:${f.status}`] =
+              (perSource[`${API_FOOTBALL_SOURCE}:${f.status}`] ?? 0) + 1;
+            await db.from("source_fetches").insert({
+              run_id: runId,
+              match_id: m.id,
+              source: API_FOOTBALL_SOURCE,
+              status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+              http_status: f.httpStatus,
+              error_message: f.errorMessage,
+              fetched_at: f.fetchedAt,
+            });
+          }
+          if (history.observations.length > 0) {
+            apiFootballObservations += history.observations.length;
+            await db.from("raw_observations").insert(
+              history.observations.map((o) => ({
+                run_id: runId,
+                match_id: m.id,
+                source: API_FOOTBALL_SOURCE,
+                metric: `${scope}:${o.observation.canonical}`,
+                raw_value: {
+                  value: o.observation.value,
+                  sourceLabel: o.observation.sourceLabel,
+                  teamScope: scope,
+                  statScope: o.observation.scope,
+                  contractCompatible: o.observation.contractCompatible,
+                  note: o.observation.note,
+                  endpoint: o.endpoint,
+                  fixtureId: o.fixtureId,
+                  teamExternalId: team.external_id,
+                } as never,
+                observed_at: o.observedAt,
+                fetched_at: o.fetchedAt,
+                definition_version: API_FOOTBALL_DEFINITION_VERSION,
+              })),
+            );
+          }
+        }
+      }
+      await log(
+        db,
+        runId,
+        "COLLECT",
+        `${apiFootballObservations} observações brutas coletadas na API-Football.`,
+        apiFootballObservations ? "INFO" : "WARN",
+        { definitionVersion: API_FOOTBALL_DEFINITION_VERSION },
+      );
+    }
+  }
+
   const { sofascoreTeamHistory, SOFASCORE_DEFINITION_VERSION } = await import(
     "./adapters/sofascore.server"
   );
+
 
   let sofascoreObservations = 0;
   for (const m of matches ?? []) {
