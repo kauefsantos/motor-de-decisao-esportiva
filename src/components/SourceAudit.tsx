@@ -37,6 +37,9 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
   return (
     <section className="panel mt-8 p-6">
       <p className="label-eyebrow">Auditoria da ingestão</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Modo de coleta: <span className="font-medium text-foreground">{audit.mode}</span>
+      </p>
 
       <ul className="mt-4 space-y-2">
         {audit.sources.map((s) => (
@@ -58,17 +61,30 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
       <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
         <div>
           <dt className="label-eyebrow">Eventos resolvidos</dt>
-          <dd className="num mt-1 text-2xl">{audit.resolvedEvents}</dd>
+          <dd className="num mt-1 text-2xl">{audit.resolvedEvents + audit.researchResolved}</dd>
+        </div>
+        <div>
+          <dt className="label-eyebrow">Observações brutas</dt>
+          <dd className="num mt-1 text-2xl">{audit.rawObservations}</dd>
         </div>
         <div>
           <dt className="label-eyebrow">Observações normalizadas</dt>
           <dd className="num mt-1 text-2xl">{audit.normalizedObservations}</dd>
         </div>
         <div>
+          <dt className="label-eyebrow">Confirmadas entre fontes</dt>
+          <dd className="num mt-1 text-2xl">{audit.crossChecked}</dd>
+        </div>
+        <div>
+          <dt className="label-eyebrow">Conflitos entre fontes</dt>
+          <dd className="num mt-1 text-2xl">{audit.sourceConflicts}</dd>
+        </div>
+        <div>
           <dt className="label-eyebrow">Partidas</dt>
           <dd className="num mt-1 text-2xl">{audit.matches.length}</dd>
         </div>
       </dl>
+
 
       <ul className="mt-5 divide-y divide-border border-t border-border">
         {audit.matches.map((m) => (
