@@ -49,12 +49,6 @@ function notConfigured(source: string, definitionVersion: string, missing: strin
 
 const definitions: AdapterDefinition[] = [
   {
-    source: "sofascore",
-    definitionVersion: "sofascore-v0",
-    envKeys: ["SOFASCORE_API_BASE", "SOFASCORE_API_KEY"],
-    fetchStats: async (_q, _s) => notConfigured("sofascore", "sofascore-v0", ["endpoint"]),
-  },
-  {
     source: "ogol",
     definitionVersion: "ogol-v0",
     envKeys: ["OGOL_API_BASE", "OGOL_API_KEY"],
@@ -106,4 +100,5 @@ export async function collectFromSources(query: AdapterQuery): Promise<AdapterRe
   return results;
 }
 
-export const adapterSources = definitions.map((d) => d.source);
+// sofascore é tratado pelo adapter dedicado (sofascore.server.ts) nas etapas RESOLVE/COLLECT.
+export const adapterSources = ["sofascore", ...definitions.map((d) => d.source)];

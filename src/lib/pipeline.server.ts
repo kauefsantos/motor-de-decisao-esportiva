@@ -78,14 +78,112 @@ async function resolveMatches(db: Db, runId: string) {
     .select("id, raw_partida, raw_horario, raw_campeonato")
     .eq("run_id", runId);
 
+  const targetDate = run?.target_date ?? new Date().toISOString().slice(0, 10);
   let resolved = 0;
   let failed = 0;
+  let external = 0;
+  let ambiguous = 0;
+  let notFound = 0;
+  let sourceUnavailable = 0;
+  let sourceError: string | null = null;
+
   for (const m of matches ?? []) {
     const { home, away } = parseTeams(m.raw_partida);
     const kickoff = parseKickoff(run?.target_date ?? null, m.raw_horario);
-    const ok = Boolean(home && away && kickoff);
-    if (ok) resolved++;
+    const localOk = Boolean(home && away && kickoff);
+    if (localOk) resolved++;
     else failed++;
+
+    let status = localOk ? "RESOLVED_LOCAL" : "UNRESOLVED";
+    let reason = localOk
+      ? "Normalização local do CSV."
+      : "Não foi possível separar mandante/visitante ou horário.";
+    let confidence = localOk ? 0.6 : 0;
+
+    if (localOk) {
+      const { sofascoreResolveMatch, SOFASCORE_DEFINITION_VERSION } = await import(
+        "./adapters/sofascore.server"
+      );
+      const out = await sofascoreResolveMatch(
+        { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
+        targetDate,
+      );
+
+      await db.from("source_fetches").insert({
+        run_id: runId,
+        match_id: m.id,
+        source: "sofascore",
+        status: out.fetch.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+        http_status: out.fetch.httpStatus,
+        error_message: out.fetch.errorMessage,
+        fetched_at: out.fetch.fetchedAt,
+      });
+
+      if (!out.resolution) {
+        sourceUnavailable++;
+        sourceError = out.fetch.errorMessage;
+        reason = `${reason} SofaScore indisponível: ${out.fetch.errorMessage ?? "sem detalhe"}.`;
+      } else if (out.resolution.status === "MATCH_RESOLVED") {
+        external++;
+        status = "RESOLVED_SOFASCORE";
+        confidence = out.resolution.confidence;
+        reason = out.resolution.reason;
+        const event = out.events.find((e) => e.eventId === out.resolution!.eventId);
+        const rows = [
+          {
+            match_id: m.id,
+            source: "sofascore_event",
+            external_id: String(out.resolution.eventId),
+            confidence: out.resolution.confidence,
+          },
+          ...(event?.homeTeamId
+            ? [
+                {
+                  match_id: m.id,
+                  source: "sofascore_team_home",
+                  external_id: String(event.homeTeamId),
+                  confidence: out.resolution.confidence,
+                },
+              ]
+            : []),
+          ...(event?.awayTeamId
+            ? [
+                {
+                  match_id: m.id,
+                  source: "sofascore_team_away",
+                  external_id: String(event.awayTeamId),
+                  confidence: out.resolution.confidence,
+                },
+              ]
+            : []),
+        ];
+        await db.from("match_external_ids").insert(rows);
+      } else if (out.resolution.status === "MATCH_AMBIGUOUS") {
+        ambiguous++;
+        status = "MATCH_AMBIGUOUS";
+        confidence = out.resolution.confidence;
+        reason = out.resolution.reason;
+      } else {
+        notFound++;
+        status = "MATCH_NOT_FOUND";
+        confidence = out.resolution.confidence;
+        reason = out.resolution.reason;
+      }
+
+      await log(
+        db,
+        runId,
+        "RESOLVE",
+        `Resolução SofaScore para ${m.raw_partida}: ${status}`,
+        status === "RESOLVED_SOFASCORE" ? "INFO" : "WARN",
+        {
+          definitionVersion: SOFASCORE_DEFINITION_VERSION,
+          candidates: out.resolution?.candidates ?? [],
+          fetchStatus: out.fetch.status,
+        },
+      );
+    }
+
     await db
       .from("matches")
       .update({
@@ -93,12 +191,9 @@ async function resolveMatches(db: Db, runId: string) {
         away_team: away,
         competition: m.raw_campeonato,
         kickoff_local: kickoff,
-        // Sem provedor de IDs externos configurado, a resolução é apenas local.
-        resolution_status: ok ? "RESOLVED_LOCAL" : "UNRESOLVED",
-        resolution_reason: ok
-          ? "Normalização local do CSV; nenhum provedor de IDs externos configurado."
-          : "Não foi possível separar mandante/visitante ou horário.",
-        resolver_confidence: ok ? 0.6 : 0,
+        resolution_status: status,
+        resolution_reason: reason,
+        resolver_confidence: confidence,
       })
       .eq("id", m.id);
   }
@@ -107,24 +202,95 @@ async function resolveMatches(db: Db, runId: string) {
     .from("analysis_runs")
     .update({ matches_resolved: resolved, matches_failed: failed })
     .eq("id", runId);
-  await log(db, runId, "RESOLVE", `${resolved} partidas normalizadas, ${failed} sem resolução.`);
-  return { resolved, failed };
+
+  const summary = sourceUnavailable
+    ? `${resolved} partidas normalizadas localmente; SofaScore indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
+    : `${resolved} partidas normalizadas; ${external} com evento SofaScore, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
+  await log(db, runId, "RESOLVE", summary, external ? "INFO" : "WARN");
+  return { resolved, failed, external, ambiguous, notFound, sourceUnavailable };
 }
 
 async function collect(db: Db, runId: string) {
   const { data: matches } = await db
     .from("matches")
-    .select("id, home_team, away_team, competition, kickoff_local")
+    .select("id, home_team, away_team, competition, kickoff_local, resolution_status")
     .eq("run_id", runId);
 
   const perSource: Record<string, number> = {};
+  const predictionAt = new Date().toISOString();
+
+  // 1) SofaScore: coleta histórica pré-jogo só para partidas com evento resolvido.
+  const { data: externalIds } = await db
+    .from("match_external_ids")
+    .select("match_id, source, external_id")
+    .in(
+      "match_id",
+      (matches ?? []).map((m) => m.id),
+    );
+
+  const { sofascoreTeamHistory, SOFASCORE_DEFINITION_VERSION } = await import(
+    "./adapters/sofascore.server"
+  );
+
+  let sofascoreObservations = 0;
+  for (const m of matches ?? []) {
+    const teams = (externalIds ?? []).filter(
+      (e) =>
+        e.match_id === m.id &&
+        (e.source === "sofascore_team_home" || e.source === "sofascore_team_away"),
+    );
+    if (teams.length === 0) {
+      perSource["sofascore:NO_EVENT"] = (perSource["sofascore:NO_EVENT"] ?? 0) + 1;
+      continue;
+    }
+    for (const team of teams) {
+      const scope = team.source === "sofascore_team_home" ? "HOME" : "AWAY";
+      const history = await sofascoreTeamHistory(Number(team.external_id), predictionAt);
+      for (const f of history.fetches) {
+        perSource[`sofascore:${f.status}`] = (perSource[`sofascore:${f.status}`] ?? 0) + 1;
+        await db.from("source_fetches").insert({
+          run_id: runId,
+          match_id: m.id,
+          source: "sofascore",
+          status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+          http_status: f.httpStatus,
+          error_message: f.errorMessage,
+          fetched_at: f.fetchedAt,
+        });
+      }
+      if (history.observations.length > 0) {
+        sofascoreObservations += history.observations.length;
+        await db.from("raw_observations").insert(
+          history.observations.map((o) => ({
+            run_id: runId,
+            match_id: m.id,
+            source: "sofascore",
+            metric: `${scope}:${o.canonical}`,
+            raw_value: {
+              value: o.value,
+              sourceLabel: o.sourceLabel,
+              teamScope: scope,
+              statScope: o.scope,
+              contractCompatible: o.contractCompatible,
+              note: o.note,
+            } as never,
+            observed_at: null,
+            fetched_at: predictionAt,
+            definition_version: SOFASCORE_DEFINITION_VERSION,
+          })),
+        );
+      }
+    }
+  }
+
+  // 2) Demais fontes (não configuradas até haver credencial/endpoint).
   for (const m of matches ?? []) {
     const results = await collectFromSources({
       homeTeam: m.home_team,
       awayTeam: m.away_team,
       competition: m.competition,
       kickoff: m.kickoff_local,
-      predictionAt: new Date().toISOString(),
+      predictionAt,
     });
     for (const r of results) {
       perSource[`${r.source}:${r.status}`] = (perSource[`${r.source}:${r.status}`] ?? 0) + 1;
@@ -153,33 +319,113 @@ async function collect(db: Db, runId: string) {
       }
     }
   }
+
   await log(
     db,
     runId,
     "COLLECT",
-    `Coleta concluída em ${adapterSources.length} adapters.`,
-    "WARN",
+    sofascoreObservations
+      ? `${sofascoreObservations} observações brutas coletadas na SofaScore; demais fontes sem credencial.`
+      : `Nenhuma observação bruta coletada. Estado por fonte registrado em source_fetches.`,
+    sofascoreObservations ? "INFO" : "WARN",
     perSource,
   );
   return perSource;
 }
 
 async function clean(db: Db, runId: string) {
-  const { count } = await db
+  const { data: raws } = await db
     .from("raw_observations")
-    .select("id", { count: "exact", head: true })
+    .select("id, match_id, source, metric, raw_value, fetched_at, definition_version")
     .eq("run_id", runId);
+
+  await db.from("normalized_match_stats").delete().eq("run_id", runId);
+
+  type RawValue = {
+    value?: number;
+    sourceLabel?: string;
+    statScope?: "HOME" | "AWAY";
+    contractCompatible?: boolean;
+    note?: string;
+  };
+
+  // Agrega por (partida, escopo, métrica) apenas o que passou no definition gate.
+  const buckets = new Map<
+    string,
+    {
+      matchId: string | null;
+      scope: string;
+      metric: string;
+      values: number[];
+      source: string;
+      definitionVersion: string | null;
+      lineage: Array<Record<string, unknown>>;
+    }
+  >();
+  let rejectedByDefinition = 0;
+
+  for (const r of raws ?? []) {
+    const v = (r.raw_value ?? {}) as RawValue;
+    if (typeof v.value !== "number" || !Number.isFinite(v.value)) continue;
+    if (v.contractCompatible !== true) {
+      rejectedByDefinition += 1;
+      continue;
+    }
+    const [teamScope, canonical] = r.metric.split(":");
+    if (!teamScope || !canonical) continue;
+    const key = `${r.match_id}|${teamScope}|${canonical}`;
+    const bucket = buckets.get(key) ?? {
+      matchId: r.match_id,
+      scope: teamScope,
+      metric: canonical,
+      values: [],
+      source: r.source,
+      definitionVersion: r.definition_version,
+      lineage: [],
+    };
+    bucket.values.push(v.value);
+    bucket.lineage.push({
+      rawObservationId: r.id,
+      source: r.source,
+      fetchedAt: r.fetched_at,
+      rawValue: v.value,
+      sourceLabel: v.sourceLabel ?? null,
+      statScope: v.statScope ?? null,
+      definitionVersion: r.definition_version,
+      note: v.note ?? null,
+    });
+    buckets.set(key, bucket);
+  }
+
+  const rows = [...buckets.values()].map((b) => ({
+    run_id: runId,
+    match_id: b.matchId,
+    scope: b.scope,
+    metric: b.metric,
+    normalized_value: b.values.reduce((a, c) => a + c, 0) / b.values.length,
+    sample_size: b.values.length,
+    source: b.source,
+    definition_version: b.definitionVersion,
+    lineage: { observations: b.lineage } as never,
+  }));
+
+  for (let i = 0; i < rows.length; i += 200) {
+    await db.from("normalized_match_stats").insert(rows.slice(i, i + 200));
+  }
+
   await log(
     db,
     runId,
     "CLEAN",
-    count
-      ? `${count} observações brutas higienizadas com lineage.`
-      : "Nenhuma observação bruta recebida; nada foi preenchido com média global.",
-    count ? "INFO" : "WARN",
+    rows.length
+      ? `${rows.length} métricas normalizadas com lineage; ${rejectedByDefinition} observações descartadas por definição incompatível.`
+      : `Nenhuma métrica normalizada (${rejectedByDefinition} observações descartadas por definição incompatível). Nada foi preenchido com média global.`,
+    rows.length ? "INFO" : "WARN",
+    { rejectedByDefinition },
   );
-  return { rawObservations: count ?? 0 };
+  return { normalized: rows.length, rejectedByDefinition, rawObservations: raws?.length ?? 0 };
 }
+
 
 async function features(db: Db, runId: string) {
   const { count } = await db

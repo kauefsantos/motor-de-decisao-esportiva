@@ -6,6 +6,7 @@ import { ChevronDown, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
+import { SourceAudit } from "@/components/SourceAudit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getRun, analyzeOdds } from "@/lib/analysis.functions";
@@ -198,6 +199,7 @@ function OpportunitiesScreen() {
           Só as odds válidas serão avaliadas. Mudança de mercado ou de linha exige novo forecast.
         </p>
       </div>
+      <SourceAudit runId={runId} refreshKey={0} />
     </AppShell>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, CircleDashed, TriangleAlert } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
+import { SourceAudit } from "@/components/SourceAudit";
 import { Button } from "@/components/ui/button";
 import { runStep } from "@/lib/analysis.functions";
 import { PIPELINE_STEPS, type PipelineStepKey } from "@/lib/pipeline.steps";
@@ -44,6 +45,7 @@ function ProcessingScreen() {
     ),
   );
   const [failed, setFailed] = useState(false);
+  const [auditKey, setAuditKey] = useState(0);
 
   useEffect(() => {
     if (started.current) return;
@@ -65,6 +67,7 @@ function ProcessingScreen() {
               level: res.log?.level ?? null,
             },
           }));
+          setAuditKey((k) => k + 1);
         } catch (error) {
           setStates((prev) => ({
             ...prev,
@@ -132,6 +135,8 @@ function ProcessingScreen() {
           );
         })}
       </ol>
+
+      <SourceAudit runId={runId} refreshKey={auditKey} />
 
       {failed && (
         <div className="mt-6 flex gap-3">

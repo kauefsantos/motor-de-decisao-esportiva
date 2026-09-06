@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadCloud, FileSpreadsheet, AlertTriangle, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,6 +37,9 @@ function UploadScreen() {
   const [filename, setFilename] = useState<string | null>(null);
   const [parsed, setParsed] = useState<CsvParseResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Sinaliza hidratação: evita que um upload chegue antes dos handlers React estarem ativos.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
 
   const handleFile = useCallback(async (file: File) => {
     if (file.size > 2_000_000) {
@@ -75,6 +78,7 @@ function UploadScreen() {
 
   return (
     <AppShell stage="upload">
+      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="contents">
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section>
           <p className="label-eyebrow">Etapa 1</p>
@@ -112,12 +116,14 @@ function UploadScreen() {
               type="file"
               accept=".csv,text/csv"
               className="hidden"
+              data-testid="csv-input"
+              disabled={!ready}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void handleFile(file);
               }}
             />
-            <Button variant="outline" onClick={() => inputRef.current?.click()}>
+            <Button variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
               Selecionar CSV
             </Button>
           </div>
@@ -174,7 +180,8 @@ function UploadScreen() {
               <Button
                 className="mt-6 w-full"
                 size="lg"
-                disabled={parsed.rows.length === 0 || submitting}
+                data-testid="processar-jogos"
+                disabled={!ready || parsed.rows.length === 0 || submitting}
                 onClick={() => void processar()}
               >
                 {submitting ? "Criando análise…" : "PROCESSAR JOGOS"}
@@ -206,6 +213,7 @@ function UploadScreen() {
             explícito em vez de estimar probabilidade.
           </p>
         </aside>
+      </div>
       </div>
     </AppShell>
   );

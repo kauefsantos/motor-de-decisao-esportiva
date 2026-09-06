@@ -316,3 +316,70 @@ export const getResults = createServerFn({ method: "POST" })
       matches: matches ?? [],
     };
   });
+
+/** Auditoria da ingestão: estado por fonte e detalhe de resolução/coleta por partida. */
+export const getAudit = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ runId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    const supabase = await db();
+    const [{ data: fetches }, { data: matches }, { data: externalIds }, { data: normalized }] =
+      await Promise.all([
+        supabase
+          .from("source_fetches")
+          .select("source, status, http_status, error_message, fetched_at, match_id")
+          .eq("run_id", data.runId),
+        supabase
+          .from("matches")
+          .select(
+            "id, raw_partida, home_team, away_team, competition, kickoff_local, resolution_status, resolution_reason, resolver_confidence",
+          )
+          .eq("run_id", data.runId),
+        supabase.from("match_external_ids").select("match_id, source, external_id, confidence"),
+        supabase
+          .from("normalized_match_stats")
+          .select("match_id, scope, metric, normalized_value, sample_size, source, definition_version")
+          .eq("run_id", data.runId),
+      ]);
+
+    const matchIds = new Set((matches ?? []).map((m) => m.id));
+    const sources = new Map<
+      string,
+      { source: string; ok: number; unavailable: number; notConfigured: number; lastFetchedAt: string | null; lastError: string | null }
+    >();
+    for (const f of fetches ?? []) {
+      const s = sources.get(f.source) ?? {
+        source: f.source,
+        ok: 0,
+        unavailable: 0,
+        notConfigured: 0,
+        lastFetchedAt: null,
+        lastError: null,
+      };
+      if (f.status === "OK") s.ok += 1;
+      else if (f.status === "NOT_CONFIGURED") s.notConfigured += 1;
+      else s.unavailable += 1;
+      if (!s.lastFetchedAt || (f.fetched_at && f.fetched_at > s.lastFetchedAt)) {
+        s.lastFetchedAt = f.fetched_at;
+      }
+      if (f.error_message) s.lastError = f.error_message;
+      sources.set(f.source, s);
+    }
+
+    const perMatch = (matches ?? []).map((m) => ({
+      ...m,
+      externalIds: (externalIds ?? []).filter((e) => e.match_id === m.id),
+      normalized: (normalized ?? []).filter((n) => n.match_id === m.id),
+    }));
+
+    return {
+      sources: [...sources.values()].map((s) => ({
+        ...s,
+        status: s.ok > 0 ? (s.unavailable > 0 ? "PARTIAL" : "OK") : s.notConfigured > 0 && s.unavailable === 0 ? "NOT_CONFIGURED" : "UNAVAILABLE",
+      })),
+      resolvedEvents: (externalIds ?? []).filter(
+        (e) => e.source === "sofascore_event" && matchIds.has(e.match_id),
+      ).length,
+      normalizedObservations: (normalized ?? []).length,
+      matches: perMatch,
+    };
+  });
