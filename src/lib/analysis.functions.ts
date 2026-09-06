@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { PIPELINE_STEPS, executeStep, type PipelineStepKey } from "./pipeline.server";
+import { PIPELINE_STEPS, type PipelineStepKey } from "./pipeline.steps";
 import { evaluateValue, finalSelection, type ValueInput } from "./engine/value";
 import type { AsianOutcomeProbabilities } from "./engine/types";
 
@@ -71,6 +71,7 @@ export const runStep = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data }) => {
+    const { executeStep } = await import("./pipeline.server");
     const result = await executeStep(data.runId, data.step);
     const supabase = await db();
     const { data: logs } = await supabase

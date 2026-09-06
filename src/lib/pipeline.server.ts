@@ -6,17 +6,8 @@ import { collectFromSources, adapterSources } from "./adapters/sources.server";
 import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
 
-export const PIPELINE_STEPS = [
-  { key: "RESOLVE", label: "Identificando partidas" },
-  { key: "COLLECT", label: "Coletando estatísticas" },
-  { key: "CLEAN", label: "Higienizando e compatibilizando definições" },
-  { key: "FEATURES", label: "Construindo features" },
-  { key: "PROBABILITY", label: "Estimando probabilidades" },
-  { key: "GATES", label: "Aplicando gates" },
-  { key: "MARKETS", label: "Selecionando mercados" },
-] as const;
-
-export type PipelineStepKey = (typeof PIPELINE_STEPS)[number]["key"];
+export type { PipelineStepKey } from "./pipeline.steps";
+import type { PipelineStepKey } from "./pipeline.steps";
 
 type Db = Awaited<ReturnType<typeof getDb>>;
 
