@@ -125,6 +125,50 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
                 ) : (
                   <p className="mt-2">Nenhum dado normalizado passou nos gates de definição.</p>
                 )}
+                {m.research && (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="font-medium text-foreground">Desk Research / Dados Públicos</p>
+                    {m.research.urls.length > 0 && (
+                      <ul className="num mt-1 space-y-0.5">
+                        {m.research.urls.map((u) => (
+                          <li key={u} className="truncate">
+                            <a href={u} target="_blank" rel="noreferrer" className="underline">
+                              {u}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="num mt-1">
+                      histórico {m.research.historyStatus ?? "—"} · {m.research.fixtures.length} jogos
+                      anteriores · {m.research.reusedFromCache} observações reaproveitadas do cache
+                    </p>
+                    {m.research.fixtures.length > 0 && (
+                      <ul className="num mt-1 space-y-0.5">
+                        {m.research.fixtures.map((f) => (
+                          <li key={f.id}>
+                            {f.date} · {f.team} x {f.opponent} · {f.id}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="num mt-2">
+                      aceitas:{" "}
+                      {m.research.accepted.length > 0
+                        ? m.research.accepted.map((a) => `${a.metric} (${a.count})`).join(" · ")
+                        : "—"}
+                    </p>
+                    <p className="num mt-1">
+                      rejeitadas:{" "}
+                      {m.research.rejected.length > 0
+                        ? m.research.rejected
+                            .map((r) => `${r.metric} (${r.count}${r.note ? ` — ${r.note}` : ""})`)
+                            .join(" · ")
+                        : "—"}
+                    </p>
+                  </div>
+                )}
+
               </div>
             )}
           </li>
