@@ -25,7 +25,7 @@ E0,05/10/2024,Man City,Everton,4,1,20,4,11,2,13,1,0,2,0,0,6,14
 `;
 
 const fixtures = parseFootballDataCsv(CSV, {
-  leagueKey: "england-premier-league",
+  leagueKey: "premier-league",
   season: "2425",
   sourceUrl: "https://example.org/E0.csv",
 });
@@ -44,7 +44,7 @@ describe("research adapter — dataset público", () => {
   });
 
   it("reconhece a competição a partir do rótulo do CSV do usuário", () => {
-    expect(matchLeague("Premier League")?.league.key).toBe("england-premier-league");
+    expect(matchLeague("Premier League")?.league.key).toBe("premier-league");
     expect(matchLeague("Campeonato Fictício da Lua")).toBeNull();
   });
 });

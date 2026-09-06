@@ -233,7 +233,8 @@ function abbreviationScore(a: string, b: string): number {
   for (let i = 0; i < short.length; i++) {
     const s = short[i]!;
     const l = long[i]!;
-    if (!(l === s || (s.length >= 3 && l.startsWith(s)))) return 0;
+    const [sm, lg] = s.length <= l.length ? [s, l] : [l, s];
+    if (!(sm === lg || (sm.length >= 3 && lg.startsWith(sm)))) return 0;
   }
   return 0.92;
 }
