@@ -567,6 +567,168 @@ async function collect(db: Db, runId: string) {
     }
   }
 
+  // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos.
+  {
+    const {
+      researchDataset,
+      researchTeamHistory,
+      RESEARCH_SOURCE,
+      RESEARCH_DEFINITION_VERSION,
+    } = await import("./adapters/research.server");
+
+    // Cache: observações já coletadas antes (qualquer run) para a mesma chave.
+    const { data: cachedRows } = await db
+      .from("raw_observations")
+      .select("metric, raw_value, observed_at, fetched_at")
+      .eq("source", RESEARCH_SOURCE)
+      .eq("definition_version", RESEARCH_DEFINITION_VERSION)
+      .limit(5000);
+    const cacheIndex = new Map<string, typeof cachedRows>();
+    for (const row of cachedRows ?? []) {
+      const key = (row.raw_value as { cacheKey?: string } | null)?.cacheKey;
+      if (!key) continue;
+      const list = cacheIndex.get(key) ?? [];
+      list.push(row);
+      cacheIndex.set(key, list);
+    }
+
+    let researchObservations = 0;
+    let reusedFromCache = 0;
+    let insufficient = 0;
+
+    for (const m of matches ?? []) {
+      const teams = (externalIds ?? []).filter(
+        (e) =>
+          e.match_id === m.id &&
+          (e.source === "research_team_home" || e.source === "research_team_away"),
+      );
+      if (teams.length === 0) {
+        perSource[`${RESEARCH_SOURCE}:NO_TEAM_RESOLVED`] =
+          (perSource[`${RESEARCH_SOURCE}:NO_TEAM_RESOLVED`] ?? 0) + 1;
+        continue;
+      }
+
+      const predictionAt = m.kickoff_local ?? new Date().toISOString();
+      const cutoffDay = predictionAt.slice(0, 10);
+      let dataset: Awaited<ReturnType<typeof researchDataset>> | null = null;
+
+      for (const team of teams) {
+        const scope = team.source === "research_team_home" ? "HOME" : "AWAY";
+        const cacheKey = `${RESEARCH_DEFINITION_VERSION}|${team.external_id}|${cutoffDay}`;
+        const cached = cacheIndex.get(cacheKey);
+
+        if (cached && cached.length > 0) {
+          reusedFromCache += cached.length;
+          researchObservations += cached.length;
+          await db.from("raw_observations").insert(
+            cached.map((c) => ({
+              run_id: runId,
+              match_id: m.id,
+              source: RESEARCH_SOURCE,
+              metric: c.metric,
+              raw_value: { ...(c.raw_value as object), reusedFromCache: true } as never,
+              observed_at: c.observed_at,
+              fetched_at: c.fetched_at,
+              definition_version: RESEARCH_DEFINITION_VERSION,
+            })),
+          );
+          continue;
+        }
+
+        if (!dataset) {
+          dataset = await researchDataset(m.competition, predictionAt);
+          for (const f of dataset.fetches) {
+            perSource[`${RESEARCH_SOURCE}:${f.status}`] =
+              (perSource[`${RESEARCH_SOURCE}:${f.status}`] ?? 0) + 1;
+            await db.from("source_fetches").insert({
+              run_id: runId,
+              match_id: m.id,
+              source: RESEARCH_SOURCE,
+              status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
+              http_status: f.httpStatus,
+              error_message:
+                f.errorMessage ?? (f.status === "OK" ? `${f.url} (${f.rows} jogos)` : null),
+              fetched_at: f.fetchedAt,
+            });
+          }
+        }
+
+        const history = researchTeamHistory(team.external_id, dataset, predictionAt);
+        if (history.historyStatus === "INSUFFICIENT_HISTORY") insufficient += 1;
+
+        if (history.observations.length === 0) {
+          perSource[`${RESEARCH_SOURCE}:NO_HISTORY`] =
+            (perSource[`${RESEARCH_SOURCE}:NO_HISTORY`] ?? 0) + 1;
+          continue;
+        }
+
+        researchObservations += history.observations.length;
+        const fetchedAt = new Date().toISOString();
+        const rows = history.observations.map((o) => ({
+          run_id: runId,
+          match_id: m.id,
+          source: RESEARCH_SOURCE,
+          metric: `${scope}:${o.canonical}`,
+          raw_value: {
+            value: o.value,
+            valueRaw: o.valueRaw,
+            metricLabelRaw: o.metricLabelRaw,
+            unit: o.unit,
+            period: o.period,
+            sourceLabel: o.metricLabelRaw,
+            teamScope: scope,
+            statScope: o.venue,
+            contractCompatible: o.contractCompatible,
+            note: o.note,
+            sourceUrl: o.sourceUrl,
+            team: team.external_id,
+            externalMatchId: o.fixtureKey,
+            fixtureDate: o.fixtureDate,
+            opponent: o.opponent,
+            predictionAt,
+            historyStatus: history.historyStatus,
+            cacheKey,
+            mode: "Desk Research / Dados Públicos",
+          } as never,
+          observed_at: `${o.fixtureDate}T00:00:00Z`,
+          fetched_at: fetchedAt,
+          definition_version: RESEARCH_DEFINITION_VERSION,
+        }));
+        for (let i = 0; i < rows.length; i += 200) {
+          await db.from("raw_observations").insert(rows.slice(i, i + 200));
+        }
+
+        await log(
+          db,
+          runId,
+          "COLLECT",
+          `Desk research: ${history.found}/${history.requested} jogos anteriores de ${team.external_id} (${history.historyStatus}).`,
+          history.historyStatus === "OK" ? "INFO" : "WARN",
+          {
+            mode: "Desk Research / Dados Públicos",
+            definitionVersion: RESEARCH_DEFINITION_VERSION,
+            team: team.external_id,
+            predictionAt,
+            fixtures: history.fixturesUsed,
+            observations: history.observations.length,
+          },
+        );
+      }
+    }
+
+    await log(
+      db,
+      runId,
+      "COLLECT",
+      researchObservations
+        ? `Desk research coletou ${researchObservations} observações brutas em fontes públicas (${reusedFromCache} reaproveitadas do cache); ${insufficient} times com histórico insuficiente.`
+        : "Desk research não encontrou fonte pública utilizável para as partidas desta rodada.",
+      researchObservations ? "INFO" : "WARN",
+      { reusedFromCache, insufficient },
+    );
+  }
+
+
   // 2) Demais fontes (não configuradas até haver credencial/endpoint).
   for (const m of matches ?? []) {
     const results = await collectFromSources({
