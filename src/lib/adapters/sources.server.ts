@@ -101,4 +101,4 @@ export async function collectFromSources(query: AdapterQuery): Promise<AdapterRe
 }
 
 // sofascore é tratado pelo adapter dedicado (sofascore.server.ts) nas etapas RESOLVE/COLLECT.
-export const adapterSources = ["sofascore", ...definitions.map((d) => d.source)];
+export const adapterSources = ["api_football", "sofascore", ...definitions.map((d) => d.source)];
