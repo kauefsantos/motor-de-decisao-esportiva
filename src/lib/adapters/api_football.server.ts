@@ -67,12 +67,34 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 let lastCallAt = 0;
 
+/** Provider ativo: explícito via FOOTBALL_API_PROVIDER, senão o que tiver credencial. */
+export function apiFootballProvider(): FootballApiProvider {
+  const explicit = process.env["FOOTBALL_API_PROVIDER"]?.trim();
+  if (explicit === "five_dollar" || explicit === "api_sports") return explicit;
+  const fiveDollar = process.env[PROVIDERS.five_dollar.envKey];
+  const apiSports = process.env[PROVIDERS.api_sports.envKey];
+  if (!apiSports?.trim() && fiveDollar?.trim()) return "five_dollar";
+  return "api_sports";
+}
+
+/** Identidade da fonte no lineage (nunca misturar IDs externos entre providers). */
+export function apiFootballSource(): string {
+  return PROVIDERS[apiFootballProvider()].source;
+}
+
+export function apiFootballDefinitionVersion(): string {
+  return PROVIDERS[apiFootballProvider()].definitionVersion;
+}
+
 function baseUrl(): string {
-  return process.env["API_FOOTBALL_BASE"]?.replace(/\/$/, "") || DEFAULT_BASE;
+  const provider = apiFootballProvider();
+  const override =
+    provider === "api_sports" ? process.env["API_FOOTBALL_BASE"] : process.env["FIVE_DOLLAR_FOOTBALL_BASE"];
+  return override?.replace(/\/$/, "") || PROVIDERS[provider].base;
 }
 
 function apiKey(): string | null {
-  const key = process.env["API_FOOTBALL_KEY"];
+  const key = process.env[PROVIDERS[apiFootballProvider()].envKey];
   return key && key.trim() ? key.trim() : null;
 }
 
