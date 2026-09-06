@@ -72,10 +72,21 @@ export interface LeagueMatch {
   similarity: number;
 }
 
+/** Divisão declarada no nome da competição (1 = primeira divisão). */
+function competitionTier(input: string): number {
+  const t = plain(input);
+  if (/(^|\s)(2|ii|b|segunda|championship)(\s|$)/.test(t)) return 2;
+  if (/(^|\s)(3|iii|c|terceira)(\s|$)/.test(t)) return 3;
+  return 1;
+}
+
 /** Identifica a competição do CSV dentro do catálogo público. Determinístico. */
 export function matchLeague(competition: string | null): LeagueMatch | null {
   if (!competition) return null;
   const target = plain(competition);
+  // O catálogo público cobre apenas primeiras divisões: nunca mapear 2ª/3ª divisão
+  // para o dataset da divisão principal.
+  if (competitionTier(target) !== 1) return null;
   let best: LeagueMatch | null = null;
   for (const league of RESEARCH_LEAGUES) {
     for (const alias of [plain(league.label), ...league.aliases]) {
