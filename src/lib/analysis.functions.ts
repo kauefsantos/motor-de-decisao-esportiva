@@ -450,8 +450,11 @@ export const getAudit = createServerFn({ method: "POST" })
       };
     });
 
+    const researchActive =
+      researchRaws.length > 0 || (fetches ?? []).some((f) => f.source === "research_adapter");
+
     return {
-      mode: researchRaws.length > 0 ? "Desk Research / Dados Públicos" : "APIs configuradas",
+      mode: researchActive ? "Desk Research / Dados Públicos" : "APIs configuradas",
       sources: [...sources.values()].map((s) => ({
         ...s,
         status: s.ok > 0 ? (s.unavailable > 0 ? "PARTIAL" : "OK") : s.notConfigured > 0 && s.unavailable === 0 ? "NOT_CONFIGURED" : "UNAVAILABLE",
@@ -459,9 +462,11 @@ export const getAudit = createServerFn({ method: "POST" })
       resolvedEvents: (externalIds ?? []).filter(
         (e) => e.source === "sofascore_event" && matchIds.has(e.match_id),
       ).length,
-      researchResolved: (externalIds ?? []).filter(
-        (e) => e.source === "research_fixture" && matchIds.has(e.match_id),
-      ).length,
+      researchResolved: new Set(
+        (externalIds ?? [])
+          .filter((e) => e.source === "research_team_home" && matchIds.has(e.match_id))
+          .map((e) => e.match_id),
+      ).size,
       normalizedObservations: (normalized ?? []).length,
       rawObservations: (raws ?? []).length,
       crossChecked: (normalized ?? []).filter(

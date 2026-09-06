@@ -72,10 +72,21 @@ export interface LeagueMatch {
   similarity: number;
 }
 
+/** Divisão declarada no nome da competição (1 = primeira divisão). */
+function competitionTier(input: string): number {
+  const t = plain(input);
+  if (/(^|\s)(2|ii|b|segunda|championship)(\s|$)/.test(t)) return 2;
+  if (/(^|\s)(3|iii|c|terceira)(\s|$)/.test(t)) return 3;
+  return 1;
+}
+
 /** Identifica a competição do CSV dentro do catálogo público. Determinístico. */
 export function matchLeague(competition: string | null): LeagueMatch | null {
   if (!competition) return null;
   const target = plain(competition);
+  // O catálogo público cobre apenas primeiras divisões: nunca mapear 2ª/3ª divisão
+  // para o dataset da divisão principal.
+  if (competitionTier(target) !== 1) return null;
   let best: LeagueMatch | null = null;
   for (const league of RESEARCH_LEAGUES) {
     for (const alias of [plain(league.label), ...league.aliases]) {
@@ -239,6 +250,20 @@ function abbreviationScore(a: string, b: string): number {
   return 0.92;
 }
 
+/**
+ * Nome curto publicado pela fonte contido no nome do CSV ("Real Sociedad" ↔ "Sociedad").
+ * Só pontua quando TODOS os tokens do nome curto aparecem no nome longo.
+ */
+function tokenSubsetScore(a: string, b: string): number {
+  const ta = tokens(a);
+  const tb = tokens(b);
+  if (ta.length === 0 || tb.length === 0 || ta.length === tb.length) return 0;
+  const [short, long] = ta.length < tb.length ? [ta, tb] : [tb, ta];
+  const set = new Set(long);
+  if (!short.every((t) => set.has(t))) return 0;
+  return 0.9;
+}
+
 export function resolveTeam(name: string | null, roster: string[]): TeamResolution {
   if (!name || roster.length === 0) {
     return {
@@ -252,7 +277,13 @@ export function resolveTeam(name: string | null, roster: string[]): TeamResoluti
   const scored = roster
     .map((team) => ({
       team,
-      score: Number(Math.max(nameSimilarity(name, team), abbreviationScore(name, team)).toFixed(4)),
+      score: Number(
+        Math.max(
+          nameSimilarity(name, team),
+          abbreviationScore(name, team),
+          tokenSubsetScore(name, team),
+        ).toFixed(4),
+      ),
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
