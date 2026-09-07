@@ -70,6 +70,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
 
   const suggested = Number(proposal.suggestedStake);
   const maxAllowed = Number(proposal.maxAllowedStake);
+  const minimumStake = Number(proposal.minimumStake ?? data.bankroll.minStakeBrl ?? 0.5);
   const customNumber = Number(custom.replace(",", "."));
 
   return (
@@ -89,7 +90,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
       </div>
 
       <div className="p-6">
-        <div className="grid gap-4 sm:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-5">
           <div>
             <p className="text-xs text-muted-foreground">Odd informada</p>
             <p className="num mt-1 text-lg">{Number(proposal.entry_odd).toFixed(2)}</p>
@@ -103,13 +104,17 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
             <p className="num mt-1 text-lg font-semibold text-primary">{money(suggested)}</p>
           </div>
           <div>
+            <p className="text-xs text-muted-foreground">Mínimo da bet365</p>
+            <p className="num mt-1 text-lg">{money(minimumStake)}</p>
+          </div>
+          <div>
             <p className="text-xs text-muted-foreground">Máximo nesta aposta</p>
             <p className="num mt-1 text-lg">{money(maxAllowed)}</p>
           </div>
         </div>
 
         <p className="mt-4 text-sm text-muted-foreground">
-          A sugestão usa o saldo que ainda está disponível. Ao confirmar, esse valor fica reservado e a próxima sugestão é recalculada com o novo saldo.
+          A sugestão usa o saldo que ainda está disponível. Se o cálculo indicar menos que o mínimo aceito pela bet365, o sistema adapta para {money(minimumStake)}. Ao confirmar, esse valor fica reservado e a próxima sugestão é recalculada com o novo saldo.
         </p>
 
         <div className="mt-5 flex flex-wrap gap-3">
@@ -129,7 +134,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         {showCustom && (
           <div className="mt-4 flex max-w-sm items-end gap-3 rounded-lg border border-border p-4">
             <label className="flex-1 text-sm">
-              <span className="text-muted-foreground">Valor que você quer usar (máx. {money(maxAllowed)})</span>
+              <span className="text-muted-foreground">Valor: 0 para recusar ou entre {money(minimumStake)} e {money(maxAllowed)}</span>
               <Input
                 className="num mt-2"
                 inputMode="decimal"
@@ -143,6 +148,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
                 saving ||
                 !Number.isFinite(customNumber) ||
                 customNumber < 0 ||
+                (customNumber > 0 && customNumber < minimumStake) ||
                 customNumber > maxAllowed
               }
               onClick={() => void submit(Number.isFinite(customNumber) ? customNumber : 0)}
@@ -153,7 +159,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          Digitar 0 equivale a recusar a sugestão. Um valor manual pode ser diferente da sugestão, mas nunca ultrapassa o limite de exposição da banca.
+          Digitar 0 equivale a recusar. Qualquer aposta aceita respeita o mínimo real da casa e o limite proporcional calculado sobre o saldo disponível.
         </p>
       </div>
     </section>
