@@ -202,9 +202,9 @@ async function resolveMatches(db: Db, runId: string) {
 
 
 
-    // Desk Research (fontes públicas e abertas). Não substitui os adapters acima:
-    // roda sempre que houver times normalizados, para permitir coleta histórica.
-    if (localOk) {
+    // Desk Research (fontes públicas e abertas). Desativado por padrão:
+    // só roda com ENABLE_DESK_RESEARCH=true no servidor.
+    if (localOk && DESK_RESEARCH_ENABLED) {
       const { researchResolveMatch, RESEARCH_SOURCE, RESEARCH_DEFINITION_VERSION } = await import(
         "./adapters/research.server"
       );
@@ -435,8 +435,8 @@ async function collect(db: Db, runId: string) {
 
 
 
-  // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos.
-  {
+  // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos (desativado por padrão).
+  if (DESK_RESEARCH_ENABLED) {
     const {
       researchDataset,
       researchTeamHistory,
