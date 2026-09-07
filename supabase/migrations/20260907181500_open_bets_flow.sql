@@ -1,7 +1,8 @@
 ALTER TABLE public.experimental_bet_tracking
   ADD COLUMN IF NOT EXISTS bet_status text NOT NULL DEFAULT 'PROPOSED',
   ADD COLUMN IF NOT EXISTS accepted_at timestamptz,
-  ADD COLUMN IF NOT EXISTS declined_at timestamptz;
+  ADD COLUMN IF NOT EXISTS declined_at timestamptz,
+  ADD COLUMN IF NOT EXISTS selection_rank integer;
 
 UPDATE public.experimental_bet_tracking
 SET bet_status = CASE
@@ -19,3 +20,5 @@ ALTER TABLE public.experimental_bet_tracking
 
 CREATE INDEX IF NOT EXISTS idx_experimental_bet_tracking_bet_status
   ON public.experimental_bet_tracking(bet_status);
+CREATE INDEX IF NOT EXISTS idx_experimental_bet_tracking_run_rank
+  ON public.experimental_bet_tracking(run_id, selection_rank);
