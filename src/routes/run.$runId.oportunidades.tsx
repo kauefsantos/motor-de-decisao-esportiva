@@ -15,16 +15,15 @@ import { getRun, analyzeOdds } from "@/lib/analysis.functions";
 export const Route = createFileRoute("/run/$runId/oportunidades")({
   head: () => ({
     meta: [
-      { title: "Mercados para observar · Bet Value Engine" },
+      { title: "Mercados para conferir · Bet Value Engine" },
       {
         name: "description",
-        content:
-          "Contratos aprovados pelo motor de oportunidade, com espaço para digitar a odd da bet365 Brasil.",
+        content: "Veja os mercados que passaram pelos filtros e informe as odds da bet365 para comparar preço.",
       },
-      { property: "og:title", content: "Mercados para observar · Bet Value Engine" },
+      { property: "og:title", content: "Mercados para conferir · Bet Value Engine" },
       {
         property: "og:description",
-        content: "Probabilidade primeiro, preço depois: digite as odds e rode o motor de valor.",
+        content: "As chances são calculadas antes do preço; depois você informa as odds para verificar se há margem.",
       },
     ],
   }),
@@ -81,7 +80,7 @@ function OpportunitiesScreen() {
       .filter((e) => Number.isFinite(e.odd) && e.odd > 1);
 
     if (entries.length === 0) {
-      toast.error("Digite ao menos uma odd válida (maior que 1).");
+      toast.error("Digite pelo menos uma odd válida para comparar.");
       return;
     }
     setSubmitting(true);
@@ -89,7 +88,7 @@ function OpportunitiesScreen() {
       await analyze({ data: { runId, entries } });
       navigate({ to: "/run/$runId/resultado", params: { runId } });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao analisar odds.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível comparar as odds.");
       setSubmitting(false);
     }
   }
@@ -97,24 +96,22 @@ function OpportunitiesScreen() {
   return (
     <AppShell stage="oportunidades">
       <p className="label-eyebrow">Etapa 3</p>
-      <h1 className="mt-2 text-3xl font-bold">Mercados para observar</h1>
+      <h1 className="mt-2 text-3xl font-bold">Mercados para conferir</h1>
       <p className="mt-2 max-w-3xl text-muted-foreground">
-        A escolha do mercado não usou nenhuma odd. Digite manualmente a odd da bet365 Brasil apenas
-        nos contratos que quiser avaliar.
+        As chances já foram calculadas sem olhar o preço. Agora informe apenas as odds que quiser comparar com a nossa estimativa.
       </p>
 
       {isLoading && (
         <div className="panel mt-8 flex items-center gap-3 p-8 text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando contratos…
+          <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando os mercados…
         </div>
       )}
 
       {!isLoading && published.length === 0 && (
         <div className="panel mt-8 p-8">
-          <p className="font-medium">Nenhum contrato foi publicado pelo motor de produção.</p>
+          <p className="font-medium">A versão definitiva ainda não liberou nenhum mercado nesta rodada.</p>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Os contratos de produção continuam bloqueados enquanto os modelos não estiverem validados e
-            calibrados. O piloto experimental aparece separadamente abaixo quando houver dados suficientes.
+            Como ainda estamos validando os modelos, o modo de teste aparece separadamente abaixo quando existem dados suficientes.
           </p>
         </div>
       )}
@@ -124,9 +121,9 @@ function OpportunitiesScreen() {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left">
-                <th className="label-eyebrow px-6 py-3">A · Jogo</th>
-                <th className="label-eyebrow px-6 py-3">B · Mercado para observar</th>
-                <th className="label-eyebrow w-40 px-6 py-3">C · Odd</th>
+                <th className="px-6 py-3 text-xs text-muted-foreground">Jogo</th>
+                <th className="px-6 py-3 text-xs text-muted-foreground">Mercado</th>
+                <th className="w-40 px-6 py-3 text-xs text-muted-foreground">Odd bet365</th>
               </tr>
             </thead>
             <tbody>
@@ -155,7 +152,7 @@ function OpportunitiesScreen() {
           className="flex w-full items-center justify-between px-6 py-4 text-left"
         >
           <span className="text-sm font-medium">
-            Contratos bloqueados pelo Motor 1 ({blocked.length})
+            Ver mercados que ficaram de fora ({blocked.length})
           </span>
           <ChevronDown
             className={`size-4 transition-transform ${showBlocked ? "rotate-180" : ""}`}
@@ -168,26 +165,16 @@ function OpportunitiesScreen() {
               <li key={c.id} className="grid gap-1 px-6 py-3 md:grid-cols-[1fr_1fr_auto]">
                 <span className="text-sm">{matchLabel.get(c.match_id ?? "") ?? ""}</span>
                 <span className="text-sm text-muted-foreground">{c.market_label}</span>
-                <span className="num text-[11px] text-warning">{c.block_reason}</span>
-                <span className="text-xs text-muted-foreground md:col-span-3">{c.reason_short}</span>
+                <span className="text-[11px] text-warning">Não passou pelo filtro</span>
+                <details className="text-xs text-muted-foreground md:col-span-3">
+                  <summary className="cursor-pointer">Motivo técnico</summary>
+                  <p className="mt-1">{c.block_reason} · {c.reason_short}</p>
+                </details>
               </li>
             ))}
           </ul>
         )}
       </div>
-
-      {Object.keys(data?.sourceSummary ?? {}).length > 0 && (
-        <div className="panel mt-6 p-6">
-          <p className="label-eyebrow">Estado das fontes nesta rodada</p>
-          <ul className="mt-3 flex flex-wrap gap-2">
-            {Object.entries(data!.sourceSummary).map(([k, v]) => (
-              <li key={k} className="num rounded-md bg-secondary px-2.5 py-1 text-[11px]">
-                {k} · {v}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {published.length > 0 && (
         <div className="sticky bottom-0 mt-8 border-t border-border bg-background/90 py-5 backdrop-blur">
@@ -197,11 +184,8 @@ function OpportunitiesScreen() {
             disabled={submitting || published.length === 0}
             onClick={() => void analisar()}
           >
-            {submitting ? "Analisando…" : "ANALISAR ODDS"}
+            {submitting ? "Comparando…" : "COMPARAR ODDS"}
           </Button>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            Fluxo de produção. O piloto experimental é avaliado separadamente acima.
-          </p>
         </div>
       )}
       <SourceAudit runId={runId} refreshKey={0} />
@@ -237,7 +221,7 @@ function CandidateRow({
             onClick={onToggle}
             className="mt-1 inline-flex items-center gap-1 text-xs text-accent"
           >
-            <Info className="size-3" aria-hidden /> detalhes
+            <Info className="size-3" aria-hidden /> entender os números
           </button>
         </td>
         <td className="px-6 py-4">
@@ -256,49 +240,41 @@ function CandidateRow({
           <td colSpan={3} className="px-6 py-4">
             <dl className="grid gap-4 text-xs sm:grid-cols-4">
               <div>
-                <dt className="label-eyebrow">p_cal</dt>
+                <dt className="text-muted-foreground">Chance estimada</dt>
                 <dd className="num mt-1">{pct(candidate.p_cal)}</dd>
               </div>
               <div>
-                <dt className="label-eyebrow">p_cons</dt>
+                <dt className="text-muted-foreground">Chance usada na comparação</dt>
                 <dd className="num mt-1">{pct(candidate.p_cons)}</dd>
               </div>
               <div>
-                <dt className="label-eyebrow">Fair odd informativa</dt>
+                <dt className="text-muted-foreground">Odd justa</dt>
                 <dd className="num mt-1">
                   {candidate.fair_odd_info ? Number(candidate.fair_odd_info).toFixed(2) : "—"}
                 </dd>
               </div>
               <div>
-                <dt className="label-eyebrow">Confidence</dt>
+                <dt className="text-muted-foreground">Confiança nos dados</dt>
                 <dd className="num mt-1">{pct(candidate.confidence_score)}</dd>
               </div>
               <div>
-                <dt className="label-eyebrow">Data quality</dt>
+                <dt className="text-muted-foreground">Qualidade dos dados</dt>
                 <dd className="num mt-1">{pct(candidate.data_quality_score)}</dd>
               </div>
               <div>
-                <dt className="label-eyebrow">Incerteza</dt>
+                <dt className="text-muted-foreground">Incerteza</dt>
                 <dd className="num mt-1">{pct(candidate.uncertainty)}</dd>
               </div>
-              <div>
-                <dt className="label-eyebrow">Modelo / dados</dt>
-                <dd className="num mt-1">
-                  {candidate.model_status} · {candidate.data_status}
-                </dd>
-              </div>
-              <div>
-                <dt className="label-eyebrow">prediction_id</dt>
-                <dd className="num mt-1">{candidate.prediction_id}</dd>
-              </div>
-              <div className="sm:col-span-4">
-                <dt className="label-eyebrow">Settlement</dt>
-                <dd className="mt-1 text-muted-foreground">{candidate.settlement_definition}</dd>
-              </div>
-              <div className="sm:col-span-4">
-                <dt className="label-eyebrow">Razão</dt>
+              <div className="sm:col-span-2">
+                <dt className="text-muted-foreground">Por que apareceu</dt>
                 <dd className="mt-1 text-muted-foreground">{candidate.reason_short}</dd>
               </div>
+              <details className="sm:col-span-4 text-muted-foreground">
+                <summary className="cursor-pointer">Detalhes técnicos</summary>
+                <p className="num mt-2">{candidate.model_status} · {candidate.data_status}</p>
+                <p className="num mt-1">ID: {candidate.prediction_id}</p>
+                <p className="mt-1">{candidate.settlement_definition}</p>
+              </details>
             </dl>
           </td>
         </tr>
