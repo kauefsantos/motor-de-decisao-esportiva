@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
+
+import { BetConfirmationFlow } from "@/components/BetConfirmationFlow";
 
 const STAGES = [
   { key: "upload", label: "1 · Enviar jogos" },
@@ -17,6 +19,10 @@ export function AppShell({
   stage: StageKey;
   children: ReactNode;
 }) {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const resultMatch = pathname.match(/^\/run\/([0-9a-f-]+)\/resultado$/i);
+  const resultRunId = resultMatch?.[1] ?? null;
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
@@ -63,7 +69,10 @@ export function AppShell({
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-[1400px] px-8 py-10">{children}</main>
+      <main className="mx-auto max-w-[1400px] px-8 py-10">
+        {children}
+        {stage === "resultado" && resultRunId && <BetConfirmationFlow runId={resultRunId} />}
+      </main>
       <footer className="mx-auto max-w-[1400px] px-8 pb-10">
         <p className="text-xs text-muted-foreground">
           Bet365 Brasil · Horários de Brasília · Apenas apostas simples. O sistema organiza a análise e o histórico; não faz apostas por você.
