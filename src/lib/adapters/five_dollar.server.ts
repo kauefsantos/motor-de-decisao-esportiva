@@ -5,16 +5,16 @@
 
 import {
   externalMatchKey,
-  goalsFromFixture,
   isPreMatchFinished,
   parseFixtures,
   resolveFixture,
-  statsFromFixture,
+  teamRelativeStats,
   FIVE_DOLLAR_DEFINITION_VERSION,
   FIVE_DOLLAR_SOURCE,
   type FiveDollarFixture,
+  type TeamRelativeStat,
 } from "./five_dollar.parse";
-import type { CsvMatchQuery, MatchResolution, NormalizedStat } from "./sofascore.parse";
+import type { CsvMatchQuery, MatchResolution } from "./sofascore.parse";
 
 export { FIVE_DOLLAR_DEFINITION_VERSION, FIVE_DOLLAR_SOURCE };
 
