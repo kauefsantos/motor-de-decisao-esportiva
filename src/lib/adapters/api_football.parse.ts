@@ -1,15 +1,15 @@
-// Parsing e normalização determinística de payloads API-Football (API-Sports v3).
-// Módulo puro (sem rede, sem segredos). Reaproveita o contrato de resolução já usado pela SofaScore.
+// Parsing e normalização determinística da API-Football (API-Sports v3).
+// Módulo puro, sem rede e sem segredos.
 
 import {
+  goalsFromEvent,
   resolveEvent,
-  type CanonicalMetric,
   type CsvMatchQuery,
   type MatchResolution,
   type MetricDefinition,
   type NormalizedStat,
-  type SofascoreEvent as ProviderEvent,
-} from "./sofascore.parse";
+  type ProviderEvent,
+} from "./football.shared";
 
 export type { ProviderEvent };
 
@@ -30,7 +30,6 @@ function num(v: unknown): number | null {
   return null;
 }
 
-/** Mapeia o status da API-Football para o vocabulário já usado no pipeline. */
 function mapStatus(short: string | null): string | null {
   if (!short) return null;
   if (["FT", "AET", "PEN"].includes(short)) return "finished";
@@ -39,7 +38,6 @@ function mapStatus(short: string | null): string | null {
   return "inprogress";
 }
 
-/** Aceita o envelope { response: [ { fixture, league, teams, goals } ] }. */
 export function parseFixtures(payload: unknown): ProviderEvent[] {
   const root = asRecord(payload);
   const list = Array.isArray(root?.["response"]) ? (root!["response"] as unknown[]) : [];
@@ -61,7 +59,6 @@ export function parseFixtures(payload: unknown): ProviderEvent[] {
     if (id === null || !homeName || !awayName) continue;
 
     const seasonRaw = league?.["season"];
-
     out.push({
       eventId: id,
       homeName,
@@ -80,20 +77,10 @@ export function parseFixtures(payload: unknown): ProviderEvent[] {
   return out;
 }
 
-/** Resolução usa exatamente o mesmo scorer determinístico da fonte anterior. */
 export function resolveFixture(query: CsvMatchQuery, events: ProviderEvent[]): MatchResolution {
   return resolveEvent(query, events);
 }
 
-/* ------------------------------------------------------------------ */
-/* Definition gates                                                    */
-/* ------------------------------------------------------------------ */
-
-/**
- * Mesma política de gates da fonte anterior: só libera métrica cuja definição
- * comprovadamente casa com o contrato de settlement bet365. As demais são
- * gravadas como observação bruta, mas nunca liberam mercado.
- */
 export const API_FOOTBALL_DEFINITIONS: MetricDefinition[] = [
   {
     canonical: "corners_taken",
@@ -105,25 +92,25 @@ export const API_FOOTBALL_DEFINITIONS: MetricDefinition[] = [
     canonical: "shots_total",
     sourceLabels: ["Total Shots"],
     contractCompatible: false,
-    note: "Total de finalizações sem detalhamento auditável de bloqueadas/fora; incompatível com a definição Opta/bet365 implementada.",
+    note: "Total de finalizações sem detalhamento auditável de bloqueadas/fora; não libera contrato bet365 automaticamente.",
   },
   {
     canonical: "shots_on_target",
     sourceLabels: ["Shots on Goal"],
     contractCompatible: false,
-    note: "Tratamento de bloqueios e traves não demonstrável; observação registrada sem liberar mercado.",
+    note: "Shots on Goal da fonte; a equivalência exata com o settlement bet365 ainda precisa ser validada.",
   },
   {
     canonical: "cards_yellow_raw",
     sourceLabels: ["Yellow Cards"],
     contractCompatible: false,
-    note: "Não distingue segundo amarelo nem exclui comissão técnica/reservas; incompatível com o contrato de cartões.",
+    note: "Não distingue segundo amarelo nem participantes excluídos pelo bookmaker.",
   },
   {
     canonical: "cards_red_raw",
     sourceLabels: ["Red Cards"],
     contractCompatible: false,
-    note: "Mesma limitação dos amarelos; não autoriza pontuação de cartões.",
+    note: "Contagem bruta de vermelhos; não autoriza pontuação de cartões sem regra de settlement validada.",
   },
 ];
 
@@ -133,7 +120,6 @@ export interface FixtureStatistic {
   value: number | null;
 }
 
-/** Extrai os pares (time, rótulo, valor) do payload /fixtures/statistics, sem gate. */
 export function parseFixtureStatistics(payload: unknown): FixtureStatistic[] {
   const root = asRecord(payload);
   const list = Array.isArray(root?.["response"]) ? (root!["response"] as unknown[]) : [];
@@ -154,10 +140,6 @@ export function parseFixtureStatistics(payload: unknown): FixtureStatistic[] {
   return out;
 }
 
-/**
- * Aplica os definition gates às estatísticas de uma partida encerrada,
- * atribuindo escopo HOME/AWAY pelo id do time.
- */
 export function mapFixtureStatistics(
   payload: unknown,
   homeTeamId: number | null,
@@ -182,25 +164,6 @@ export function mapFixtureStatistics(
   return out;
 }
 
-/** Gols do placar final. Nunca usa evento posterior ao prediction_at (sem data leakage). */
-export function goalsFromFixture(
-  event: ProviderEvent,
-  predictionAtIso: string,
-): NormalizedStat[] {
-  if (event.statusType !== "finished") return [];
-  if (event.homeScore === null || event.awayScore === null) return [];
-  if (!event.startTimestamp) return [];
-  if (event.startTimestamp * 1000 >= Date.parse(predictionAtIso)) return [];
-
-  const base = {
-    sourceLabel: "goals.full_time",
-    contractCompatible: true,
-    note: "Placar final da partida encerrada; horizonte 90min + acréscimos.",
-  };
-  return [
-    { canonical: "goals_scored" as CanonicalMetric, scope: "HOME" as const, value: event.homeScore, ...base },
-    { canonical: "goals_conceded" as CanonicalMetric, scope: "HOME" as const, value: event.awayScore, ...base },
-    { canonical: "goals_scored" as CanonicalMetric, scope: "AWAY" as const, value: event.awayScore, ...base },
-    { canonical: "goals_conceded" as CanonicalMetric, scope: "AWAY" as const, value: event.homeScore, ...base },
-  ];
+export function goalsFromFixture(event: ProviderEvent, predictionAtIso: string): NormalizedStat[] {
+  return goalsFromEvent(event, predictionAtIso);
 }
