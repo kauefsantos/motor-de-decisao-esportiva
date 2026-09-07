@@ -12,17 +12,15 @@ import { createRun } from "@/lib/analysis.functions";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Análise de Jogos · Bet Value Engine V2.1.1" },
+      { title: "Analisar jogos · Bet Value Engine V2.1.1" },
       {
         name: "description",
-        content:
-          "Envie o CSV de partidas e encontre mercados de futebol com suporte estatístico antes de olhar as odds.",
+        content: "Envie os jogos da rodada e veja quais mercados merecem ser conferidos antes de olhar as odds.",
       },
-      { property: "og:title", content: "Análise de Jogos · Bet Value Engine V2.1.1" },
+      { property: "og:title", content: "Analisar jogos · Bet Value Engine V2.1.1" },
       {
         property: "og:description",
-        content:
-          "Motor quantitativo pré-jogo: mercados com suporte estatístico primeiro, preço e EV depois.",
+        content: "O sistema organiza os dados, calcula as chances e só depois compara com as odds que você informar.",
       },
     ],
   }),
@@ -48,7 +46,7 @@ function UploadScreen() {
 
   const handleFile = useCallback(async (file: File) => {
     if (file.size > 2_000_000) {
-      toast.error("Arquivo acima de 2 MB.");
+      toast.error("O arquivo passou de 2 MB.");
       return;
     }
     const text = await file.text();
@@ -56,7 +54,7 @@ function UploadScreen() {
     setFilename(file.name);
     setParsed(result);
     if (result.rows.length === 0) {
-      toast.error(result.invalid[0]?.reason ?? "Nenhuma linha válida encontrada no CSV.");
+      toast.error(result.invalid[0]?.reason ?? "Não encontrei nenhuma partida válida nesse arquivo.");
     }
   }, []);
 
@@ -76,7 +74,7 @@ function UploadScreen() {
       });
       navigate({ to: "/run/$runId/processamento", params: { runId: res.runId } });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao criar a análise.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível iniciar a análise.");
       setSubmitting(false);
     }
   }
@@ -84,145 +82,139 @@ function UploadScreen() {
   return (
     <AppShell stage="upload">
       <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="contents">
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <section>
-          <p className="label-eyebrow">Etapa 1</p>
-          <h1 className="mt-2 text-4xl font-bold">Análise de Jogos</h1>
-          <p className="mt-3 max-w-2xl text-muted-foreground">
-            Envie o CSV e encontre mercados com suporte estatístico antes de olhar as odds.
-          </p>
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <section>
+            <p className="label-eyebrow">Etapa 1</p>
+            <h1 className="mt-2 text-4xl font-bold">Analisar os jogos do dia</h1>
+            <p className="mt-3 max-w-2xl text-muted-foreground">
+              Envie o CSV da rodada. Primeiro calculamos as chances com os dados disponíveis; as odds entram só depois.
+            </p>
 
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              const file = e.dataTransfer.files?.[0];
-              if (file) void handleFile(file);
-            }}
-            className={`panel mt-8 flex flex-col items-center justify-center gap-4 px-8 py-16 text-center transition-colors ${
-              dragging ? "border-primary bg-primary/5" : ""
-            }`}
-          >
-            <UploadCloud className="size-10 text-primary" aria-hidden />
-            <div>
-              <p className="font-medium">Arraste o arquivo CSV aqui</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Colunas obrigatórias: Data, Partida, Horário, Campeonato. Use uma única data por arquivo.
-                O formato Data;Partida,Horário,Campeonato é aceito.
-              </p>
-            </div>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              data-testid="csv-input"
-              disabled={!ready}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const file = e.dataTransfer.files?.[0];
                 if (file) void handleFile(file);
               }}
-            />
-            <Button variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
-              Selecionar CSV
-            </Button>
-          </div>
-
-          {parsed && (
-            <div className="panel mt-6 p-6">
-              <div className="flex items-center gap-3">
-                <FileSpreadsheet className="size-5 text-accent" aria-hidden />
-                <span className="font-medium">{filename}</span>
+              className={`panel mt-8 flex flex-col items-center justify-center gap-4 px-8 py-16 text-center transition-colors ${
+                dragging ? "border-primary bg-primary/5" : ""
+              }`}
+            >
+              <UploadCloud className="size-10 text-primary" aria-hidden />
+              <div>
+                <p className="font-medium">Arraste o CSV aqui</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  O arquivo precisa ter Data, Partida, Horário e Campeonato. Use uma única data em cada arquivo.
+                </p>
               </div>
-              <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <dt className="label-eyebrow">Data dos jogos</dt>
-                  <dd className="num mt-1 text-2xl">{dateLabel(parsed.targetDate)}</dd>
-                </div>
-                <div>
-                  <dt className="label-eyebrow">Partidas válidas</dt>
-                  <dd className="num mt-1 text-2xl">{parsed.rows.length}</dd>
-                </div>
-                <div>
-                  <dt className="label-eyebrow">Campeonatos</dt>
-                  <dd className="num mt-1 text-2xl">{parsed.leagues.length}</dd>
-                </div>
-                <div>
-                  <dt className="label-eyebrow">Linhas inválidas</dt>
-                  <dd className="num mt-1 text-2xl">{parsed.invalid.length}</dd>
-                </div>
-              </dl>
-
-              {parsed.leagues.length > 0 && (
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {parsed.leagues.map((l) => (
-                    <span
-                      key={l}
-                      className="num rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground"
-                    >
-                      {l}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {parsed.invalid.length > 0 && (
-                <div className="mt-5 rounded-md border border-warning/40 bg-warning/10 p-4">
-                  <p className="flex items-center gap-2 text-sm font-medium text-warning">
-                    <AlertTriangle className="size-4" aria-hidden /> Linhas descartadas
-                  </p>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {parsed.invalid.slice(0, 8).map((i, index) => (
-                      <li key={`${i.line}-${index}`} className="num">
-                        linha {i.line}: {i.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <Button
-                className="mt-6 w-full"
-                size="lg"
-                data-testid="processar-jogos"
-                disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || submitting}
-                onClick={() => void processar()}
-              >
-                {submitting ? "Criando análise…" : "PROCESSAR JOGOS"}
-                <ArrowRight className="ml-2 size-4" aria-hidden />
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                data-testid="csv-input"
+                disabled={!ready}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleFile(file);
+                }}
+              />
+              <Button variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
+                Escolher CSV
               </Button>
             </div>
-          )}
-        </section>
 
-        <aside className="panel h-fit p-6">
-          <p className="label-eyebrow">Como o motor decide</p>
-          <ol className="mt-4 space-y-4 text-sm text-muted-foreground">
-            <li>
-              <span className="font-medium text-foreground">Data do CSV.</span> Define a rodada e a
-              janela consultada nas fontes. O sistema não presume mais que os jogos são de hoje.
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Motor 1 — Oportunidade.</span> Escolhe
-              contratos com suporte quantitativo sem olhar preço. Gate-base: 65% em contratos
-              binários e p_profit ≥ 65% em asiáticos.
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Você digita a odd</span> da bet365
-              Brasil apenas para os contratos publicados.
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Motor 2 — Valor.</span> Calcula EV
-              conservador e devolve de zero ao limite da rodada. Nunca força escolhas.
-            </li>
-          </ol>
-        </aside>
-      </div>
+            {parsed && (
+              <div className="panel mt-6 p-6">
+                <div className="flex items-center gap-3">
+                  <FileSpreadsheet className="size-5 text-accent" aria-hidden />
+                  <span className="font-medium">{filename}</span>
+                </div>
+                <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <dt className="label-eyebrow">Data dos jogos</dt>
+                    <dd className="num mt-1 text-2xl">{dateLabel(parsed.targetDate)}</dd>
+                  </div>
+                  <div>
+                    <dt className="label-eyebrow">Partidas encontradas</dt>
+                    <dd className="num mt-1 text-2xl">{parsed.rows.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="label-eyebrow">Campeonatos</dt>
+                    <dd className="num mt-1 text-2xl">{parsed.leagues.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="label-eyebrow">Linhas ignoradas</dt>
+                    <dd className="num mt-1 text-2xl">{parsed.invalid.length}</dd>
+                  </div>
+                </dl>
+
+                {parsed.leagues.length > 0 && (
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {parsed.leagues.map((l) => (
+                      <span
+                        key={l}
+                        className="rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground"
+                      >
+                        {l}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {parsed.invalid.length > 0 && (
+                  <div className="mt-5 rounded-md border border-warning/40 bg-warning/10 p-4">
+                    <p className="flex items-center gap-2 text-sm font-medium text-warning">
+                      <AlertTriangle className="size-4" aria-hidden /> Algumas linhas foram ignoradas
+                    </p>
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {parsed.invalid.slice(0, 8).map((i, index) => (
+                        <li key={`${i.line}-${index}`}>
+                          linha {i.line}: {i.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <Button
+                  className="mt-6 w-full"
+                  size="lg"
+                  data-testid="processar-jogos"
+                  disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || submitting}
+                  onClick={() => void processar()}
+                >
+                  {submitting ? "Começando…" : "COMEÇAR ANÁLISE"}
+                  <ArrowRight className="ml-2 size-4" aria-hidden />
+                </Button>
+              </div>
+            )}
+          </section>
+
+          <aside className="panel h-fit p-6">
+            <p className="label-eyebrow">Como funciona</p>
+            <ol className="mt-4 space-y-4 text-sm text-muted-foreground">
+              <li>
+                <span className="font-medium text-foreground">1. Você envia os jogos.</span> A data do CSV define qual rodada será pesquisada.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">2. Calculamos as chances.</span> O sistema usa apenas dados anteriores ao jogo e só mostra mercados que passam pelo filtro mínimo.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">3. Você informa as odds.</span> Assim conseguimos comparar a nossa estimativa com o preço da bet365.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">4. O sistema escolhe pouco.</span> Pode retornar duas, três ou nenhuma seleção; não força aposta quando o preço não compensa.
+              </li>
+            </ol>
+          </aside>
+        </div>
       </div>
     </AppShell>
   );
