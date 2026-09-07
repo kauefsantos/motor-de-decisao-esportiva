@@ -35,6 +35,8 @@ export const createRun = createServerFn({ method: "POST" })
         target_date: data.targetDate,
         status: "CREATED",
         matches_total: data.rows.length,
+        // prediction_at único da análise: mesmo corte temporal em todas as etapas.
+        notes: { prediction_at: new Date().toISOString() },
       })
       .select("id")
       .single();
