@@ -12,16 +12,15 @@ import { PIPELINE_STEPS, type PipelineStepKey } from "@/lib/pipeline.steps";
 export const Route = createFileRoute("/run/$runId/processamento")({
   head: () => ({
     meta: [
-      { title: "Processamento do pipeline · Bet Value Engine" },
+      { title: "Preparando análise · Bet Value Engine" },
       {
         name: "description",
-        content:
-          "Acompanhe em tempo real a resolução de partidas, coleta, higienização, features, probabilidades e gates.",
+        content: "Acompanhe a busca e preparação dos dados antes de conferir as oportunidades.",
       },
-      { property: "og:title", content: "Processamento do pipeline · Bet Value Engine" },
+      { property: "og:title", content: "Preparando análise · Bet Value Engine" },
       {
         property: "og:description",
-        content: "Progresso real do pipeline quantitativo pré-jogo, com falhas por fonte.",
+        content: "O sistema busca os jogos, organiza os dados e calcula as chances antes de mostrar os mercados.",
       },
     ],
   }),
@@ -73,7 +72,7 @@ function ProcessingScreen() {
             ...prev,
             [step.key]: {
               status: "ERROR",
-              message: error instanceof Error ? error.message : "Falha na etapa",
+              message: error instanceof Error ? error.message : "Não foi possível concluir esta etapa.",
               level: "ERROR",
             },
           }));
@@ -88,10 +87,9 @@ function ProcessingScreen() {
   return (
     <AppShell stage="processamento">
       <p className="label-eyebrow">Etapa 2</p>
-      <h1 className="mt-2 text-3xl font-bold">Processando a rodada</h1>
+      <h1 className="mt-2 text-3xl font-bold">Preparando sua análise</h1>
       <p className="mt-2 text-muted-foreground">
-        Cada etapa reporta o resultado real do pipeline. Nenhum número é preenchido de forma
-        fictícia.
+        Estamos conferindo os jogos, buscando os dados e calculando as chances. Se alguma fonte não responder, isso aparece aqui sem preencher nada no chute.
       </p>
 
       <ol className="panel mt-8 divide-y divide-border">
@@ -140,7 +138,7 @@ function ProcessingScreen() {
 
       {failed && (
         <div className="mt-6 flex gap-3">
-          <Button onClick={() => window.location.reload()}>Tentar novamente</Button>
+          <Button onClick={() => window.location.reload()}>Tentar de novo</Button>
           <Button variant="outline" onClick={() => navigate({ to: "/" })}>
             Enviar outro CSV
           </Button>
