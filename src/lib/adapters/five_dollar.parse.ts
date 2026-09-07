@@ -174,6 +174,114 @@ export function statsFromFixture(
   return out;
 }
 
+/** Métricas relativas ao time pesquisado, como o Motor 1 espera. */
+export type TeamRelativeMetric =
+  | "goals_for"
+  | "goals_against"
+  | "corners_taken_for"
+  | "corners_taken_against"
+  | "cards_yellow_raw"
+  | "cards_red_raw";
+
+export interface TeamRelativeStat {
+  canonical: TeamRelativeMetric;
+  /** lado do time pesquisado na fixture histórica */
+  scope: "HOME" | "AWAY";
+  value: number;
+  sourceLabel: string;
+  contractCompatible: boolean;
+  note: string;
+}
+
+export interface TeamRelativeFixtureStats {
+  stats: TeamRelativeStat[];
+  side: "HOME" | "AWAY";
+  opponentId: number | null;
+  raw: {
+    goalsHome: number | null;
+    goalsAway: number | null;
+    cornersHome: number | null;
+    cornersAway: number | null;
+  };
+}
+
+/**
+ * Normaliza uma fixture histórica na perspectiva do time pesquisado.
+ * Nunca mistura os dois lados no mesmo bucket: o lado do time vira "_for",
+ * o do adversário vira "_against".
+ */
+export function teamRelativeStats(
+  fixture: FiveDollarFixture,
+  teamId: number,
+  predictionAtIso: string,
+): TeamRelativeFixtureStats | null {
+  if (!isPreMatchFinished(fixture, predictionAtIso)) return null;
+  const isHome = fixture.homeTeamId === teamId;
+  const isAway = fixture.awayTeamId === teamId;
+  if (!isHome && !isAway) return null;
+
+  const side: "HOME" | "AWAY" = isHome ? "HOME" : "AWAY";
+  const mine = <T>(h: T, a: T): T => (isHome ? h : a);
+  const theirs = <T>(h: T, a: T): T => (isHome ? a : h);
+
+  const stats: TeamRelativeStat[] = [];
+  const push = (
+    canonical: TeamRelativeMetric,
+    value: number | null,
+    sourceLabel: string,
+    contractCompatible: boolean,
+    note: string,
+  ) => {
+    if (value === null) return;
+    stats.push({ canonical, scope: side, value, sourceLabel, contractCompatible, note });
+  };
+
+  const goalNote = "Placar final da partida encerrada; horizonte 90min + acréscimos.";
+  push("goals_for", mine(fixture.homeScore, fixture.awayScore), mine("goals.home", "goals.away"), true, goalNote);
+  push(
+    "goals_against",
+    theirs(fixture.homeScore, fixture.awayScore),
+    theirs("goals.home", "goals.away"),
+    true,
+    goalNote,
+  );
+
+  const cornerNote =
+    "Escanteios cobrados pela equipe na partida (campo oficial corners.home/away); equivale a corners_taken.";
+  push(
+    "corners_taken_for",
+    mine(fixture.cornersHome, fixture.cornersAway),
+    mine("corners.home", "corners.away"),
+    true,
+    cornerNote,
+  );
+  push(
+    "corners_taken_against",
+    theirs(fixture.cornersHome, fixture.cornersAway),
+    theirs("corners.home", "corners.away"),
+    true,
+    cornerNote,
+  );
+
+  const yellowNote =
+    "Total de amarelos da equipe; a fonte não distingue segundo amarelo nem participantes, incompatível com o contrato de cartões.";
+  push("cards_yellow_raw", mine(fixture.yellowHome, fixture.yellowAway), mine("cards.home.yellow", "cards.away.yellow"), false, yellowNote);
+  const redNote = "Mesma limitação dos amarelos; observação bruta, sem liberar mercado.";
+  push("cards_red_raw", mine(fixture.redHome, fixture.redAway), mine("cards.home.red", "cards.away.red"), false, redNote);
+
+  return {
+    stats,
+    side,
+    opponentId: isHome ? fixture.awayTeamId : fixture.homeTeamId,
+    raw: {
+      goalsHome: fixture.homeScore,
+      goalsAway: fixture.awayScore,
+      cornersHome: fixture.cornersHome,
+      cornersAway: fixture.cornersAway,
+    },
+  };
+}
+
 /** Payload de /v1/fixtures/{id}/statistics (período ALL). */
 export function mapNativeStatistics(payload: unknown): NormalizedStat[] {
   const data = asRecord(asRecord(payload)?.["data"]);
