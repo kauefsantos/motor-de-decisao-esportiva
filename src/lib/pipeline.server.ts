@@ -74,8 +74,28 @@ export async function executeStep(runId: string, step: PipelineStepKey) {
   }
 }
 
+/**
+ * prediction_at ÚNICO da análise: gravado na criação da run e reutilizado
+ * por resolução, coleta, limpeza, features e modelo (sem leakage temporal).
+ */
+async function runPredictionAt(db: Db, runId: string): Promise<string> {
+  const { data: run } = await db
+    .from("analysis_runs")
+    .select("notes, created_at")
+    .eq("id", runId)
+    .single();
+  const stored = (run?.notes as { prediction_at?: unknown } | null)?.prediction_at;
+  if (typeof stored === "string" && Number.isFinite(Date.parse(stored))) return stored;
+
+  const fallback = run?.created_at ?? new Date().toISOString();
+  const notes = { ...((run?.notes as Record<string, unknown> | null) ?? {}), prediction_at: fallback };
+  await db.from("analysis_runs").update({ notes: notes as never }).eq("id", runId);
+  return fallback;
+}
+
 async function resolveMatches(db: Db, runId: string) {
   const { data: run } = await db.from("analysis_runs").select("target_date").eq("id", runId).single();
+  const predictionAtRun = await runPredictionAt(db, runId);
   const { data: matches } = await db
     .from("matches")
     .select("id, raw_partida, raw_horario, raw_campeonato")
