@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { ChevronDown } from "lucide-react";
 
@@ -12,6 +12,8 @@ const STATUS_CLASS: Record<string, string> = {
   UNAVAILABLE: "text-destructive",
   NOT_CONFIGURED: "text-muted-foreground",
 };
+
+const SUPPORTED_SOURCES = new Set(["five_dollar_football", "api_football"]);
 
 export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: number }) {
   const load = useServerFn(getAudit);
@@ -32,52 +34,59 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
     };
   }, [load, runId, refreshKey]);
 
-  if (!audit || audit.sources.length === 0) return null;
+  const sources = useMemo(
+    () => (audit?.sources ?? []).filter((source) => SUPPORTED_SOURCES.has(source.source)),
+    [audit],
+  );
+
+  const resolvedEvents = useMemo(
+    () =>
+      (audit?.matches ?? []).filter((match) =>
+        match.externalIds.some(
+          (id) => id.source === "five_dollar_fixture" || id.source === "api_football_fixture",
+        ),
+      ).length,
+    [audit],
+  );
+
+  if (!audit || sources.length === 0) return null;
+
+  const providerLabel = sources.map((source) => source.source).join(" + ");
 
   return (
     <section className="panel mt-8 p-6">
       <p className="label-eyebrow">Auditoria da ingestão</p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Modo de coleta: <span className="font-medium text-foreground">{audit.mode}</span>
+        Provedor desta rodada: <span className="font-medium text-foreground">{providerLabel}</span>
       </p>
 
       <ul className="mt-4 space-y-2">
-        {audit.sources.map((s) => (
-          <li key={s.source} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-            <span className="num font-medium uppercase">{s.source}</span>
-            <span className={`num font-medium ${STATUS_CLASS[s.status] ?? "text-muted-foreground"}`}>
-              {s.status}
+        {sources.map((source) => (
+          <li key={source.source} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+            <span className="num font-medium uppercase">{source.source}</span>
+            <span className={`num font-medium ${STATUS_CLASS[source.status] ?? "text-muted-foreground"}`}>
+              {source.status}
             </span>
             <span className="num text-xs text-muted-foreground">
-              {s.lastFetchedAt ? new Date(s.lastFetchedAt).toLocaleTimeString("pt-BR") : "—"}
+              {source.lastFetchedAt ? new Date(source.lastFetchedAt).toLocaleTimeString("pt-BR") : "—"}
             </span>
-            {s.lastError && (
-              <span className="text-xs text-muted-foreground">{s.lastError}</span>
-            )}
+            {source.lastError && <span className="text-xs text-muted-foreground">{source.lastError}</span>}
           </li>
         ))}
       </ul>
 
-      <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div>
           <dt className="label-eyebrow">Eventos resolvidos</dt>
-          <dd className="num mt-1 text-2xl">{audit.resolvedEvents + audit.researchResolved}</dd>
+          <dd className="num mt-1 text-2xl">{resolvedEvents}</dd>
         </div>
         <div>
           <dt className="label-eyebrow">Observações brutas</dt>
           <dd className="num mt-1 text-2xl">{audit.rawObservations}</dd>
         </div>
         <div>
-          <dt className="label-eyebrow">Observações normalizadas</dt>
+          <dt className="label-eyebrow">Normalizadas</dt>
           <dd className="num mt-1 text-2xl">{audit.normalizedObservations}</dd>
-        </div>
-        <div>
-          <dt className="label-eyebrow">Confirmadas entre fontes</dt>
-          <dd className="num mt-1 text-2xl">{audit.crossChecked}</dd>
-        </div>
-        <div>
-          <dt className="label-eyebrow">Conflitos entre fontes</dt>
-          <dd className="num mt-1 text-2xl">{audit.sourceConflicts}</dd>
         </div>
         <div>
           <dt className="label-eyebrow">Partidas</dt>
@@ -85,90 +94,49 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
         </div>
       </dl>
 
-
       <ul className="mt-5 divide-y divide-border border-t border-border">
-        {audit.matches.map((m) => (
-          <li key={m.id}>
+        {audit.matches.map((match) => (
+          <li key={match.id}>
             <button
               type="button"
-              onClick={() => setOpen(open === m.id ? null : m.id)}
+              onClick={() => setOpen(open === match.id ? null : match.id)}
               className="flex w-full items-center justify-between gap-4 py-3 text-left text-sm"
             >
               <span className="min-w-0 truncate">
-                {m.home_team && m.away_team ? `${m.home_team} x ${m.away_team}` : m.raw_partida}
+                {match.home_team && match.away_team
+                  ? `${match.home_team} x ${match.away_team}`
+                  : match.raw_partida}
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className="num text-xs text-muted-foreground">{m.resolution_status}</span>
+                <span className="num text-xs text-muted-foreground">{match.resolution_status}</span>
                 <ChevronDown
-                  className={`size-4 transition-transform ${open === m.id ? "rotate-180" : ""}`}
+                  className={`size-4 transition-transform ${open === match.id ? "rotate-180" : ""}`}
                   aria-hidden
                 />
               </span>
             </button>
-            {open === m.id && (
+
+            {open === match.id && (
               <div className="pb-4 text-xs text-muted-foreground">
-                <p>{m.resolution_reason}</p>
+                <p>{match.resolution_reason}</p>
                 <p className="num mt-1">
-                  confiança {m.resolver_confidence === null ? "—" : Number(m.resolver_confidence).toFixed(2)}
-                  {m.externalIds.length > 0 &&
-                    ` · ${m.externalIds.map((e) => `${e.source}=${e.external_id}`).join(" · ")}`}
+                  confiança {match.resolver_confidence === null ? "—" : Number(match.resolver_confidence).toFixed(2)}
+                  {match.externalIds.length > 0 &&
+                    ` · ${match.externalIds.map((id) => `${id.source}=${id.external_id}`).join(" · ")}`}
                 </p>
-                {m.normalized.length > 0 ? (
+
+                {match.normalized.length > 0 ? (
                   <ul className="num mt-2 space-y-1">
-                    {m.normalized.map((n, i) => (
-                      <li key={i}>
-                        {n.scope} {n.metric}: {Number(n.normalized_value).toFixed(2)} (n={n.sample_size},{" "}
-                        {n.source}/{n.definition_version})
+                    {match.normalized.map((row, index) => (
+                      <li key={index}>
+                        {row.scope} {row.metric}: {Number(row.normalized_value).toFixed(2)} (n={row.sample_size},{" "}
+                        {row.source}/{row.definition_version})
                       </li>
                     ))}
                   </ul>
                 ) : (
                   <p className="mt-2">Nenhum dado normalizado passou nos gates de definição.</p>
                 )}
-                {m.research && (
-                  <div className="mt-3 border-t border-border pt-3">
-                    <p className="font-medium text-foreground">Desk Research / Dados Públicos</p>
-                    {m.research.urls.length > 0 && (
-                      <ul className="num mt-1 space-y-0.5">
-                        {m.research.urls.map((u) => (
-                          <li key={u} className="truncate">
-                            <a href={u} target="_blank" rel="noreferrer" className="underline">
-                              {u}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <p className="num mt-1">
-                      histórico {m.research.historyStatus ?? "—"} · {m.research.fixtures.length} jogos
-                      anteriores · {m.research.reusedFromCache} observações reaproveitadas do cache
-                    </p>
-                    {m.research.fixtures.length > 0 && (
-                      <ul className="num mt-1 space-y-0.5">
-                        {m.research.fixtures.map((f) => (
-                          <li key={f.id}>
-                            {f.date} · {f.team} x {f.opponent} · {f.id}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <p className="num mt-2">
-                      aceitas:{" "}
-                      {m.research.accepted.length > 0
-                        ? m.research.accepted.map((a) => `${a.metric} (${a.count})`).join(" · ")
-                        : "—"}
-                    </p>
-                    <p className="num mt-1">
-                      rejeitadas:{" "}
-                      {m.research.rejected.length > 0
-                        ? m.research.rejected
-                            .map((r) => `${r.metric} (${r.count}${r.note ? ` — ${r.note}` : ""})`)
-                            .join(" · ")
-                        : "—"}
-                    </p>
-                  </div>
-                )}
-
               </div>
             )}
           </li>
