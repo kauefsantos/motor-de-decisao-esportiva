@@ -8,7 +8,7 @@ const STAGES = [
   { key: "resultado", label: "4 · Ver seleções" },
 ] as const;
 
-type StageKey = (typeof STAGES)[number]["key"] | "analytics";
+type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics";
 
 export function AppShell({
   stage,
@@ -41,8 +41,18 @@ export function AppShell({
               </span>
             ))}
             <Link
-              to="/analytics"
+              to="/open-bets"
               className={`ml-1 rounded-md px-3 py-1.5 text-[11px] tracking-wide transition-colors ${
+                stage === "open-bets"
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`}
+            >
+              Apostas abertas
+            </Link>
+            <Link
+              to="/analytics"
+              className={`rounded-md px-3 py-1.5 text-[11px] tracking-wide transition-colors ${
                 stage === "analytics"
                   ? "bg-primary/15 text-primary"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
