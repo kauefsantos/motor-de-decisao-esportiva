@@ -15,13 +15,15 @@ from playwright.async_api import async_playwright
 
 BASE_URL = "http://localhost:8080"
 
-CSV = """Partida,Horário,Campeonato
-Cagliari x Lecce,13:30,Serie A
-Getafe x Celta de Vigo,14:00,LaLiga
-Nantes x Nancy,15:45,Ligue 2
-Udinese x Lazio,15:45,Serie A
-Elche x Real Sociedad,16:30,LaLiga
-Vitória x Grêmio,20:00,Brasileirão Série A
+# Mesmo padrão operacional usado nos arquivos diários: Data separada por ';'
+# e as demais colunas por ','.
+CSV = """Data;Partida,Horário,Campeonato
+08/09/2026;Cagliari x Lecce,13:30,Serie A
+08/09/2026;Getafe x Celta de Vigo,14:00,LaLiga
+08/09/2026;Nantes x Nancy,15:45,Ligue 2
+08/09/2026;Udinese x Lazio,15:45,Serie A
+08/09/2026;Elche x Real Sociedad,16:30,LaLiga
+08/09/2026;Vitória x Grêmio,20:00,Brasileirão Série A
 """
 
 failures: list[str] = []
@@ -45,7 +47,6 @@ async def main() -> int:
         page.on("pageerror", lambda e: errors.append(str(e)))
 
         await page.goto(BASE_URL, wait_until="domcontentloaded")
-        # Espera a hidratação antes de enviar o arquivo (evita race condition).
         await page.wait_for_selector('[data-testid="upload-screen"][data-hydrated="true"]', timeout=30000)
 
         await page.set_input_files('[data-testid="csv-input"]', str(csv_path))
@@ -56,12 +57,12 @@ async def main() -> int:
 
         summary = await page.locator('[data-testid="upload-screen"]').inner_text()
         check("6" in summary, "6 partidas válidas reconhecidas no CSV")
+        check("08/09/2026" in summary, "data da rodada reconhecida a partir do CSV")
 
         await button.click()
         await page.wait_for_url("**/processamento", timeout=30000)
         check("/processamento" in page.url, "run criado e navegação para a tela de processamento")
 
-        # O pipeline deve terminar: ou avança para oportunidades, ou expõe erro — nunca fica preso.
         await page.wait_for_url("**/oportunidades", timeout=180000)
         await page.get_by_text("Mercados para observar").wait_for(timeout=60000)
         await page.get_by_text("Estado das fontes nesta rodada").wait_for(timeout=60000)
