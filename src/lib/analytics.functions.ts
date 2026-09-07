@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const RESULT_VALUES = ["PENDING", "WIN", "LOSS", "PUSH", "VOID"] as const;
 type TrackingResult = (typeof RESULT_VALUES)[number];
+type BetStatus = "PROPOSED" | "OPEN" | "DECLINED" | "SETTLED";
 
 type TrackingRow = {
   id: string;
@@ -32,6 +33,10 @@ type TrackingRow = {
   stake_brl: number | string | null;
   profit_brl: number | string | null;
   notes: string | null;
+  bet_status: BetStatus;
+  selection_rank: number | null;
+  accepted_at: string | null;
+  declined_at: string | null;
   created_at: string;
   updated_at: string;
   settled_at: string | null;
@@ -85,6 +90,10 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
   const totalStake = settled.reduce((sum, row) => sum + n(row.stake_brl), 0);
   const totalProfit = settled.reduce((sum, row) => sum + n(row.profit_brl), 0);
   const currentBankroll = initialBankroll + totalProfit;
+  const openStake = rows
+    .filter((row) => row.bet_status === "OPEN" && row.result === "PENDING")
+    .reduce((sum, row) => sum + n(row.stake_brl), 0);
+  const availableBankroll = Math.max(0, currentBankroll - openStake);
   const roi = totalStake > 0 ? totalProfit / totalStake : null;
   const hitRate = wins + losses > 0 ? wins / (wins + losses) : null;
   const avgPredicted = mean(decided.map((row) => n(row.model_probability)).filter((value) => value > 0));
@@ -162,7 +171,7 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
 
   const sampleMessage =
     decided.length === 0
-      ? "Ainda não há resultados fechados. O painel começa a ganhar valor a partir das primeiras seleções registradas."
+      ? "Ainda não há resultados fechados. O painel começa a ganhar valor a partir das primeiras apostas confirmadas."
       : decided.length < 30
         ? "Amostra inicial: acompanhe tendência, preço de fechamento e disciplina, sem concluir ainda que o modelo é lucrativo."
         : decided.length < 100
@@ -173,6 +182,8 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
     summary: {
       initialBankroll,
       currentBankroll,
+      availableBankroll,
+      openStake,
       totalProfit,
       totalStake,
       roi,
@@ -184,7 +195,7 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
       maxDrawdown,
       selections: rows.length,
       settled: settled.length,
-      pending: rows.filter((row) => row.result === "PENDING").length,
+      pending: rows.filter((row) => row.bet_status === "OPEN" && row.result === "PENDING").length,
       withClosingOdd: clvValues.length,
       sampleMessage,
     },
@@ -227,7 +238,10 @@ export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handle
   const config = configData as BankrollConfig;
   const allRows = (trackingData ?? []) as TrackingRow[];
   const rows = allRows.filter(
-    (row) => typeof row.target_date === "string" && row.target_date >= config.start_date,
+    (row) =>
+      typeof row.target_date === "string" &&
+      row.target_date >= config.start_date &&
+      (row.bet_status === "OPEN" || row.bet_status === "SETTLED" || row.result !== "PENDING" || n(row.stake_brl) > 0),
   );
   return { rows, ...analytics(rows, config) };
 });
@@ -247,7 +261,7 @@ export const updateExperimentalTracking = createServerFn({ method: "POST" })
     const rawDb = supabase as unknown as { from: (table: string) => any };
     const { data: row, error: fetchError } = await rawDb
       .from("experimental_bet_tracking")
-      .select("id,entry_odd")
+      .select("id,entry_odd,bet_status")
       .eq("id", data.id)
       .single();
     if (fetchError || !row) {
@@ -258,6 +272,7 @@ export const updateExperimentalTracking = createServerFn({ method: "POST" })
     let profitBrl: number | null = null;
     let profitUnits: number | null = null;
     let settledAt: string | null = null;
+    let betStatus: BetStatus = row.bet_status as BetStatus;
     if (data.result !== "PENDING") {
       if (stake === null || !(stake > 0)) {
         throw new Error("Informe o valor realmente usado antes de fechar o resultado.");
@@ -266,6 +281,9 @@ export const updateExperimentalTracking = createServerFn({ method: "POST" })
       profitUnits = data.result === "WIN" ? entryOdd - 1 : data.result === "LOSS" ? -1 : 0;
       profitBrl = stake * profitUnits;
       settledAt = new Date().toISOString();
+      betStatus = "SETTLED";
+    } else if (stake !== null && stake > 0) {
+      betStatus = "OPEN";
     }
 
     const { error } = await rawDb
@@ -274,6 +292,7 @@ export const updateExperimentalTracking = createServerFn({ method: "POST" })
         stake_brl: stake,
         closing_odd: data.closingOdd,
         result: data.result,
+        bet_status: betStatus,
         profit_units: profitUnits,
         profit_brl: profitBrl,
         notes: data.notes ?? null,
