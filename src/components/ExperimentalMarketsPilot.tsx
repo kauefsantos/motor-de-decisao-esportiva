@@ -91,6 +91,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           ...evaluation,
           selected: selectedIds.has(evaluation.predictionId),
           matchLabel: candidate?.matchLabel ?? "—",
+          marketLabel: candidate?.marketLabel ?? evaluation.marketLabel,
           competition: candidate?.competition ?? "",
           family: candidate?.family ?? "—",
           modelVersion: candidate?.modelVersion ?? evaluation.modelVersion,
