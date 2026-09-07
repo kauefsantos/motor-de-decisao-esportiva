@@ -6,7 +6,7 @@ import { ChevronDown, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
-import { ExperimentalCornersPilot } from "@/components/ExperimentalCornersPilot";
+import { ExperimentalMarketsPilot } from "@/components/ExperimentalMarketsPilot";
 import { SourceAudit } from "@/components/SourceAudit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,9 +113,8 @@ function OpportunitiesScreen() {
         <div className="panel mt-8 p-8">
           <p className="font-medium">Nenhum contrato foi publicado pelo motor de produção.</p>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Os contratos de produção continuam bloqueados enquanto o modelo não estiver validado e
-            calibrado. O piloto experimental de escanteios aparece separadamente abaixo quando houver
-            dados suficientes.
+            Os contratos de produção continuam bloqueados enquanto os modelos não estiverem validados e
+            calibrados. O piloto experimental aparece separadamente abaixo quando houver dados suficientes.
           </p>
         </div>
       )}
@@ -147,7 +146,7 @@ function OpportunitiesScreen() {
         </div>
       )}
 
-      {!isLoading && <ExperimentalCornersPilot runId={runId} />}
+      {!isLoading && <ExperimentalMarketsPilot runId={runId} />}
 
       <div className="panel mt-6">
         <button
