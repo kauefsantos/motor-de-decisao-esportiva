@@ -12,6 +12,9 @@ import type { PipelineStepKey } from "./pipeline.steps";
 /** Desk Research (fontes públicas) só roda com ENABLE_DESK_RESEARCH=true no servidor. */
 const DESK_RESEARCH_ENABLED = process.env["ENABLE_DESK_RESEARCH"] === "true";
 
+/** Provider 5Dollar ativo => usa a API NATIVA v1 (o host de compatibilidade não cobre os endpoints). */
+const FIVE_DOLLAR_ACTIVE = process.env["FOOTBALL_API_PROVIDER"] === "five_dollar";
+
 type Db = Awaited<ReturnType<typeof getDb>>;
 
 async function getDb() {
@@ -74,8 +77,28 @@ export async function executeStep(runId: string, step: PipelineStepKey) {
   }
 }
 
+/**
+ * prediction_at ÚNICO da análise: gravado na criação da run e reutilizado
+ * por resolução, coleta, limpeza, features e modelo (sem leakage temporal).
+ */
+async function runPredictionAt(db: Db, runId: string): Promise<string> {
+  const { data: run } = await db
+    .from("analysis_runs")
+    .select("notes, created_at")
+    .eq("id", runId)
+    .single();
+  const stored = (run?.notes as { prediction_at?: unknown } | null)?.prediction_at;
+  if (typeof stored === "string" && Number.isFinite(Date.parse(stored))) return stored;
+
+  const fallback = run?.created_at ?? new Date().toISOString();
+  const notes = { ...((run?.notes as Record<string, unknown> | null) ?? {}), prediction_at: fallback };
+  await db.from("analysis_runs").update({ notes: notes as never }).eq("id", runId);
+  return fallback;
+}
+
 async function resolveMatches(db: Db, runId: string) {
   const { data: run } = await db.from("analysis_runs").select("target_date").eq("id", runId).single();
+  const predictionAtRun = await runPredictionAt(db, runId);
   const { data: matches } = await db
     .from("matches")
     .select("id, raw_partida, raw_horario, raw_campeonato")
@@ -105,7 +128,101 @@ async function resolveMatches(db: Db, runId: string) {
     let confidence = localOk ? 0.6 : 0;
 
     let resolvedByApiFootball = false;
-    if (localOk) {
+
+    // Fonte 5Dollar: API NATIVA (v1). Identidade própria no lineage; IDs nunca
+    // misturados com os da API-Sports.
+    if (localOk && FIVE_DOLLAR_ACTIVE) {
+      const {
+        fiveDollarResolveMatch,
+        fiveDollarConfigured,
+        FIVE_DOLLAR_SOURCE,
+        FIVE_DOLLAR_DEFINITION_VERSION,
+      } = await import("./adapters/five_dollar.server");
+
+      if (fiveDollarConfigured()) {
+        const fd = await fiveDollarResolveMatch(
+          { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
+          targetDate,
+        );
+
+        await db.from("source_fetches").insert({
+          run_id: runId,
+          match_id: m.id,
+          source: FIVE_DOLLAR_SOURCE,
+          status:
+            fd.fetch.status === "OK"
+              ? "OK"
+              : fd.fetch.status === "RATE_LIMITED"
+                ? "RATE_LIMITED"
+                : "SOURCE_UNAVAILABLE",
+          http_status: fd.fetch.httpStatus,
+          error_message: fd.fetch.errorMessage,
+          fetched_at: fd.fetch.fetchedAt,
+        });
+
+        if (fd.resolution?.status === "MATCH_RESOLVED") {
+          resolvedByApiFootball = true;
+          external++;
+          status = "RESOLVED_FIVE_DOLLAR";
+          confidence = fd.resolution.confidence;
+          reason = fd.resolution.reason;
+          const event = fd.events.find((e) => e.eventId === fd.resolution!.eventId);
+          await db.from("match_external_ids").insert([
+            {
+              match_id: m.id,
+              source: "five_dollar_fixture",
+              external_id: String(fd.resolution.eventId),
+              confidence: fd.resolution.confidence,
+            },
+            ...(event?.homeTeamId
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "five_dollar_team_home",
+                    external_id: String(event.homeTeamId),
+                    confidence: fd.resolution.confidence,
+                  },
+                ]
+              : []),
+            ...(event?.awayTeamId
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "five_dollar_team_away",
+                    external_id: String(event.awayTeamId),
+                    confidence: fd.resolution.confidence,
+                  },
+                ]
+              : []),
+          ]);
+        } else if (fd.resolution) {
+          reason = `${reason} 5Dollar: ${fd.resolution.reason}`;
+        } else {
+          sourceUnavailable++;
+          sourceError = fd.fetch.errorMessage;
+          reason = `${reason} 5Dollar indisponível: ${fd.fetch.errorMessage ?? "sem detalhe"}.`;
+        }
+
+        await log(
+          db,
+          runId,
+          "RESOLVE",
+          `Resolução 5Dollar (nativa) para ${m.raw_partida}: ${fd.resolution?.status ?? fd.fetch.status}`,
+          resolvedByApiFootball ? "INFO" : "WARN",
+          {
+            definitionVersion: FIVE_DOLLAR_DEFINITION_VERSION,
+            endpoint: fd.fetch.path,
+            httpStatus: fd.fetch.httpStatus,
+            fetchedAt: fd.fetch.fetchedAt,
+            rateLimit: fd.fetch.rateLimit,
+            predictionAt: predictionAtRun,
+            candidates: fd.resolution?.candidates ?? [],
+          },
+        );
+      }
+    }
+
+    if (localOk && !FIVE_DOLLAR_ACTIVE) {
       // Fonte principal: API-Football (credencial server-side). Nunca fabrica dados.
       const {
         apiFootballResolveMatch,
@@ -347,7 +464,7 @@ async function collect(db: Db, runId: string) {
     .eq("run_id", runId);
 
   const perSource: Record<string, number> = {};
-  const predictionAt = new Date().toISOString();
+  const predictionAt = await runPredictionAt(db, runId);
 
   // 1) IDs externos já resolvidos por partida.
   const { data: externalIds } = await db
@@ -358,8 +475,174 @@ async function collect(db: Db, runId: string) {
       (matches ?? []).map((m) => m.id),
     );
 
+  // 1a-5D) 5Dollar nativa: histórico pré-jogo por time resolvido (gols, escanteios, cartões
+  // já vêm no endpoint de fixtures; nenhuma chamada extra de statistics é feita).
+  if (FIVE_DOLLAR_ACTIVE) {
+    const {
+      fiveDollarTeamHistory,
+      fiveDollarConfigured,
+      fiveDollarUsage,
+      FIVE_DOLLAR_SOURCE,
+      FIVE_DOLLAR_DEFINITION_VERSION,
+    } = await import("./adapters/five_dollar.server");
+
+    let observationsCount = 0;
+    let insufficient = 0;
+    let reusedFromCache = 0;
+    let rateLimited = false;
+
+    if (fiveDollarConfigured()) {
+      // Cache: histórico já coletado antes (qualquer run) para o mesmo time/corte.
+      const { data: cachedRows } = await db
+        .from("raw_observations")
+        .select("metric, raw_value, observed_at, fetched_at")
+        .eq("source", FIVE_DOLLAR_SOURCE)
+        .eq("definition_version", FIVE_DOLLAR_DEFINITION_VERSION)
+        .limit(5000);
+      const cacheIndex = new Map<string, typeof cachedRows>();
+      for (const row of cachedRows ?? []) {
+        const key = (row.raw_value as { cacheKey?: string } | null)?.cacheKey;
+        if (!key) continue;
+        const list = cacheIndex.get(key) ?? [];
+        list.push(row);
+        cacheIndex.set(key, list);
+      }
+
+      for (const m of matches ?? []) {
+        if (rateLimited) break;
+        const teams = (externalIds ?? []).filter(
+          (e) =>
+            e.match_id === m.id &&
+            (e.source === "five_dollar_team_home" || e.source === "five_dollar_team_away"),
+        );
+        if (teams.length === 0) {
+          perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] =
+            (perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
+          continue;
+        }
+
+        for (const team of teams) {
+          if (rateLimited) break;
+          const scope = team.source === "five_dollar_team_home" ? "HOME" : "AWAY";
+          const cacheKey = `five_dollar:${team.external_id}:${predictionAt}`;
+          const cached = cacheIndex.get(cacheKey);
+
+          if (cached && cached.length > 0) {
+            reusedFromCache += cached.length;
+            await db.from("raw_observations").insert(
+              cached.map((row) => ({
+                run_id: runId,
+                match_id: m.id,
+                source: FIVE_DOLLAR_SOURCE,
+                metric: row.metric,
+                raw_value: row.raw_value as never,
+                observed_at: row.observed_at,
+                fetched_at: row.fetched_at,
+                definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
+              })),
+            );
+            observationsCount += cached.length;
+            continue;
+          }
+
+          const history = await fiveDollarTeamHistory(Number(team.external_id), predictionAt);
+          for (const f of history.fetches) {
+            perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] =
+              (perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] ?? 0) + 1;
+            if (f.status === "RATE_LIMITED") rateLimited = true;
+            await db.from("source_fetches").insert({
+              run_id: runId,
+              match_id: m.id,
+              source: FIVE_DOLLAR_SOURCE,
+              status: f.status === "OK" ? "OK" : f.status === "RATE_LIMITED" ? "RATE_LIMITED" : "SOURCE_UNAVAILABLE",
+              http_status: f.httpStatus,
+              error_message: f.errorMessage,
+              fetched_at: f.fetchedAt,
+            });
+          }
+          if (history.insufficientHistory) insufficient += 1;
+
+          if (history.observations.length > 0) {
+            observationsCount += history.observations.length;
+            await db.from("raw_observations").insert(
+              history.observations.map((o) => ({
+                run_id: runId,
+                match_id: m.id,
+                source: FIVE_DOLLAR_SOURCE,
+                metric: `${scope}:${o.observation.canonical}`,
+                raw_value: {
+                  value: o.observation.value,
+                  sourceLabel: o.observation.sourceLabel,
+                  metricLabelRaw: o.observation.sourceLabel,
+                  teamScope: scope,
+                  statScope: o.observation.scope,
+                  contractCompatible: o.observation.contractCompatible,
+                  note: o.observation.note,
+                  endpoint: o.endpoint,
+                  fixtureId: o.fixtureId,
+                  externalMatchId: o.externalMatchId,
+                  fixtureDate: o.fixtureDate,
+                  teamExternalId: team.external_id,
+                  predictionAt,
+                  cacheKey,
+                } as never,
+                observed_at: o.observedAt,
+                fetched_at: o.fetchedAt,
+                definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
+              })),
+            );
+          }
+        }
+      }
+
+      const usage = fiveDollarUsage();
+      // configured=true somente após coleta real bem-sucedida.
+      await db.from("source_definitions").upsert(
+        {
+          source: FIVE_DOLLAR_SOURCE,
+          definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
+          configured: observationsCount > 0,
+          notes:
+            "5DollarFootballAPI nativa v1 — Community Access, country pack Brasil (Série A e Série B), 12 meses de histórico, 300 req/h e burst 20/min.",
+          metric_definitions: {
+            plan: "community",
+            countryPack: "Brazil",
+            competitions: ["Brazil Serie A", "Brazil Serie B"],
+            historyMonths: 12,
+            rateLimit: { perHour: 300, burstPerMinute: 20, clientCap: 18 },
+            metrics: {
+              corners_taken: "corners.home/away do endpoint de fixtures; compatível com o contrato.",
+              goals_scored: "placar final da partida encerrada.",
+              goals_conceded: "placar final da partida encerrada.",
+              cards_yellow_raw: "cards.*.yellow — bruto, não libera mercado de cartões.",
+              cards_red_raw: "cards.*.red — bruto, não libera mercado de cartões.",
+              shots_on_target: "somente pelo endpoint /fixtures/{id}/statistics; não libera mercado.",
+            },
+          } as never,
+        } as never,
+        { onConflict: "source,definition_version" } as never,
+      );
+
+      await log(
+        db,
+        runId,
+        "COLLECT",
+        `${observationsCount} observações brutas na 5Dollar (nativa); ${reusedFromCache} reaproveitadas de cache; ${insufficient} times com INSUFFICIENT_HISTORY${rateLimited ? "; etapa encerrada em estado parcial por rate limit" : ""}.`,
+        observationsCount ? "INFO" : "WARN",
+        {
+          definitionVersion: FIVE_DOLLAR_DEFINITION_VERSION,
+          predictionAt,
+          rateLimit: usage.rateLimit,
+          requestsMade: usage.requestsMade,
+          endpointsCalled: usage.endpointsCalled,
+          rateLimitHits: usage.rateLimitHits,
+        },
+      );
+    }
+  }
+
   // 1a) API-Football: fonte principal, histórico pré-jogo por time resolvido.
-  {
+  if (!FIVE_DOLLAR_ACTIVE) {
     const {
       apiFootballTeamHistory,
       apiFootballConfigured,
@@ -826,6 +1109,7 @@ async function gates(db: Db, runId: string) {
 }
 
 async function markets(db: Db, runId: string) {
+  const predictionAtRun = await runPredictionAt(db, runId);
   const { data: matches } = await db
     .from("matches")
     .select("id, raw_partida, home_team, away_team, competition, kickoff_local")
@@ -864,7 +1148,7 @@ async function markets(db: Db, runId: string) {
       matchLabel: m.home_team && m.away_team ? `${m.home_team} x ${m.away_team}` : m.raw_partida,
       league: m.competition ?? "",
       kickoff: m.kickoff_local,
-      predictionAt: new Date().toISOString(),
+      predictionAt: predictionAtRun,
       features: new Map(
         (normalized ?? [])
           .filter((n) => n.match_id === m.id)
