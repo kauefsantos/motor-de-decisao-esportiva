@@ -27,6 +27,15 @@ const FAMILY_ORDER = [
   "BTTS",
 ] as const;
 
+const FAMILY_LABELS: Record<string, string> = {
+  CORNERS: "Escanteios",
+  GOALS: "Gols",
+  TEAM_GOALS: "Gols por time",
+  "1X2": "Resultado",
+  DOUBLE_CHANCE: "Dupla chance",
+  BTTS: "Ambas marcam",
+};
+
 function selectionLimitForDate(isoDate: string | null | undefined) {
   if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
   const [year, month, day] = isoDate.split("-").map(Number);
@@ -100,7 +109,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
       .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1);
 
     if (entries.length === 0) {
-      toast.error("Digite ao menos uma odd válida para um mercado experimental.");
+      toast.error("Digite pelo menos uma odd válida para comparar.");
       return;
     }
 
@@ -151,7 +160,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         search: { mode: "experimental" },
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha no Motor 2 experimental.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível comparar as odds.");
       setSubmitting(false);
     }
   }
@@ -162,35 +171,35 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   return (
     <section className="panel mt-8 overflow-hidden border-warning/50">
       <div className="border-b border-warning/30 bg-warning/10 px-6 py-4">
-        <p className="label-eyebrow text-warning">Piloto experimental · MERCADOS</p>
-        <h2 className="mt-1 text-lg font-semibold">Odds organizadas por jogo</h2>
+        <p className="label-eyebrow text-warning">Modo de teste</p>
+        <h2 className="mt-1 text-lg font-semibold">Mercados que passaram pelo filtro</h2>
         <p className="mt-1 text-sm font-semibold text-warning">
-          MODELOS EXPERIMENTAIS — NÃO VALIDADOS PARA PRODUÇÃO
+          Ainda estamos validando o modelo com resultados reais
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
-          Corners usa corners-baseline-v1. Gols, gols por time, 1X2, dupla chance e BTTS usam a mesma distribuição do goals-baseline-v1. Nenhum xG é inventado.
+          As chances abaixo são calculadas antes de olhar a odd. Agora você só precisa informar o preço da bet365 para ver se existe margem suficiente.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Limite da rodada: {selectionLimit} seleções ({selectionLimit === 3 ? "fim de semana" : "dia de semana"}). Todos os jogos e mercados competem pelo mesmo ranking final de EV.
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          As seleções finais do piloto são registradas no histórico experimental para posterior CLV, resultado e ROI.
+          Nesta rodada o sistema pode escolher até {selectionLimit} mercado(s). Se nada compensar, ele pode escolher nenhum.
         </p>
       </div>
 
       {isLoading ? (
         <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Preparando previsões experimentais…
+          <Loader2 className="size-4 animate-spin" /> Preparando os mercados…
         </div>
       ) : eligible.length === 0 ? (
         <div className="p-6 text-sm text-muted-foreground">
-          <p>Nenhum mercado experimental atingiu o gate de 65% nesta run.</p>
+          <p>Nenhum mercado passou pelo filtro mínimo de chance nesta rodada.</p>
           {(data?.issues ?? []).length > 0 && (
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-xs">
-              {data!.issues.slice(0, 16).map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
+            <details className="mt-4">
+              <summary className="cursor-pointer text-xs text-muted-foreground">Ver diagnóstico técnico</summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+                {data!.issues.slice(0, 16).map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       ) : (
@@ -207,12 +216,12 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-border bg-secondary/20 text-left">
-                        <th className="label-eyebrow px-4 py-3">Mercado</th>
-                        <th className="label-eyebrow px-4 py-3">Tipo</th>
-                        <th className="label-eyebrow px-4 py-3">Prob. exp.</th>
-                        <th className="label-eyebrow px-4 py-3">Fair odd</th>
-                        <th className="label-eyebrow px-4 py-3">Amostra</th>
-                        <th className="label-eyebrow w-36 px-4 py-3">Odd bet365</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Mercado</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Categoria</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Chance estimada</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Odd justa</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Base usada</th>
+                        <th className="w-36 px-4 py-3 text-xs text-muted-foreground">Odd bet365</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -221,14 +230,9 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                           key={candidate.predictionId}
                           className="border-b border-border/60 last:border-b-0"
                         >
-                          <td className="px-4 py-3">
-                            <div className="font-medium">{candidate.marketLabel}</div>
-                            <div className="mt-1 text-[11px] text-muted-foreground">
-                              {candidate.modelVersion}
-                            </div>
-                          </td>
-                          <td className="num px-4 py-3 text-xs text-muted-foreground">
-                            {candidate.family}
+                          <td className="px-4 py-3 font-medium">{candidate.marketLabel}</td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {FAMILY_LABELS[candidate.family] ?? candidate.family}
                           </td>
                           <td className="num px-4 py-3">
                             {pct(candidate.probabilityExperimental)}
@@ -236,8 +240,8 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                           <td className="num px-4 py-3">
                             {dec(candidate.fairOddExperimental)}
                           </td>
-                          <td className="num px-4 py-3">
-                            {candidate.sampleSize} time · {candidate.trainingMatches} liga
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {candidate.sampleSize} jogos do time · {candidate.trainingMatches} da liga
                           </td>
                           <td className="px-4 py-3">
                             <Input
@@ -250,7 +254,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                                 }))
                               }
                               className="num w-28"
-                              aria-label={`Odd experimental para ${group.matchLabel} — ${candidate.marketLabel}`}
+                              aria-label={`Odd bet365 para ${group.matchLabel} — ${candidate.marketLabel}`}
                             />
                           </td>
                         </tr>
@@ -264,7 +268,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
 
           <div className="border-t border-border p-6">
             <Button onClick={() => void evaluate()} disabled={submitting}>
-              {submitting ? "Calculando…" : "ANALISAR ODDS — PILOTO EXPERIMENTAL"}
+              {submitting ? "Comparando…" : "COMPARAR ODDS"}
             </Button>
           </div>
         </>
