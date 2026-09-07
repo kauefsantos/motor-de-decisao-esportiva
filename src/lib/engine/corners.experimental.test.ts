@@ -53,7 +53,10 @@ describe("validação experimental da temporada atual", () => {
 
   it("nunca reporta PRODUCTION_VALIDATED", () => {
     const out = validateExperimentalCurrentSeason(rows(40));
-    expect(JSON.stringify(out)).not.toContain("PRODUCTION_VALIDATED\"");
+    expect(out.status).not.toBe("PRODUCTION_VALIDATED");
+    if (out.status !== EXPERIMENTAL_STATUS) throw new Error("esperado experimental");
+    expect(out.calibrationVersion).toBeNull();
+    expect(out.productionStatus).toBe("MODEL_NOT_PRODUCTION_VALIDATED");
   });
 
   it("mantém apenas a temporada mais recente", () => {
