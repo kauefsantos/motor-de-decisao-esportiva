@@ -199,90 +199,8 @@ async function resolveMatches(db: Db, runId: string) {
       }
     }
 
-    if (localOk && !resolvedByApiFootball) {
 
-      const { sofascoreResolveMatch, SOFASCORE_DEFINITION_VERSION } = await import(
-        "./adapters/sofascore.server"
-      );
-      const out = await sofascoreResolveMatch(
-        { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
-        targetDate,
-      );
 
-      await db.from("source_fetches").insert({
-        run_id: runId,
-        match_id: m.id,
-        source: "sofascore",
-        status: out.fetch.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
-        http_status: out.fetch.httpStatus,
-        error_message: out.fetch.errorMessage,
-        fetched_at: out.fetch.fetchedAt,
-      });
-
-      if (!out.resolution) {
-        sourceUnavailable++;
-        sourceError = out.fetch.errorMessage;
-        reason = `${reason} SofaScore indisponível: ${out.fetch.errorMessage ?? "sem detalhe"}.`;
-      } else if (out.resolution.status === "MATCH_RESOLVED") {
-        external++;
-        status = "RESOLVED_SOFASCORE";
-        confidence = out.resolution.confidence;
-        reason = out.resolution.reason;
-        const event = out.events.find((e) => e.eventId === out.resolution!.eventId);
-        const rows = [
-          {
-            match_id: m.id,
-            source: "sofascore_event",
-            external_id: String(out.resolution.eventId),
-            confidence: out.resolution.confidence,
-          },
-          ...(event?.homeTeamId
-            ? [
-                {
-                  match_id: m.id,
-                  source: "sofascore_team_home",
-                  external_id: String(event.homeTeamId),
-                  confidence: out.resolution.confidence,
-                },
-              ]
-            : []),
-          ...(event?.awayTeamId
-            ? [
-                {
-                  match_id: m.id,
-                  source: "sofascore_team_away",
-                  external_id: String(event.awayTeamId),
-                  confidence: out.resolution.confidence,
-                },
-              ]
-            : []),
-        ];
-        await db.from("match_external_ids").insert(rows);
-      } else if (out.resolution.status === "MATCH_AMBIGUOUS") {
-        ambiguous++;
-        status = "MATCH_AMBIGUOUS";
-        confidence = out.resolution.confidence;
-        reason = out.resolution.reason;
-      } else {
-        notFound++;
-        status = "MATCH_NOT_FOUND";
-        confidence = out.resolution.confidence;
-        reason = out.resolution.reason;
-      }
-
-      await log(
-        db,
-        runId,
-        "RESOLVE",
-        `Resolução SofaScore para ${m.raw_partida}: ${status}`,
-        status === "RESOLVED_SOFASCORE" ? "INFO" : "WARN",
-        {
-          definitionVersion: SOFASCORE_DEFINITION_VERSION,
-          candidates: out.resolution?.candidates ?? [],
-          fetchStatus: out.fetch.status,
-        },
-      );
-    }
 
     // Desk Research (fontes públicas e abertas). Não substitui os adapters acima:
     // roda sempre que houver times normalizados, para permitir coleta histórica.
@@ -319,7 +237,7 @@ async function resolveMatches(db: Db, runId: string) {
         const url = research.dataset.fetches.find((f) => f.status === "OK")?.url ?? null;
         if (r.status === "MATCH_RESOLVED") {
           externalResearch++;
-          if (!resolvedByApiFootball && status !== "RESOLVED_SOFASCORE") {
+          if (!resolvedByApiFootball) {
             status = "RESOLVED_RESEARCH";
             confidence = r.confidence;
           }
@@ -407,8 +325,8 @@ async function resolveMatches(db: Db, runId: string) {
     .eq("id", runId);
 
   const summary = sourceUnavailable
-    ? `${resolved} partidas normalizadas localmente; SofaScore indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
-    : `${resolved} partidas normalizadas; ${external} com evento SofaScore, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
+    ? `${resolved} partidas normalizadas localmente; fonte indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
+    : `${resolved} partidas normalizadas; ${external} com evento externo, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
   await log(
     db,
     runId,
@@ -428,7 +346,7 @@ async function collect(db: Db, runId: string) {
   const perSource: Record<string, number> = {};
   const predictionAt = new Date().toISOString();
 
-  // 1) SofaScore: coleta histórica pré-jogo só para partidas com evento resolvido.
+  // 1) IDs externos já resolvidos por partida.
   const { data: externalIds } = await db
     .from("match_external_ids")
     .select("match_id, source, external_id")
@@ -515,61 +433,7 @@ async function collect(db: Db, runId: string) {
     }
   }
 
-  const { sofascoreTeamHistory, SOFASCORE_DEFINITION_VERSION } = await import(
-    "./adapters/sofascore.server"
-  );
 
-
-  let sofascoreObservations = 0;
-  for (const m of matches ?? []) {
-    const teams = (externalIds ?? []).filter(
-      (e) =>
-        e.match_id === m.id &&
-        (e.source === "sofascore_team_home" || e.source === "sofascore_team_away"),
-    );
-    if (teams.length === 0) {
-      perSource["sofascore:NO_EVENT"] = (perSource["sofascore:NO_EVENT"] ?? 0) + 1;
-      continue;
-    }
-    for (const team of teams) {
-      const scope = team.source === "sofascore_team_home" ? "HOME" : "AWAY";
-      const history = await sofascoreTeamHistory(Number(team.external_id), predictionAt);
-      for (const f of history.fetches) {
-        perSource[`sofascore:${f.status}`] = (perSource[`sofascore:${f.status}`] ?? 0) + 1;
-        await db.from("source_fetches").insert({
-          run_id: runId,
-          match_id: m.id,
-          source: "sofascore",
-          status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
-          http_status: f.httpStatus,
-          error_message: f.errorMessage,
-          fetched_at: f.fetchedAt,
-        });
-      }
-      if (history.observations.length > 0) {
-        sofascoreObservations += history.observations.length;
-        await db.from("raw_observations").insert(
-          history.observations.map((o) => ({
-            run_id: runId,
-            match_id: m.id,
-            source: "sofascore",
-            metric: `${scope}:${o.canonical}`,
-            raw_value: {
-              value: o.value,
-              sourceLabel: o.sourceLabel,
-              teamScope: scope,
-              statScope: o.scope,
-              contractCompatible: o.contractCompatible,
-              note: o.note,
-            } as never,
-            observed_at: null,
-            fetched_at: predictionAt,
-            definition_version: SOFASCORE_DEFINITION_VERSION,
-          })),
-        );
-      }
-    }
-  }
 
   // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos.
   {
@@ -774,10 +638,8 @@ async function collect(db: Db, runId: string) {
     db,
     runId,
     "COLLECT",
-    sofascoreObservations
-      ? `${sofascoreObservations} observações brutas coletadas na SofaScore; demais fontes sem credencial.`
-      : `Nenhuma observação bruta coletada. Estado por fonte registrado em source_fetches.`,
-    sofascoreObservations ? "INFO" : "WARN",
+    `Coleta concluída. Estado por fonte registrado em source_fetches.`,
+    "INFO",
     perSource,
   );
   return perSource;
