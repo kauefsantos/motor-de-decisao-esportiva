@@ -12,6 +12,9 @@ interface DbQuery extends PromiseLike<DbResponse> {
 interface UntypedDb {
   from(table: string): DbQuery;
 }
+interface UntypedRpc {
+  rpc(name: string, args?: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+}
 
 function bearer(request: Request): string | null {
   const match = /^Bearer ([^\s,]+)$/.exec(request.headers.get("authorization") ?? "");
@@ -35,9 +38,36 @@ async function authorized(request: Request): Promise<boolean> {
   return timingSafeEqual(Buffer.from(token), Buffer.from(expected));
 }
 
+async function seedEloSourceSecret() {
+  const key = process.env["FIVE_DOLLAR_FOOTBALL_API_KEY"]?.trim();
+  if (!key) {
+    return { ok: false as const, reason: "FIVE_DOLLAR_FOOTBALL_API_KEY não configurada no servidor." };
+  }
+  const client = supabaseAdmin as unknown as UntypedRpc;
+  const result = await client.rpc("elo_store_5dollar_key", { p_key: key });
+  if (result.error) throw new Error(`Falha ao semear segredo Elo: ${result.error.message}`);
+  return { ok: true as const };
+}
+
 export const Route = createFileRoute("/api/elo-sync")({
   server: {
     handlers: {
+      // Bootstrap idempotente: copia a chave já existente no backend para o Vault.
+      // Não retorna nem expõe o segredo. Em preview privado, o acesso ainda passa
+      // pela autenticação da própria Lovable.
+      GET: async () => {
+        try {
+          const seeded = await seedEloSourceSecret();
+          return Response.json(seeded.ok ? { status: "SEEDED" } : { status: "NOT_CONFIGURED", reason: seeded.reason }, {
+            status: seeded.ok ? 200 : 503,
+          });
+        } catch (error) {
+          return Response.json(
+            { status: "ERROR", error: error instanceof Error ? error.message : "Falha ao preparar Elo." },
+            { status: 500 },
+          );
+        }
+      },
       POST: async ({ request }) => {
         if (!(await authorized(request))) {
           return Response.json({ error: "Unauthorized" }, { status: 401 });
