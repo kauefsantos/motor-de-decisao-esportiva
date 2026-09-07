@@ -3,7 +3,6 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
-import { AppShell } from "@/components/AppShell";
 import { getCornersExperimentalReport } from "@/lib/corners-experimental.functions";
 
 export const Route = createFileRoute("/experimental/corners")({
@@ -38,10 +37,13 @@ function ExperimentalCorners() {
   });
 
   return (
-    <AppShell
-      title="Modo experimental — escanteios"
-      subtitle="Diagnóstico do modelo corners-baseline-v1 com partidas reais da temporada atual."
-    >
+    <main className="mx-auto max-w-[1100px] px-8 py-10">
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+        Modo experimental — escanteios
+      </h1>
+      <p className="mb-6 mt-1 text-sm text-muted-foreground">
+        Diagnóstico do modelo corners-baseline-v1 com partidas reais da temporada atual.
+      </p>
       <div className="rounded-lg border border-warning/50 bg-warning/10 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-warning">
         Modo experimental — não validado para produção
       </div>
@@ -180,7 +182,7 @@ function ExperimentalCorners() {
           </section>
         </div>
       )}
-    </AppShell>
+    </main>
   );
 }
 
