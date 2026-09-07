@@ -18,6 +18,8 @@ const pct = (value: number | null | undefined, digits = 1) =>
 const dec = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : Number(value).toFixed(2);
 
+const FAMILY_ORDER = ["CORNERS", "GOALS", "1X2", "BTTS"] as const;
+
 function selectionLimitForDate(isoDate: string | null | undefined) {
   if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
   const [year, month, day] = isoDate.split("-").map(Number);
@@ -50,13 +52,32 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     [data],
   );
 
-  const grouped = useMemo(() => {
-    const groups = new Map<string, typeof eligible>();
+  const groupedByMatch = useMemo(() => {
+    const groups = new Map<
+      string,
+      { matchId: string; matchLabel: string; competition: string; rows: typeof eligible }
+    >();
+
     for (const candidate of eligible) {
-      const key = candidate.family;
-      groups.set(key, [...(groups.get(key) ?? []), candidate]);
+      const current = groups.get(candidate.matchId) ?? {
+        matchId: candidate.matchId,
+        matchLabel: candidate.matchLabel,
+        competition: candidate.competition,
+        rows: [],
+      };
+      current.rows.push(candidate);
+      groups.set(candidate.matchId, current);
     }
-    return groups;
+
+    return [...groups.values()].map((group) => ({
+      ...group,
+      rows: [...group.rows].sort((a, b) => {
+        const familyA = FAMILY_ORDER.indexOf(a.family as (typeof FAMILY_ORDER)[number]);
+        const familyB = FAMILY_ORDER.indexOf(b.family as (typeof FAMILY_ORDER)[number]);
+        if (familyA !== familyB) return familyA - familyB;
+        return a.marketLabel.localeCompare(b.marketLabel, "pt-BR");
+      }),
+    }));
   }, [eligible]);
 
   async function evaluate() {
@@ -132,7 +153,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     <section className="panel mt-8 overflow-hidden border-warning/50">
       <div className="border-b border-warning/30 bg-warning/10 px-6 py-4">
         <p className="label-eyebrow text-warning">Piloto experimental · MERCADOS</p>
-        <h2 className="mt-1 text-lg font-semibold">Corners + Gols + 1X2 + BTTS</h2>
+        <h2 className="mt-1 text-lg font-semibold">Odds organizadas por jogo</h2>
         <p className="mt-1 text-sm font-semibold text-warning">
           MODELOS EXPERIMENTAIS — NÃO VALIDADOS PARA PRODUÇÃO
         </p>
@@ -140,7 +161,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           Corners usa corners-baseline-v1. Gols/1X2/BTTS usam goals-baseline-v1 com placares reais pré-jogo e Poisson independente. Nenhum xG é inventado.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Limite da rodada: {selectionLimit} seleções ({selectionLimit === 3 ? "fim de semana" : "dia de semana"}). Todos os mercados competem pelo mesmo ranking final de EV.
+          Limite da rodada: {selectionLimit} seleções ({selectionLimit === 3 ? "fim de semana" : "dia de semana"}). Todos os jogos e mercados competem pelo mesmo ranking final de EV.
         </p>
       </div>
 
@@ -159,45 +180,44 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         </div>
       ) : (
         <>
-          {["CORNERS", "GOALS", "1X2", "BTTS"].map((family) => {
-            const rows = grouped.get(family) ?? [];
-            if (rows.length === 0) return null;
-            return (
-              <div key={family} className="border-b border-border/70 last:border-b-0">
-                <div className="bg-secondary/30 px-6 py-3 text-sm font-semibold">{family}</div>
-                <div className="overflow-x-auto">
+          <div className="divide-y divide-border/70">
+            {groupedByMatch.map((group) => (
+              <article key={group.matchId} className="px-6 py-5">
+                <div className="mb-4">
+                  <h3 className="text-base font-semibold">{group.matchLabel}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{group.competition}</p>
+                </div>
+
+                <div className="overflow-x-auto rounded-md border border-border/70">
                   <table className="w-full border-collapse text-sm">
                     <thead>
-                      <tr className="border-b border-border text-left">
-                        <th className="label-eyebrow px-6 py-3">Jogo</th>
-                        <th className="label-eyebrow px-6 py-3">Mercado</th>
-                        <th className="label-eyebrow px-6 py-3">Prob. exp.</th>
-                        <th className="label-eyebrow px-6 py-3">Fair odd exp.</th>
-                        <th className="label-eyebrow px-6 py-3">Amostra</th>
-                        <th className="label-eyebrow w-36 px-6 py-3">Odd bet365</th>
+                      <tr className="border-b border-border bg-secondary/20 text-left">
+                        <th className="label-eyebrow px-4 py-3">Mercado</th>
+                        <th className="label-eyebrow px-4 py-3">Tipo</th>
+                        <th className="label-eyebrow px-4 py-3">Prob. exp.</th>
+                        <th className="label-eyebrow px-4 py-3">Fair odd</th>
+                        <th className="label-eyebrow px-4 py-3">Amostra</th>
+                        <th className="label-eyebrow w-36 px-4 py-3">Odd bet365</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((candidate) => (
-                        <tr key={candidate.predictionId} className="border-b border-border/60">
-                          <td className="px-6 py-4">
-                            <div>{candidate.matchLabel}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{candidate.competition}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div>{candidate.marketLabel}</div>
+                      {group.rows.map((candidate) => (
+                        <tr key={candidate.predictionId} className="border-b border-border/60 last:border-b-0">
+                          <td className="px-4 py-3">
+                            <div className="font-medium">{candidate.marketLabel}</div>
                             <div className="mt-1 text-[11px] text-muted-foreground">{candidate.modelVersion}</div>
                           </td>
-                          <td className="num px-6 py-4">{pct(candidate.probabilityExperimental)}</td>
-                          <td className="num px-6 py-4">{dec(candidate.fairOddExperimental)}</td>
-                          <td className="num px-6 py-4">{candidate.sampleSize} time · {candidate.trainingMatches} liga</td>
-                          <td className="px-6 py-4">
+                          <td className="num px-4 py-3 text-xs text-muted-foreground">{candidate.family}</td>
+                          <td className="num px-4 py-3">{pct(candidate.probabilityExperimental)}</td>
+                          <td className="num px-4 py-3">{dec(candidate.fairOddExperimental)}</td>
+                          <td className="num px-4 py-3">{candidate.sampleSize} time · {candidate.trainingMatches} liga</td>
+                          <td className="px-4 py-3">
                             <Input
                               inputMode="decimal"
                               value={odds[candidate.predictionId] ?? ""}
                               onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))}
                               className="num w-28"
-                              aria-label={`Odd experimental para ${candidate.marketLabel}`}
+                              aria-label={`Odd experimental para ${group.matchLabel} — ${candidate.marketLabel}`}
                             />
                           </td>
                         </tr>
@@ -205,11 +225,11 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                     </tbody>
                   </table>
                 </div>
-              </div>
-            );
-          })}
+              </article>
+            ))}
+          </div>
 
-          <div className="p-6">
+          <div className="border-t border-border p-6">
             <Button onClick={() => void evaluate()} disabled={submitting}>
               {submitting ? "Calculando…" : "ANALISAR ODDS — PILOTO EXPERIMENTAL"}
             </Button>
