@@ -6,6 +6,7 @@ import { ChevronDown, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
+import { ExperimentalCornersPilot } from "@/components/ExperimentalCornersPilot";
 import { SourceAudit } from "@/components/SourceAudit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,9 +72,10 @@ function OpportunitiesScreen() {
         return {
           candidateId,
           odd,
-          lineAtEntry: candidate?.line_canonical === null || candidate?.line_canonical === undefined
-            ? null
-            : Number(candidate.line_canonical),
+          lineAtEntry:
+            candidate?.line_canonical === null || candidate?.line_canonical === undefined
+              ? null
+              : Number(candidate.line_canonical),
         };
       })
       .filter((e) => Number.isFinite(e.odd) && e.odd > 1);
@@ -109,11 +111,11 @@ function OpportunitiesScreen() {
 
       {!isLoading && published.length === 0 && (
         <div className="panel mt-8 p-8">
-          <p className="font-medium">Nenhum contrato foi publicado pelo motor de oportunidade.</p>
+          <p className="font-medium">Nenhum contrato foi publicado pelo motor de produção.</p>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Nenhuma fonte de dados está configurada e nenhum modelo está validado em produção, então
-            o motor bloqueou os mercados em vez de inventar probabilidade. Abra a lista abaixo para
-            ver o motivo contrato a contrato.
+            Os contratos de produção continuam bloqueados enquanto o modelo não estiver validado e
+            calibrado. O piloto experimental de escanteios aparece separadamente abaixo quando houver
+            dados suficientes.
           </p>
         </div>
       )}
@@ -144,6 +146,8 @@ function OpportunitiesScreen() {
           </table>
         </div>
       )}
+
+      {!isLoading && <ExperimentalCornersPilot runId={runId} />}
 
       <div className="panel mt-6">
         <button
@@ -186,19 +190,21 @@ function OpportunitiesScreen() {
         </div>
       )}
 
-      <div className="sticky bottom-0 mt-8 border-t border-border bg-background/90 py-5 backdrop-blur">
-        <Button
-          size="lg"
-          className="w-full text-base"
-          disabled={submitting || published.length === 0}
-          onClick={() => void analisar()}
-        >
-          {submitting ? "Analisando…" : "ANALISAR ODDS"}
-        </Button>
-        <p className="mt-2 text-center text-xs text-muted-foreground">
-          Só as odds válidas serão avaliadas. Mudança de mercado ou de linha exige novo forecast.
-        </p>
-      </div>
+      {published.length > 0 && (
+        <div className="sticky bottom-0 mt-8 border-t border-border bg-background/90 py-5 backdrop-blur">
+          <Button
+            size="lg"
+            className="w-full text-base"
+            disabled={submitting || published.length === 0}
+            onClick={() => void analisar()}
+          >
+            {submitting ? "Analisando…" : "ANALISAR ODDS"}
+          </Button>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            Fluxo de produção. O piloto experimental é avaliado separadamente acima.
+          </p>
+        </div>
+      )}
       <SourceAudit runId={runId} refreshKey={0} />
     </AppShell>
   );
