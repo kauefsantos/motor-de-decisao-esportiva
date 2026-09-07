@@ -28,6 +28,7 @@ type Config = {
   initial_bankroll: number | string;
   max_stake_pct: number | string;
   fractional_kelly: number | string;
+  min_stake_brl: number | string;
 };
 
 async function db() {
@@ -44,11 +45,17 @@ function floorCents(value: number) {
   return Math.max(0, Math.floor(value * 100 + 1e-9) / 100);
 }
 
+function operationalMaxStake(bankroll: number, maxStakePct: number, minStakeBrl: number) {
+  if (!(bankroll >= minStakeBrl) || !(minStakeBrl > 0)) return 0;
+  const proportional = floorCents(bankroll * maxStakePct);
+  return Math.min(bankroll, Math.max(minStakeBrl, proportional));
+}
+
 async function bankrollSnapshot(rawDb: Awaited<ReturnType<typeof db>>) {
   const [{ data: config, error: configError }, { data: rows, error: rowsError }] = await Promise.all([
     rawDb
       .from("experimental_bankroll_config")
-      .select("initial_bankroll,max_stake_pct,fractional_kelly")
+      .select("initial_bankroll,max_stake_pct,fractional_kelly,min_stake_brl")
       .eq("id", "main")
       .single(),
     rawDb
@@ -68,31 +75,51 @@ async function bankrollSnapshot(rawDb: Awaited<ReturnType<typeof db>>) {
     .reduce((sum, row) => sum + num(row.stake_brl), 0);
   const equity = num(cfg.initial_bankroll) + settledProfit;
   const available = Math.max(0, equity - locked);
+  const maxStakePct = num(cfg.max_stake_pct, 0.05);
+  const fractionalKelly = num(cfg.fractional_kelly, 0.25);
+  const minStakeBrl = num(cfg.min_stake_brl, 0.5);
   return {
     equity,
     available,
     locked,
-    maxStakePct: num(cfg.max_stake_pct, 0.02),
-    fractionalKelly: num(cfg.fractional_kelly, 0.25),
+    maxStakePct,
+    fractionalKelly,
+    minStakeBrl,
+    maxAllowedStake: operationalMaxStake(available, maxStakePct, minStakeBrl),
   };
 }
 
-function hardCap(bankroll: number, maxStakePct: number) {
-  return floorCents(bankroll * maxStakePct);
-}
-
-function suggestion(row: TrackingRow, bankroll: number, maxStakePct: number, fractionalKelly: number) {
+function suggestion(
+  row: TrackingRow,
+  bankroll: number,
+  maxStakePct: number,
+  fractionalKelly: number,
+  minStakeBrl: number,
+) {
   const odd = num(row.entry_odd);
   const ev = Math.max(0, num(row.expected_value));
-  const maxAllowed = hardCap(bankroll, maxStakePct);
+  const maxAllowed = operationalMaxStake(bankroll, maxStakePct, minStakeBrl);
+  if (maxAllowed <= 0 || ev <= 0) {
+    return { suggestedStake: 0, maxAllowedStake: maxAllowed, minimumStake: minStakeBrl };
+  }
+
   // Para binários, EV/(odd-1) coincide com Kelly bruto. Para asiáticos,
-  // usamos esta razão apenas como freio conservador de exposição, nunca como
-  // probabilidade/modelo adicional.
+  // usamos a razão apenas como freio conservador, sem criar nova probabilidade.
   const edgeFraction = odd > 1 ? ev / (odd - 1) : 0;
-  const secondaryCap = Math.max(0, edgeFraction * fractionalKelly * bankroll);
+  const kellyStake = Math.max(0, edgeFraction * fractionalKelly * bankroll);
+  const modelStake = floorCents(Math.min(maxAllowed, kellyStake));
+
+  // A bet365 não aceita valor positivo abaixo do piso operacional. Quando o
+  // cálculo matemático cai abaixo dele, o sistema explicita a adaptação em vez
+  // de fingir que R$ 0,10/R$ 0,20 são executáveis.
+  const suggestedStake = modelStake > 0 && modelStake < minStakeBrl
+    ? Math.min(maxAllowed, minStakeBrl)
+    : modelStake;
+
   return {
-    suggestedStake: floorCents(Math.min(maxAllowed, secondaryCap)),
+    suggestedStake,
     maxAllowedStake: maxAllowed,
+    minimumStake: minStakeBrl,
   };
 }
 
@@ -117,7 +144,13 @@ export const getExperimentalBetPlan = createServerFn({ method: "GET" })
     const declined = all.filter((row) => row.bet_status === "DECLINED");
     const next = proposed[0] ?? null;
     const stakePlan = next
-      ? suggestion(next, snapshot.available, snapshot.maxStakePct, snapshot.fractionalKelly)
+      ? suggestion(
+          next,
+          snapshot.available,
+          snapshot.maxStakePct,
+          snapshot.fractionalKelly,
+          snapshot.minStakeBrl,
+        )
       : null;
 
     return {
@@ -163,14 +196,20 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       return { status: "DECLINED" as const, stakeBrl: 0, availableAfter: snapshot.available };
     }
 
+    if (stake < snapshot.minStakeBrl - 1e-9) {
+      throw new Error(
+        `A aposta mínima da bet365 é R$ ${snapshot.minStakeBrl.toFixed(2).replace(".", ",")}. Use 0 para recusar ou informe pelo menos esse valor.`,
+      );
+    }
+
     if (stake > snapshot.available + 1e-9) {
       throw new Error(`O valor informado supera o saldo disponível de R$ ${snapshot.available.toFixed(2).replace(".", ",")}.`);
     }
 
-    const maxAllowed = hardCap(snapshot.available, snapshot.maxStakePct);
+    const maxAllowed = operationalMaxStake(snapshot.available, snapshot.maxStakePct, snapshot.minStakeBrl);
     if (stake > maxAllowed + 1e-9) {
       throw new Error(
-        `O limite desta aposta é R$ ${maxAllowed.toFixed(2).replace(".", ",")} (${(snapshot.maxStakePct * 100).toFixed(0)}% do saldo disponível).`,
+        `O limite operacional desta aposta é R$ ${maxAllowed.toFixed(2).replace(".", ",")} (piso de R$ ${snapshot.minStakeBrl.toFixed(2).replace(".", ",")} ou ${(snapshot.maxStakePct * 100).toFixed(0)}% do saldo, o que for maior).`,
       );
     }
 
@@ -191,6 +230,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       stakeBrl: stake,
       availableAfter: Math.max(0, snapshot.available - stake),
       maxAllowed,
+      minimumStake: snapshot.minStakeBrl,
     };
   });
 
