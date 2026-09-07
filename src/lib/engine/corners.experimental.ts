@@ -191,7 +191,6 @@ export function validateExperimentalCurrentSeason(
   metrics.beatsBaselineMae = metrics.modelMae < metrics.baselineMae;
   metrics.beatsBaselineRmse = metrics.modelRmse < metrics.baselineRmse;
 
-  const production = temporalSplit(usable);
   return {
     status: EXPERIMENTAL_STATUS,
     modelVersion: CORNERS_MODEL_VERSION,
@@ -202,10 +201,7 @@ export function validateExperimentalCurrentSeason(
     productionGap: {
       requiredTrain: MIN_TRAIN_MATCHES,
       requiredTest: MIN_TEST_MATCHES,
-      missingMatches: Math.max(
-        0,
-        MIN_TRAIN_MATCHES + MIN_TEST_MATCHES - usable.length,
-      ) + (production.train.length >= MIN_TRAIN_MATCHES ? 0 : 0),
+      missingMatches: Math.max(0, MIN_TRAIN_MATCHES + MIN_TEST_MATCHES - usable.length),
     },
   };
 }
