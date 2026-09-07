@@ -9,6 +9,9 @@ import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./
 export type { PipelineStepKey } from "./pipeline.steps";
 import type { PipelineStepKey } from "./pipeline.steps";
 
+/** Desk Research (fontes públicas) só roda com ENABLE_DESK_RESEARCH=true no servidor. */
+const DESK_RESEARCH_ENABLED = process.env["ENABLE_DESK_RESEARCH"] === "true";
+
 type Db = Awaited<ReturnType<typeof getDb>>;
 
 async function getDb() {
