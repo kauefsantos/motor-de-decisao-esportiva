@@ -433,61 +433,8 @@ async function collect(db: Db, runId: string) {
     }
   }
 
-  const { sofascoreTeamHistory, SOFASCORE_DEFINITION_VERSION } = await import(
-    "./adapters/sofascore.server"
-  );
+  const sofascoreObservations = 0;
 
-
-  let sofascoreObservations = 0;
-  for (const m of matches ?? []) {
-    const teams = (externalIds ?? []).filter(
-      (e) =>
-        e.match_id === m.id &&
-        (e.source === "sofascore_team_home" || e.source === "sofascore_team_away"),
-    );
-    if (teams.length === 0) {
-      perSource["sofascore:NO_EVENT"] = (perSource["sofascore:NO_EVENT"] ?? 0) + 1;
-      continue;
-    }
-    for (const team of teams) {
-      const scope = team.source === "sofascore_team_home" ? "HOME" : "AWAY";
-      const history = await sofascoreTeamHistory(Number(team.external_id), predictionAt);
-      for (const f of history.fetches) {
-        perSource[`sofascore:${f.status}`] = (perSource[`sofascore:${f.status}`] ?? 0) + 1;
-        await db.from("source_fetches").insert({
-          run_id: runId,
-          match_id: m.id,
-          source: "sofascore",
-          status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
-          http_status: f.httpStatus,
-          error_message: f.errorMessage,
-          fetched_at: f.fetchedAt,
-        });
-      }
-      if (history.observations.length > 0) {
-        sofascoreObservations += history.observations.length;
-        await db.from("raw_observations").insert(
-          history.observations.map((o) => ({
-            run_id: runId,
-            match_id: m.id,
-            source: "sofascore",
-            metric: `${scope}:${o.canonical}`,
-            raw_value: {
-              value: o.value,
-              sourceLabel: o.sourceLabel,
-              teamScope: scope,
-              statScope: o.scope,
-              contractCompatible: o.contractCompatible,
-              note: o.note,
-            } as never,
-            observed_at: null,
-            fetched_at: predictionAt,
-            definition_version: SOFASCORE_DEFINITION_VERSION,
-          })),
-        );
-      }
-    }
-  }
 
   // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos.
   {
