@@ -1,0 +1,5 @@
+-- A rotina operacional é instalada via pg_cron após o deploy da rota /api/elo-sync.
+-- Horário desejado: 05:00 America/Sao_Paulo = 08:00 UTC.
+-- Mantemos o schedule fora da migração automática porque a URL do ambiente é
+-- específica do projeto/deploy. A instalação é feita uma vez no Supabase e o
+-- estado fica auditável na tabela cron.job.
