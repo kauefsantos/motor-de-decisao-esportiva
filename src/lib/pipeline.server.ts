@@ -12,6 +12,9 @@ import type { PipelineStepKey } from "./pipeline.steps";
 /** Desk Research (fontes públicas) só roda com ENABLE_DESK_RESEARCH=true no servidor. */
 const DESK_RESEARCH_ENABLED = process.env["ENABLE_DESK_RESEARCH"] === "true";
 
+/** Provider 5Dollar ativo => usa a API NATIVA v1 (o host de compatibilidade não cobre os endpoints). */
+const FIVE_DOLLAR_ACTIVE = process.env["FOOTBALL_API_PROVIDER"] === "five_dollar";
+
 type Db = Awaited<ReturnType<typeof getDb>>;
 
 async function getDb() {
