@@ -1147,7 +1147,7 @@ async function markets(db: Db, runId: string) {
       matchLabel: m.home_team && m.away_team ? `${m.home_team} x ${m.away_team}` : m.raw_partida,
       league: m.competition ?? "",
       kickoff: m.kickoff_local,
-      predictionAt: new Date().toISOString(),
+      predictionAt: predictionAtRun,
       features: new Map(
         (normalized ?? [])
           .filter((n) => n.match_id === m.id)
