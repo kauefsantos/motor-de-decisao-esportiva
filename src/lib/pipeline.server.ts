@@ -1,21 +1,23 @@
-// Orquestração do pipeline. Server-only.
-// CSV Parser -> Match Resolver -> Data Collector -> Data Cleaner -> Feature Engine
-// -> Probability Engine -> Opportunity Engine (Motor 1).
+// Pipeline único: CSV -> resolução -> coleta -> limpeza -> features -> modelo -> mercados.
+// Provedores suportados: 5DollarFootballAPI (padrão) e API-Football/API-Sports.
 
-import { collectFromSources, adapterSources } from "./adapters/sources.server";
 import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
 
 export type { PipelineStepKey } from "./pipeline.steps";
 import type { PipelineStepKey } from "./pipeline.steps";
 
-/** Desk Research (fontes públicas) só roda com ENABLE_DESK_RESEARCH=true no servidor. */
-const DESK_RESEARCH_ENABLED = process.env["ENABLE_DESK_RESEARCH"] === "true";
-
-/** Provider 5Dollar ativo => usa a API NATIVA v1 (o host de compatibilidade não cobre os endpoints). */
-const FIVE_DOLLAR_ACTIVE = process.env["FOOTBALL_API_PROVIDER"] === "five_dollar";
-
+type ProviderId = "five_dollar" | "api_sports";
 type Db = Awaited<ReturnType<typeof getDb>>;
+
+function activeProvider(): ProviderId {
+  const explicit = process.env["FOOTBALL_API_PROVIDER"]?.trim();
+  if (explicit === "api_sports") return "api_sports";
+  if (explicit === "five_dollar") return "five_dollar";
+  if (process.env["FIVE_DOLLAR_FOOTBALL_API_KEY"]?.trim()) return "five_dollar";
+  if (process.env["API_FOOTBALL_KEY"]?.trim()) return "api_sports";
+  return "five_dollar";
+}
 
 async function getDb() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -30,12 +32,10 @@ async function log(
   level: "INFO" | "WARN" | "ERROR" = "INFO",
   payload: Record<string, unknown> = {},
 ) {
-  await db
-    .from("pipeline_logs")
-    .insert({ run_id: runId, step, level, message, payload: payload as never });
+  await db.from("pipeline_logs").insert({ run_id: runId, step, level, message, payload: payload as never });
 }
 
-const SEPARATOR = /\s+(?:x|vs?|-)\s+/i;
+const SEPARATOR = /\s+(?:x|vs?|-)+\s+/i;
 
 function parseTeams(partida: string): { home: string | null; away: string | null } {
   const parts = partida.split(SEPARATOR);
@@ -45,11 +45,9 @@ function parseTeams(partida: string): { home: string | null; away: string | null
 
 function parseKickoff(targetDate: string | null, horario: string): string | null {
   const m = horario.match(/(\d{1,2})[:h](\d{2})/);
-  if (!m) return null;
-  const date = targetDate ?? new Date().toISOString().slice(0, 10);
+  if (!m || !targetDate) return null;
   const hh = m[1]!.padStart(2, "0");
-  // America/Sao_Paulo (UTC-03:00, sem horário de verão)
-  return `${date}T${hh}:${m[2]}:00-03:00`;
+  return `${targetDate}T${hh}:${m[2]}:00-03:00`;
 }
 
 export async function executeStep(runId: string, step: PipelineStepKey) {
@@ -60,185 +58,140 @@ export async function executeStep(runId: string, step: PipelineStepKey) {
     .eq("id", runId);
 
   switch (step) {
-    case "RESOLVE":
-      return resolveMatches(db, runId);
-    case "COLLECT":
-      return collect(db, runId);
-    case "CLEAN":
-      return clean(db, runId);
-    case "FEATURES":
-      return features(db, runId);
-    case "PROBABILITY":
-      return probability(db, runId);
-    case "GATES":
-      return gates(db, runId);
-    case "MARKETS":
-      return markets(db, runId);
+    case "RESOLVE": return resolveMatches(db, runId);
+    case "COLLECT": return collect(db, runId);
+    case "CLEAN": return clean(db, runId);
+    case "FEATURES": return features(db, runId);
+    case "PROBABILITY": return probability(db, runId);
+    case "GATES": return gates(db, runId);
+    case "MARKETS": return markets(db, runId);
   }
 }
 
-/**
- * prediction_at ÚNICO da análise: gravado na criação da run e reutilizado
- * por resolução, coleta, limpeza, features e modelo (sem leakage temporal).
- */
 async function runPredictionAt(db: Db, runId: string): Promise<string> {
-  const { data: run } = await db
-    .from("analysis_runs")
-    .select("notes, created_at")
-    .eq("id", runId)
-    .single();
+  const { data: run } = await db.from("analysis_runs").select("notes, created_at").eq("id", runId).single();
   const stored = (run?.notes as { prediction_at?: unknown } | null)?.prediction_at;
   if (typeof stored === "string" && Number.isFinite(Date.parse(stored))) return stored;
-
   const fallback = run?.created_at ?? new Date().toISOString();
   const notes = { ...((run?.notes as Record<string, unknown> | null) ?? {}), prediction_at: fallback };
   await db.from("analysis_runs").update({ notes: notes as never }).eq("id", runId);
   return fallback;
 }
 
+async function replaceExternalIds(
+  db: Db,
+  matchId: string,
+  fixtureSource: string,
+  homeSource: string,
+  awaySource: string,
+  eventId: number,
+  homeTeamId: number | null,
+  awayTeamId: number | null,
+  confidence: number,
+) {
+  await db.from("match_external_ids").delete().eq("match_id", matchId).in("source", [fixtureSource, homeSource, awaySource]);
+  await db.from("match_external_ids").insert([
+    { match_id: matchId, source: fixtureSource, external_id: String(eventId), confidence },
+    ...(homeTeamId ? [{ match_id: matchId, source: homeSource, external_id: String(homeTeamId), confidence }] : []),
+    ...(awayTeamId ? [{ match_id: matchId, source: awaySource, external_id: String(awayTeamId), confidence }] : []),
+  ]);
+}
+
 async function resolveMatches(db: Db, runId: string) {
+  const provider = activeProvider();
   const { data: run } = await db.from("analysis_runs").select("target_date").eq("id", runId).single();
-  const predictionAtRun = await runPredictionAt(db, runId);
+  const targetDate = run?.target_date;
+  const predictionAt = await runPredictionAt(db, runId);
   const { data: matches } = await db
     .from("matches")
     .select("id, raw_partida, raw_horario, raw_campeonato")
     .eq("run_id", runId);
 
-  const targetDate = run?.target_date ?? new Date().toISOString().slice(0, 10);
   let resolved = 0;
   let failed = 0;
   let external = 0;
   let ambiguous = 0;
   let notFound = 0;
   let sourceUnavailable = 0;
-  let externalResearch = 0;
-  let sourceError: string | null = null;
+
+  if (!targetDate) {
+    await log(db, runId, "RESOLVE", "Run sem target_date. O CSV deve conter a coluna Data.", "ERROR");
+    return { resolved: 0, failed: matches?.length ?? 0, external: 0, ambiguous: 0, notFound: 0, sourceUnavailable: 1, provider };
+  }
 
   for (const m of matches ?? []) {
     const { home, away } = parseTeams(m.raw_partida);
-    const kickoff = parseKickoff(run?.target_date ?? null, m.raw_horario);
+    const kickoff = parseKickoff(targetDate, m.raw_horario);
     const localOk = Boolean(home && away && kickoff);
-    if (localOk) resolved++;
-    else failed++;
+    if (localOk) resolved += 1;
+    else failed += 1;
 
     let status = localOk ? "RESOLVED_LOCAL" : "UNRESOLVED";
-    let reason = localOk
-      ? "Normalização local do CSV."
-      : "Não foi possível separar mandante/visitante ou horário.";
+    let reason = localOk ? "Normalização local do CSV." : "Não foi possível separar mandante/visitante, data ou horário.";
     let confidence = localOk ? 0.6 : 0;
 
-    let resolvedByApiFootball = false;
-
-    // Fonte 5Dollar: API NATIVA (v1). Identidade própria no lineage; IDs nunca
-    // misturados com os da API-Sports.
-    if (localOk && FIVE_DOLLAR_ACTIVE) {
-      const {
-        fiveDollarResolveMatch,
-        fiveDollarConfigured,
-        FIVE_DOLLAR_SOURCE,
-        FIVE_DOLLAR_DEFINITION_VERSION,
-      } = await import("./adapters/five_dollar.server");
-
-      if (fiveDollarConfigured()) {
-        const fd = await fiveDollarResolveMatch(
-          { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
-          targetDate,
-        );
-
+    if (localOk && provider === "five_dollar") {
+      const { fiveDollarResolveMatch, fiveDollarConfigured, FIVE_DOLLAR_SOURCE, FIVE_DOLLAR_DEFINITION_VERSION } = await import("./adapters/five_dollar.server");
+      if (!fiveDollarConfigured()) {
+        sourceUnavailable += 1;
+        await db.from("source_fetches").insert({
+          run_id: runId, match_id: m.id, source: FIVE_DOLLAR_SOURCE, status: "NOT_CONFIGURED", http_status: null,
+          error_message: "FIVE_DOLLAR_FOOTBALL_API_KEY ausente no servidor.", fetched_at: new Date().toISOString(),
+        });
+      } else {
+        const fd = await fiveDollarResolveMatch({ homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff }, targetDate);
         await db.from("source_fetches").insert({
           run_id: runId,
           match_id: m.id,
           source: FIVE_DOLLAR_SOURCE,
-          status:
-            fd.fetch.status === "OK"
-              ? "OK"
-              : fd.fetch.status === "RATE_LIMITED"
-                ? "RATE_LIMITED"
-                : "SOURCE_UNAVAILABLE",
+          status: fd.fetch.status === "OK" ? "OK" : fd.fetch.status === "RATE_LIMITED" ? "RATE_LIMITED" : "SOURCE_UNAVAILABLE",
           http_status: fd.fetch.httpStatus,
           error_message: fd.fetch.errorMessage,
           fetched_at: fd.fetch.fetchedAt,
         });
 
         if (fd.resolution?.status === "MATCH_RESOLVED") {
-          resolvedByApiFootball = true;
-          external++;
+          external += 1;
           status = "RESOLVED_FIVE_DOLLAR";
-          confidence = fd.resolution.confidence;
           reason = fd.resolution.reason;
+          confidence = fd.resolution.confidence;
           const event = fd.events.find((e) => e.eventId === fd.resolution!.eventId);
-          await db.from("match_external_ids").insert([
-            {
-              match_id: m.id,
-              source: "five_dollar_fixture",
-              external_id: String(fd.resolution.eventId),
-              confidence: fd.resolution.confidence,
-            },
-            ...(event?.homeTeamId
-              ? [
-                  {
-                    match_id: m.id,
-                    source: "five_dollar_team_home",
-                    external_id: String(event.homeTeamId),
-                    confidence: fd.resolution.confidence,
-                  },
-                ]
-              : []),
-            ...(event?.awayTeamId
-              ? [
-                  {
-                    match_id: m.id,
-                    source: "five_dollar_team_away",
-                    external_id: String(event.awayTeamId),
-                    confidence: fd.resolution.confidence,
-                  },
-                ]
-              : []),
-          ]);
-        } else if (fd.resolution) {
+          await replaceExternalIds(db, m.id, "five_dollar_fixture", "five_dollar_team_home", "five_dollar_team_away", fd.resolution.eventId!, event?.homeTeamId ?? null, event?.awayTeamId ?? null, fd.resolution.confidence);
+        } else if (fd.resolution?.status === "MATCH_AMBIGUOUS") {
+          ambiguous += 1;
+          reason = `${reason} 5Dollar: ${fd.resolution.reason}`;
+        } else if (fd.resolution?.status === "MATCH_NOT_FOUND") {
+          notFound += 1;
           reason = `${reason} 5Dollar: ${fd.resolution.reason}`;
         } else {
-          sourceUnavailable++;
-          sourceError = fd.fetch.errorMessage;
+          sourceUnavailable += 1;
           reason = `${reason} 5Dollar indisponível: ${fd.fetch.errorMessage ?? "sem detalhe"}.`;
         }
 
-        await log(
-          db,
-          runId,
-          "RESOLVE",
-          `Resolução 5Dollar (nativa) para ${m.raw_partida}: ${fd.resolution?.status ?? fd.fetch.status}`,
-          resolvedByApiFootball ? "INFO" : "WARN",
-          {
-            definitionVersion: FIVE_DOLLAR_DEFINITION_VERSION,
-            endpoint: fd.fetch.path,
-            httpStatus: fd.fetch.httpStatus,
-            fetchedAt: fd.fetch.fetchedAt,
-            rateLimit: fd.fetch.rateLimit,
-            predictionAt: predictionAtRun,
-            candidates: fd.resolution?.candidates ?? [],
-          },
-        );
+        await log(db, runId, "RESOLVE", `Resolução 5Dollar para ${m.raw_partida}: ${fd.resolution?.status ?? fd.fetch.status}`, fd.resolution?.status === "MATCH_RESOLVED" ? "INFO" : "WARN", {
+          provider,
+          definitionVersion: FIVE_DOLLAR_DEFINITION_VERSION,
+          endpoint: fd.fetch.path,
+          httpStatus: fd.fetch.httpStatus,
+          fetchedAt: fd.fetch.fetchedAt,
+          rateLimit: fd.fetch.rateLimit,
+          predictionAt,
+          targetDate,
+          candidates: fd.resolution?.candidates ?? [],
+        });
       }
     }
 
-    if (localOk && !FIVE_DOLLAR_ACTIVE) {
-      // Fonte principal: API-Football (credencial server-side). Nunca fabrica dados.
-      const {
-        apiFootballResolveMatch,
-        apiFootballConfigured,
-        apiFootballDefinitionVersion,
-        apiFootballSource,
-      } = await import("./adapters/api_football.server");
-      const API_FOOTBALL_DEFINITION_VERSION = apiFootballDefinitionVersion();
-      const API_FOOTBALL_SOURCE = apiFootballSource();
-
-      if (apiFootballConfigured()) {
-        const af = await apiFootballResolveMatch(
-          { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
-          targetDate,
-        );
-
+    if (localOk && provider === "api_sports") {
+      const { apiFootballResolveMatch, apiFootballConfigured, API_FOOTBALL_SOURCE, API_FOOTBALL_DEFINITION_VERSION } = await import("./adapters/api_football.server");
+      if (!apiFootballConfigured()) {
+        sourceUnavailable += 1;
+        await db.from("source_fetches").insert({
+          run_id: runId, match_id: m.id, source: API_FOOTBALL_SOURCE, status: "NOT_CONFIGURED", http_status: null,
+          error_message: "API_FOOTBALL_KEY ausente no servidor.", fetched_at: new Date().toISOString(),
+        });
+      } else {
+        const af = await apiFootballResolveMatch({ homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff }, targetDate);
         await db.from("source_fetches").insert({
           run_id: runId,
           match_id: m.id,
@@ -250,249 +203,73 @@ async function resolveMatches(db: Db, runId: string) {
         });
 
         if (af.resolution?.status === "MATCH_RESOLVED") {
-          resolvedByApiFootball = true;
-          external++;
+          external += 1;
           status = "RESOLVED_API_FOOTBALL";
-          confidence = af.resolution.confidence;
           reason = af.resolution.reason;
+          confidence = af.resolution.confidence;
           const event = af.events.find((e) => e.eventId === af.resolution!.eventId);
-          await db.from("match_external_ids").insert([
-            {
-              match_id: m.id,
-              source: "api_football_fixture",
-              external_id: String(af.resolution.eventId),
-              confidence: af.resolution.confidence,
-            },
-            ...(event?.homeTeamId
-              ? [
-                  {
-                    match_id: m.id,
-                    source: "api_football_team_home",
-                    external_id: String(event.homeTeamId),
-                    confidence: af.resolution.confidence,
-                  },
-                ]
-              : []),
-            ...(event?.awayTeamId
-              ? [
-                  {
-                    match_id: m.id,
-                    source: "api_football_team_away",
-                    external_id: String(event.awayTeamId),
-                    confidence: af.resolution.confidence,
-                  },
-                ]
-              : []),
-          ]);
-        } else if (af.resolution) {
+          await replaceExternalIds(db, m.id, "api_football_fixture", "api_football_team_home", "api_football_team_away", af.resolution.eventId!, event?.homeTeamId ?? null, event?.awayTeamId ?? null, af.resolution.confidence);
+        } else if (af.resolution?.status === "MATCH_AMBIGUOUS") {
+          ambiguous += 1;
+          reason = `${reason} API-Football: ${af.resolution.reason}`;
+        } else if (af.resolution?.status === "MATCH_NOT_FOUND") {
+          notFound += 1;
           reason = `${reason} API-Football: ${af.resolution.reason}`;
         } else {
-          sourceUnavailable++;
-          sourceError = af.fetch.errorMessage;
+          sourceUnavailable += 1;
           reason = `${reason} API-Football indisponível: ${af.fetch.errorMessage ?? "sem detalhe"}.`;
         }
 
-        await log(
-          db,
-          runId,
-          "RESOLVE",
-          `Resolução API-Football para ${m.raw_partida}: ${af.resolution?.status ?? af.fetch.status}`,
-          resolvedByApiFootball ? "INFO" : "WARN",
-          {
-            definitionVersion: API_FOOTBALL_DEFINITION_VERSION,
-            endpoint: af.fetch.endpoint,
-            httpStatus: af.fetch.httpStatus,
-            fetchedAt: af.fetch.fetchedAt,
-            candidates: af.resolution?.candidates ?? [],
-          },
-        );
-      } else {
-        await db.from("source_fetches").insert({
-          run_id: runId,
-          match_id: m.id,
-          source: API_FOOTBALL_SOURCE,
-          status: "NOT_CONFIGURED",
-          http_status: null,
-          error_message: "API_FOOTBALL_KEY ausente no servidor.",
-          fetched_at: new Date().toISOString(),
+        await log(db, runId, "RESOLVE", `Resolução API-Football para ${m.raw_partida}: ${af.resolution?.status ?? af.fetch.status}`, af.resolution?.status === "MATCH_RESOLVED" ? "INFO" : "WARN", {
+          provider,
+          definitionVersion: API_FOOTBALL_DEFINITION_VERSION,
+          endpoint: af.fetch.path,
+          httpStatus: af.fetch.httpStatus,
+          fetchedAt: af.fetch.fetchedAt,
+          predictionAt,
+          targetDate,
+          candidates: af.resolution?.candidates ?? [],
         });
       }
     }
 
-
-
-
-    // Desk Research (fontes públicas e abertas). Desativado por padrão:
-    // só roda com ENABLE_DESK_RESEARCH=true no servidor.
-    if (localOk && DESK_RESEARCH_ENABLED) {
-      const { researchResolveMatch, RESEARCH_SOURCE, RESEARCH_DEFINITION_VERSION } = await import(
-        "./adapters/research.server"
-      );
-      const predictionAt = kickoff ?? new Date().toISOString();
-      const research = await researchResolveMatch(
-        { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
-        predictionAt,
-      );
-
-      for (const f of research.dataset.fetches) {
-        await db.from("source_fetches").insert({
-          run_id: runId,
-          match_id: m.id,
-          source: RESEARCH_SOURCE,
-          status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
-          http_status: f.httpStatus,
-          error_message: f.errorMessage ?? (f.status === "OK" ? `${f.url} (${f.rows} jogos)` : null),
-          fetched_at: f.fetchedAt,
-        });
-      }
-
-      if (research.dataset.fetches.length === 0) {
-        reason = `${reason} Desk research: competição fora do catálogo público coberto.`;
-      } else if (!research.resolution) {
-        sourceUnavailable++;
-        sourceError = research.dataset.fetches.find((f) => f.errorMessage)?.errorMessage ?? null;
-        reason = `${reason} Desk research indisponível: ${sourceError ?? "nenhum dataset público legível"}.`;
-      } else {
-        const r = research.resolution;
-        const url = research.dataset.fetches.find((f) => f.status === "OK")?.url ?? null;
-        if (r.status === "MATCH_RESOLVED") {
-          externalResearch++;
-          if (!resolvedByApiFootball) {
-            status = "RESOLVED_RESEARCH";
-            confidence = r.confidence;
-          }
-          reason = `${reason} Desk research: ${r.reason}`;
-          await db.from("match_external_ids").insert([
-            {
-              match_id: m.id,
-              source: "research_team_home",
-              external_id: r.home.team!,
-              confidence: r.home.confidence,
-            },
-            {
-              match_id: m.id,
-              source: "research_team_away",
-              external_id: r.away.team!,
-              confidence: r.away.confidence,
-            },
-            ...(r.fixtureKey
-              ? [
-                  {
-                    match_id: m.id,
-                    source: "research_fixture",
-                    external_id: r.fixtureKey,
-                    confidence: r.confidence,
-                  },
-                ]
-              : []),
-            ...(research.dataset.leagueKey
-              ? [
-                  {
-                    match_id: m.id,
-                    source: "research_league",
-                    external_id: research.dataset.leagueKey,
-                    confidence: research.dataset.leagueSimilarity,
-                  },
-                ]
-              : []),
-          ]);
-        } else {
-          reason = `${reason} Desk research (${r.status}): ${r.reason}`;
-        }
-
-        await log(
-          db,
-          runId,
-          "RESOLVE",
-          `Desk research para ${m.raw_partida}: ${r.status}`,
-          r.status === "MATCH_RESOLVED" ? "INFO" : "WARN",
-          {
-            mode: "Desk Research / Dados Públicos",
-            definitionVersion: RESEARCH_DEFINITION_VERSION,
-            sourceUrl: url,
-            league: research.dataset.leagueLabel,
-            resolvedAt: new Date().toISOString(),
-            homeRaw: home,
-            awayRaw: away,
-            homeNormalized: r.home.team,
-            awayNormalized: r.away.team,
-            confidence: r.confidence,
-            candidates: { home: r.home.candidates, away: r.away.candidates },
-          },
-        );
-      }
-    }
-
-
-
-    await db
-      .from("matches")
-      .update({
-        home_team: home,
-        away_team: away,
-        competition: m.raw_campeonato,
-        kickoff_local: kickoff,
-        resolution_status: status,
-        resolution_reason: reason,
-        resolver_confidence: confidence,
-      })
-      .eq("id", m.id);
+    await db.from("matches").update({
+      home_team: home,
+      away_team: away,
+      competition: m.raw_campeonato,
+      kickoff_local: kickoff,
+      resolution_status: status,
+      resolution_reason: reason,
+      resolver_confidence: confidence,
+    }).eq("id", m.id);
   }
 
-  await db
-    .from("analysis_runs")
-    .update({ matches_resolved: resolved, matches_failed: failed })
-    .eq("id", runId);
-
-  const summary = sourceUnavailable
-    ? `${resolved} partidas normalizadas localmente; fonte indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
-    : `${resolved} partidas normalizadas; ${external} com evento externo, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
-  await log(
-    db,
-    runId,
-    "RESOLVE",
-    `${summary} Desk research reconheceu ${externalResearch} partidas em fontes públicas.`,
-    external || externalResearch ? "INFO" : "WARN",
-  );
-  return { resolved, failed, external, externalResearch, ambiguous, notFound, sourceUnavailable };
+  await db.from("analysis_runs").update({ matches_resolved: resolved, matches_failed: failed }).eq("id", runId);
+  await log(db, runId, "RESOLVE", `${resolved} partidas normalizadas; ${external} resolvidas externamente via ${provider}; ${ambiguous} ambíguas; ${notFound} não encontradas; ${sourceUnavailable} indisponíveis.`, external ? "INFO" : "WARN", { provider, targetDate });
+  return { resolved, failed, external, ambiguous, notFound, sourceUnavailable, provider };
 }
 
 async function collect(db: Db, runId: string) {
+  const provider = activeProvider();
   const { data: matches } = await db
     .from("matches")
     .select("id, home_team, away_team, competition, kickoff_local, resolution_status")
     .eq("run_id", runId);
-
-  const perSource: Record<string, number> = {};
   const predictionAt = await runPredictionAt(db, runId);
+  const matchIds = (matches ?? []).map((m) => m.id);
+  const { data: externalIds } = matchIds.length
+    ? await db.from("match_external_ids").select("match_id, source, external_id").in("match_id", matchIds)
+    : { data: [] };
+  const perSource: Record<string, number> = {};
 
-  // 1) IDs externos já resolvidos por partida.
-  const { data: externalIds } = await db
-    .from("match_external_ids")
-    .select("match_id, source, external_id")
-    .in(
-      "match_id",
-      (matches ?? []).map((m) => m.id),
-    );
-
-  // 1a-5D) 5Dollar nativa: histórico pré-jogo por time resolvido (gols, escanteios, cartões
-  // já vêm no endpoint de fixtures; nenhuma chamada extra de statistics é feita).
-  if (FIVE_DOLLAR_ACTIVE) {
-    const {
-      fiveDollarTeamHistory,
-      fiveDollarConfigured,
-      fiveDollarUsage,
-      FIVE_DOLLAR_SOURCE,
-      FIVE_DOLLAR_DEFINITION_VERSION,
-    } = await import("./adapters/five_dollar.server");
-
+  if (provider === "five_dollar") {
+    const { fiveDollarTeamHistory, fiveDollarConfigured, fiveDollarUsage, FIVE_DOLLAR_SOURCE, FIVE_DOLLAR_DEFINITION_VERSION } = await import("./adapters/five_dollar.server");
     let observationsCount = 0;
     let insufficient = 0;
     let reusedFromCache = 0;
     let rateLimited = false;
 
     if (fiveDollarConfigured()) {
-      // Cache: histórico já coletado antes (qualquer run) para o mesmo time/corte.
       const { data: cachedRows } = await db
         .from("raw_observations")
         .select("metric, raw_value, observed_at, fetched_at")
@@ -510,14 +287,9 @@ async function collect(db: Db, runId: string) {
 
       for (const m of matches ?? []) {
         if (rateLimited) break;
-        const teams = (externalIds ?? []).filter(
-          (e) =>
-            e.match_id === m.id &&
-            (e.source === "five_dollar_team_home" || e.source === "five_dollar_team_away"),
-        );
+        const teams = (externalIds ?? []).filter((e) => e.match_id === m.id && (e.source === "five_dollar_team_home" || e.source === "five_dollar_team_away"));
         if (teams.length === 0) {
-          perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] =
-            (perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
+          perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] = (perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
           continue;
         }
 
@@ -526,414 +298,151 @@ async function collect(db: Db, runId: string) {
           const scope = team.source === "five_dollar_team_home" ? "HOME" : "AWAY";
           const cacheKey = `five_dollar:${team.external_id}:${predictionAt}`;
           const cached = cacheIndex.get(cacheKey);
-
-          if (cached && cached.length > 0) {
+          if (cached?.length) {
             reusedFromCache += cached.length;
-            await db.from("raw_observations").insert(
-              cached.map((row) => ({
-                run_id: runId,
-                match_id: m.id,
-                source: FIVE_DOLLAR_SOURCE,
-                metric: row.metric,
-                raw_value: row.raw_value as never,
-                observed_at: row.observed_at,
-                fetched_at: row.fetched_at,
-                definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
-              })),
-            );
             observationsCount += cached.length;
+            await db.from("raw_observations").insert(cached.map((row) => ({
+              run_id: runId, match_id: m.id, source: FIVE_DOLLAR_SOURCE, metric: row.metric,
+              raw_value: row.raw_value as never, observed_at: row.observed_at, fetched_at: row.fetched_at,
+              definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
+            })));
             continue;
           }
 
           const history = await fiveDollarTeamHistory(Number(team.external_id), predictionAt);
           for (const f of history.fetches) {
-            perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] =
-              (perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] ?? 0) + 1;
+            perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] = (perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] ?? 0) + 1;
             if (f.status === "RATE_LIMITED") rateLimited = true;
             await db.from("source_fetches").insert({
-              run_id: runId,
-              match_id: m.id,
-              source: FIVE_DOLLAR_SOURCE,
+              run_id: runId, match_id: m.id, source: FIVE_DOLLAR_SOURCE,
               status: f.status === "OK" ? "OK" : f.status === "RATE_LIMITED" ? "RATE_LIMITED" : "SOURCE_UNAVAILABLE",
-              http_status: f.httpStatus,
-              error_message: f.errorMessage,
-              fetched_at: f.fetchedAt,
+              http_status: f.httpStatus, error_message: f.errorMessage, fetched_at: f.fetchedAt,
             });
           }
           if (history.insufficientHistory) insufficient += 1;
 
           if (history.observations.length > 0) {
             observationsCount += history.observations.length;
-            await db.from("raw_observations").insert(
-              history.observations.map((o) => ({
-                run_id: runId,
-                match_id: m.id,
-                source: FIVE_DOLLAR_SOURCE,
-                metric: `${scope}:${o.observation.canonical}`,
-                raw_value: {
-                  value: o.observation.value,
-                  sourceLabel: o.observation.sourceLabel,
-                  metricLabelRaw: o.observation.sourceLabel,
-                  teamScope: scope,
-                  statScope: o.observation.scope,
-                  contractCompatible: o.observation.contractCompatible,
-                  note: o.observation.note,
-                  endpoint: o.endpoint,
-                  fixtureId: o.fixtureId,
-                  externalMatchId: o.externalMatchId,
-                  fixtureDate: o.fixtureDate,
-                  teamExternalId: team.external_id,
-                  teamId: o.teamId,
-                  opponentId: o.opponentId,
-                  teamSideInFixture: o.teamSide,
-                  rawHomeAway: o.rawHomeAway,
-                  kickoff: o.observedAt,
-                  predictionAt,
-                  cacheKey,
-                } as never,
-                observed_at: o.observedAt,
-                fetched_at: o.fetchedAt,
-                definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
-              })),
-            );
+            await db.from("raw_observations").insert(history.observations.map((o) => ({
+              run_id: runId,
+              match_id: m.id,
+              source: FIVE_DOLLAR_SOURCE,
+              metric: `${scope}:${o.observation.canonical}`,
+              raw_value: {
+                value: o.observation.value,
+                sourceLabel: o.observation.sourceLabel,
+                metricLabelRaw: o.observation.sourceLabel,
+                teamScope: scope,
+                statScope: o.observation.scope,
+                contractCompatible: o.observation.contractCompatible,
+                note: o.observation.note,
+                endpoint: o.endpoint,
+                fixtureId: o.fixtureId,
+                externalMatchId: o.externalMatchId,
+                fixtureDate: o.fixtureDate,
+                teamExternalId: team.external_id,
+                teamId: o.teamId,
+                opponentId: o.opponentId,
+                teamSideInFixture: o.teamSide,
+                rawHomeAway: o.rawHomeAway,
+                kickoff: o.observedAt,
+                predictionAt,
+                cacheKey,
+              } as never,
+              observed_at: o.observedAt,
+              fetched_at: o.fetchedAt,
+              definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
+            })));
           }
         }
       }
 
       const usage = fiveDollarUsage();
-      // configured=true somente após coleta real bem-sucedida.
-      await db.from("source_definitions").upsert(
-        {
-          source: FIVE_DOLLAR_SOURCE,
-          definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
-          configured: observationsCount > 0,
-          notes:
-            "5DollarFootballAPI nativa v1 — Community Access, country pack Brasil (Série A e Série B), 12 meses de histórico, 300 req/h e burst 20/min.",
-          metric_definitions: {
-            plan: "community",
-            countryPack: "Brazil",
-            competitions: ["Brazil Serie A", "Brazil Serie B"],
-            historyMonths: 12,
-            rateLimit: { perHour: 300, burstPerMinute: 20, clientCap: 18 },
-            metrics: {
-              corners_taken: "corners.home/away do endpoint de fixtures; compatível com o contrato.",
-              goals_scored: "placar final da partida encerrada.",
-              goals_conceded: "placar final da partida encerrada.",
-              cards_yellow_raw: "cards.*.yellow — bruto, não libera mercado de cartões.",
-              cards_red_raw: "cards.*.red — bruto, não libera mercado de cartões.",
-              shots_on_target: "somente pelo endpoint /fixtures/{id}/statistics; não libera mercado.",
-            },
-          } as never,
+      await db.from("source_definitions").upsert({
+        source: FIVE_DOLLAR_SOURCE,
+        definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
+        configured: observationsCount > 0,
+        notes: "5DollarFootballAPI nativa v1 — provedor principal experimental.",
+        metric_definitions: {
+          provider: "five_dollar",
+          metrics: {
+            goals_for: "placar final relativo ao time",
+            goals_against: "placar final do adversário",
+            corners_taken_for: "corners.home/away relativo ao time",
+            corners_taken_against: "corners.home/away do adversário",
+            cards_yellow_raw: "bruto; não libera mercado de cartões",
+            cards_red_raw: "bruto; não libera mercado de cartões",
+          },
         } as never,
-        { onConflict: "source,definition_version" } as never,
-      );
+      } as never, { onConflict: "source,definition_version" } as never);
 
-      await log(
-        db,
-        runId,
-        "COLLECT",
-        `${observationsCount} observações brutas na 5Dollar (nativa); ${reusedFromCache} reaproveitadas de cache; ${insufficient} times com INSUFFICIENT_HISTORY${rateLimited ? "; etapa encerrada em estado parcial por rate limit" : ""}.`,
-        observationsCount ? "INFO" : "WARN",
-        {
-          definitionVersion: FIVE_DOLLAR_DEFINITION_VERSION,
-          predictionAt,
-          rateLimit: usage.rateLimit,
-          requestsMade: usage.requestsMade,
-          endpointsCalled: usage.endpointsCalled,
-          rateLimitHits: usage.rateLimitHits,
-        },
-      );
+      await log(db, runId, "COLLECT", `${observationsCount} observações 5Dollar; ${reusedFromCache} de cache; ${insufficient} times com histórico insuficiente${rateLimited ? "; coleta parcial por rate limit" : ""}.`, observationsCount ? "INFO" : "WARN", {
+        provider, predictionAt, requestsMade: usage.requestsMade, rateLimit: usage.rateLimit, rateLimitHits: usage.rateLimitHits,
+      });
     }
   }
 
-  // 1a) API-Football: fonte principal, histórico pré-jogo por time resolvido.
-  if (!FIVE_DOLLAR_ACTIVE) {
-    const {
-      apiFootballTeamHistory,
-      apiFootballConfigured,
-      apiFootballDefinitionVersion,
-      apiFootballSource,
-    } = await import("./adapters/api_football.server");
-    const API_FOOTBALL_DEFINITION_VERSION = apiFootballDefinitionVersion();
-    const API_FOOTBALL_SOURCE = apiFootballSource();
-
-    let apiFootballObservations = 0;
+  if (provider === "api_sports") {
+    const { apiFootballTeamHistory, apiFootballConfigured, API_FOOTBALL_SOURCE, API_FOOTBALL_DEFINITION_VERSION } = await import("./adapters/api_football.server");
+    let observationsCount = 0;
     if (apiFootballConfigured()) {
       for (const m of matches ?? []) {
-        const teams = (externalIds ?? []).filter(
-          (e) =>
-            e.match_id === m.id &&
-            (e.source === "api_football_team_home" || e.source === "api_football_team_away"),
-        );
+        const teams = (externalIds ?? []).filter((e) => e.match_id === m.id && (e.source === "api_football_team_home" || e.source === "api_football_team_away"));
         if (teams.length === 0) {
-          perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] =
-            (perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
+          perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] = (perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
           continue;
         }
         for (const team of teams) {
-          const scope = team.source === "api_football_team_home" ? "HOME" : "AWAY";
+          const targetScope = team.source === "api_football_team_home" ? "HOME" : "AWAY";
           const history = await apiFootballTeamHistory(Number(team.external_id), predictionAt);
           for (const f of history.fetches) {
-            perSource[`${API_FOOTBALL_SOURCE}:${f.status}`] =
-              (perSource[`${API_FOOTBALL_SOURCE}:${f.status}`] ?? 0) + 1;
+            perSource[`${API_FOOTBALL_SOURCE}:${f.status}`] = (perSource[`${API_FOOTBALL_SOURCE}:${f.status}`] ?? 0) + 1;
             await db.from("source_fetches").insert({
-              run_id: runId,
-              match_id: m.id,
-              source: API_FOOTBALL_SOURCE,
+              run_id: runId, match_id: m.id, source: API_FOOTBALL_SOURCE,
               status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
-              http_status: f.httpStatus,
-              error_message: f.errorMessage,
-              fetched_at: f.fetchedAt,
+              http_status: f.httpStatus, error_message: f.errorMessage, fetched_at: f.fetchedAt,
             });
           }
           if (history.observations.length > 0) {
-            apiFootballObservations += history.observations.length;
-            await db.from("raw_observations").insert(
-              history.observations.map((o) => ({
-                run_id: runId,
-                match_id: m.id,
-                source: API_FOOTBALL_SOURCE,
-                metric: `${scope}:${o.observation.canonical}`,
-                raw_value: {
-                  value: o.observation.value,
-                  sourceLabel: o.observation.sourceLabel,
-                  teamScope: scope,
-                  statScope: o.observation.scope,
-                  contractCompatible: o.observation.contractCompatible,
-                  note: o.observation.note,
-                  endpoint: o.endpoint,
-                  fixtureId: o.fixtureId,
-                  teamExternalId: team.external_id,
-                } as never,
-                observed_at: o.observedAt,
-                fetched_at: o.fetchedAt,
-                definition_version: API_FOOTBALL_DEFINITION_VERSION,
-              })),
-            );
+            observationsCount += history.observations.length;
+            await db.from("raw_observations").insert(history.observations.map((o) => ({
+              run_id: runId,
+              match_id: m.id,
+              source: API_FOOTBALL_SOURCE,
+              metric: `${targetScope}:${o.observation.canonical}`,
+              raw_value: {
+                value: o.observation.value,
+                sourceLabel: o.observation.sourceLabel,
+                teamScope: targetScope,
+                statScope: o.observation.scope,
+                contractCompatible: o.observation.contractCompatible,
+                note: o.observation.note,
+                endpoint: o.endpoint,
+                fixtureId: o.fixtureId,
+                teamExternalId: team.external_id,
+                predictionAt,
+              } as never,
+              observed_at: o.observedAt,
+              fetched_at: o.fetchedAt,
+              definition_version: API_FOOTBALL_DEFINITION_VERSION,
+            })));
           }
         }
       }
-      await log(
-        db,
-        runId,
-        "COLLECT",
-        `${apiFootballObservations} observações brutas coletadas na API-Football.`,
-        apiFootballObservations ? "INFO" : "WARN",
-        { definitionVersion: API_FOOTBALL_DEFINITION_VERSION },
-      );
+      await log(db, runId, "COLLECT", `${observationsCount} observações coletadas na API-Football.`, observationsCount ? "INFO" : "WARN", { provider, predictionAt });
     }
   }
 
+  await log(db, runId, "COLLECT", "Coleta concluída usando um único provedor ativo.", "INFO", { provider, ...perSource });
+  return { provider, ...perSource };
+}
 
-
-  // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos (desativado por padrão).
-  if (DESK_RESEARCH_ENABLED) {
-    const {
-      researchDataset,
-      researchTeamHistory,
-      RESEARCH_SOURCE,
-      RESEARCH_DEFINITION_VERSION,
-    } = await import("./adapters/research.server");
-
-    // Cache: observações já coletadas antes (qualquer run) para a mesma chave.
-    const { data: cachedRows } = await db
-      .from("raw_observations")
-      .select("metric, raw_value, observed_at, fetched_at")
-      .eq("source", RESEARCH_SOURCE)
-      .eq("definition_version", RESEARCH_DEFINITION_VERSION)
-      .limit(5000);
-    const cacheIndex = new Map<string, typeof cachedRows>();
-    for (const row of cachedRows ?? []) {
-      const key = (row.raw_value as { cacheKey?: string } | null)?.cacheKey;
-      if (!key) continue;
-      const list = cacheIndex.get(key) ?? [];
-      list.push(row);
-      cacheIndex.set(key, list);
-    }
-
-    let researchObservations = 0;
-    let reusedFromCache = 0;
-    let insufficient = 0;
-
-    for (const m of matches ?? []) {
-      const teams = (externalIds ?? []).filter(
-        (e) =>
-          e.match_id === m.id &&
-          (e.source === "research_team_home" || e.source === "research_team_away"),
-      );
-      if (teams.length === 0) {
-        perSource[`${RESEARCH_SOURCE}:NO_TEAM_RESOLVED`] =
-          (perSource[`${RESEARCH_SOURCE}:NO_TEAM_RESOLVED`] ?? 0) + 1;
-        continue;
-      }
-
-      const predictionAt = m.kickoff_local ?? new Date().toISOString();
-      const cutoffDay = predictionAt.slice(0, 10);
-      let dataset: Awaited<ReturnType<typeof researchDataset>> | null = null;
-
-      for (const team of teams) {
-        const scope = team.source === "research_team_home" ? "HOME" : "AWAY";
-        const cacheKey = `${RESEARCH_DEFINITION_VERSION}|${team.external_id}|${cutoffDay}`;
-        const cached = cacheIndex.get(cacheKey);
-
-        if (cached && cached.length > 0) {
-          reusedFromCache += cached.length;
-          researchObservations += cached.length;
-          await db.from("raw_observations").insert(
-            cached.map((c) => ({
-              run_id: runId,
-              match_id: m.id,
-              source: RESEARCH_SOURCE,
-              metric: c.metric,
-              raw_value: { ...(c.raw_value as object), reusedFromCache: true } as never,
-              observed_at: c.observed_at,
-              fetched_at: c.fetched_at,
-              definition_version: RESEARCH_DEFINITION_VERSION,
-            })),
-          );
-          continue;
-        }
-
-        if (!dataset) {
-          dataset = await researchDataset(m.competition, predictionAt);
-          for (const f of dataset.fetches) {
-            perSource[`${RESEARCH_SOURCE}:${f.status}`] =
-              (perSource[`${RESEARCH_SOURCE}:${f.status}`] ?? 0) + 1;
-            await db.from("source_fetches").insert({
-              run_id: runId,
-              match_id: m.id,
-              source: RESEARCH_SOURCE,
-              status: f.status === "OK" ? "OK" : "SOURCE_UNAVAILABLE",
-              http_status: f.httpStatus,
-              error_message:
-                f.errorMessage ?? (f.status === "OK" ? `${f.url} (${f.rows} jogos)` : null),
-              fetched_at: f.fetchedAt,
-            });
-          }
-        }
-
-        const history = researchTeamHistory(team.external_id, dataset, predictionAt);
-        if (history.historyStatus === "INSUFFICIENT_HISTORY") insufficient += 1;
-
-        if (history.observations.length === 0) {
-          perSource[`${RESEARCH_SOURCE}:NO_HISTORY`] =
-            (perSource[`${RESEARCH_SOURCE}:NO_HISTORY`] ?? 0) + 1;
-          continue;
-        }
-
-        researchObservations += history.observations.length;
-        const fetchedAt = new Date().toISOString();
-        const rows = history.observations.map((o) => ({
-          run_id: runId,
-          match_id: m.id,
-          source: RESEARCH_SOURCE,
-          metric: `${scope}:${o.canonical}`,
-          raw_value: {
-            value: o.value,
-            valueRaw: o.valueRaw,
-            metricLabelRaw: o.metricLabelRaw,
-            unit: o.unit,
-            period: o.period,
-            sourceLabel: o.metricLabelRaw,
-            teamScope: scope,
-            statScope: o.venue,
-            contractCompatible: o.contractCompatible,
-            note: o.note,
-            sourceUrl: o.sourceUrl,
-            team: team.external_id,
-            externalMatchId: o.fixtureKey,
-            fixtureDate: o.fixtureDate,
-            opponent: o.opponent,
-            predictionAt,
-            historyStatus: history.historyStatus,
-            cacheKey,
-            mode: "Desk Research / Dados Públicos",
-          } as never,
-          observed_at: `${o.fixtureDate}T00:00:00Z`,
-          fetched_at: fetchedAt,
-          definition_version: RESEARCH_DEFINITION_VERSION,
-        }));
-        for (let i = 0; i < rows.length; i += 200) {
-          await db.from("raw_observations").insert(rows.slice(i, i + 200));
-        }
-
-        await log(
-          db,
-          runId,
-          "COLLECT",
-          `Desk research: ${history.found}/${history.requested} jogos anteriores de ${team.external_id} (${history.historyStatus}).`,
-          history.historyStatus === "OK" ? "INFO" : "WARN",
-          {
-            mode: "Desk Research / Dados Públicos",
-            definitionVersion: RESEARCH_DEFINITION_VERSION,
-            team: team.external_id,
-            predictionAt,
-            fixtures: history.fixturesUsed,
-            observations: history.observations.length,
-          },
-        );
-      }
-    }
-
-    await log(
-      db,
-      runId,
-      "COLLECT",
-      researchObservations
-        ? `Desk research coletou ${researchObservations} observações brutas em fontes públicas (${reusedFromCache} reaproveitadas do cache); ${insufficient} times com histórico insuficiente.`
-        : "Desk research não encontrou fonte pública utilizável para as partidas desta rodada.",
-      researchObservations ? "INFO" : "WARN",
-      { reusedFromCache, insufficient },
-    );
-  }
-
-
-  // 2) Demais fontes (não configuradas até haver credencial/endpoint).
-  for (const m of matches ?? []) {
-    const results = await collectFromSources({
-      homeTeam: m.home_team,
-      awayTeam: m.away_team,
-      competition: m.competition,
-      kickoff: m.kickoff_local,
-      predictionAt,
-    });
-    for (const r of results) {
-      perSource[`${r.source}:${r.status}`] = (perSource[`${r.source}:${r.status}`] ?? 0) + 1;
-      await db.from("source_fetches").insert({
-        run_id: runId,
-        match_id: m.id,
-        source: r.source,
-        status: r.status,
-        http_status: r.httpStatus,
-        error_message: r.errorMessage,
-        fetched_at: r.fetchedAt,
-      });
-      if (r.observations.length > 0) {
-        await db.from("raw_observations").insert(
-          r.observations.map((o) => ({
-            run_id: runId,
-            match_id: m.id,
-            source: r.source,
-            metric: o.metric,
-            raw_value: o.rawValue as never,
-            observed_at: o.observedAt,
-            fetched_at: r.fetchedAt,
-            definition_version: r.definitionVersion,
-          })),
-        );
-      }
-    }
-  }
-
-  await log(
-    db,
-    runId,
-    "COLLECT",
-    `Coleta concluída. Estado por fonte registrado em source_fetches.`,
-    "INFO",
-    perSource,
-  );
-  return perSource;
+function sourceAgreement(perSource: Array<{ source: string; value: number }>): "SINGLE_SOURCE" | "CROSS_SOURCE_CONFIRMED" | "SOURCE_CONFLICT" {
+  if (perSource.length < 2) return "SINGLE_SOURCE";
+  const values = perSource.map((p) => p.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return Math.abs(max - min) <= 0.1 ? "CROSS_SOURCE_CONFIRMED" : "SOURCE_CONFLICT";
 }
 
 async function clean(db: Db, runId: string) {
@@ -941,10 +450,7 @@ async function clean(db: Db, runId: string) {
     .from("raw_observations")
     .select("id, match_id, source, metric, raw_value, fetched_at, definition_version")
     .eq("run_id", runId);
-
   await db.from("normalized_match_stats").delete().eq("run_id", runId);
-
-  const { crossCheck } = await import("./adapters/research.parse");
 
   type RawValue = {
     value?: number;
@@ -952,27 +458,21 @@ async function clean(db: Db, runId: string) {
     statScope?: "HOME" | "AWAY";
     contractCompatible?: boolean;
     note?: string;
-    sourceUrl?: string;
     metricLabelRaw?: string;
-    valueRaw?: string;
     externalMatchId?: string;
     fixtureDate?: string;
     predictionAt?: string;
   };
 
-  // Agrega por (partida, escopo, métrica) apenas o que passou no definition gate.
-  const buckets = new Map<
-    string,
-    {
-      matchId: string | null;
-      scope: string;
-      metric: string;
-      values: number[];
-      perSource: Map<string, number[]>;
-      definitionVersion: string | null;
-      lineage: Array<Record<string, unknown>>;
-    }
-  >();
+  const buckets = new Map<string, {
+    matchId: string | null;
+    scope: string;
+    metric: string;
+    values: number[];
+    perSource: Map<string, number[]>;
+    definitionVersion: string | null;
+    lineage: Array<Record<string, unknown>>;
+  }>();
   let rejectedByDefinition = 0;
   const rejectedDetail: Record<string, number> = {};
 
@@ -1004,9 +504,8 @@ async function clean(db: Db, runId: string) {
     bucket.lineage.push({
       rawObservationId: r.id,
       source: r.source,
-      sourceUrl: v.sourceUrl ?? null,
       fetchedAt: r.fetched_at,
-      rawValue: v.valueRaw ?? v.value,
+      rawValue: v.value,
       normalizedValue: v.value,
       canonicalMetric: canonical,
       metricLabelRaw: v.metricLabelRaw ?? v.sourceLabel ?? null,
@@ -1023,14 +522,13 @@ async function clean(db: Db, runId: string) {
 
   let conflicts = 0;
   let confirmed = 0;
-
   const rows = [...buckets.values()].map((b) => {
     const perSource = [...b.perSource.entries()].map(([source, values]) => ({
       source,
       value: values.reduce((a, c) => a + c, 0) / values.length,
       sampleSize: values.length,
     }));
-    const status = crossCheck(perSource);
+    const status = sourceAgreement(perSource);
     if (status === "SOURCE_CONFLICT") conflicts += 1;
     if (status === "CROSS_SOURCE_CONFIRMED") confirmed += 1;
     return {
@@ -1050,99 +548,52 @@ async function clean(db: Db, runId: string) {
     await db.from("normalized_match_stats").insert(rows.slice(i, i + 200));
   }
 
-  await log(
-    db,
-    runId,
-    "CLEAN",
-    rows.length
-      ? `${rows.length} métricas normalizadas com lineage; ${rejectedByDefinition} observações descartadas por definição incompatível; ${confirmed} confirmadas entre fontes e ${conflicts} em conflito.`
-      : `Nenhuma métrica normalizada (${rejectedByDefinition} observações descartadas por definição incompatível). Nada foi preenchido com média global.`,
-    rows.length ? "INFO" : "WARN",
-    { rejectedByDefinition, rejectedDetail, crossSourceConfirmed: confirmed, sourceConflicts: conflicts },
-  );
-  return {
-    normalized: rows.length,
-    rejectedByDefinition,
-    rejectedDetail,
-    crossSourceConfirmed: confirmed,
-    sourceConflicts: conflicts,
-    rawObservations: raws?.length ?? 0,
-  };
+  await log(db, runId, "CLEAN", rows.length
+    ? `${rows.length} métricas normalizadas; ${rejectedByDefinition} observações bloqueadas por definição.`
+    : `Nenhuma métrica normalizada (${rejectedByDefinition} observações bloqueadas por definição).`,
+  rows.length ? "INFO" : "WARN", { rejectedByDefinition, rejectedDetail, crossSourceConfirmed: confirmed, sourceConflicts: conflicts });
+
+  return { normalized: rows.length, rejectedByDefinition, rejectedDetail, crossSourceConfirmed: confirmed, sourceConflicts: conflicts, rawObservations: raws?.length ?? 0 };
 }
 
-
-
 async function features(db: Db, runId: string) {
-  const { count } = await db
-    .from("normalized_match_stats")
-    .select("id", { count: "exact", head: true })
-    .eq("run_id", runId);
-  await log(
-    db,
-    runId,
-    "FEATURES",
-    count
-      ? `${count} features normalizadas disponíveis.`
-      : "Sem estatísticas normalizadas: nenhuma feature pôde ser construída.",
-    count ? "INFO" : "WARN",
-  );
+  const { count } = await db.from("normalized_match_stats").select("id", { count: "exact", head: true }).eq("run_id", runId);
+  await log(db, runId, "FEATURES", count ? `${count} features normalizadas disponíveis.` : "Sem estatísticas normalizadas: nenhuma feature pôde ser construída.", count ? "INFO" : "WARN");
   return { features: count ?? 0 };
 }
 
 async function probability(db: Db, runId: string) {
-  const { data: versions } = await db
-    .from("model_versions")
-    .select("market_family, validation_status, calibration_version");
-  const validated = (versions ?? []).filter(
-    (v) => v.validation_status === "PRODUCTION_VALIDATED" && v.calibration_version,
-  );
-  await log(
-    db,
-    runId,
-    "PROBABILITY",
-    validated.length
-      ? `${validated.length} famílias com modelo calibrado e validado.`
-      : "Nenhuma família de mercado possui modelo calibrado e validado out-of-sample; nenhuma probabilidade foi inventada.",
-    validated.length ? "INFO" : "WARN",
-  );
+  const { data: versions } = await db.from("model_versions").select("market_family, validation_status, calibration_version");
+  const validated = (versions ?? []).filter((v) => v.validation_status === "PRODUCTION_VALIDATED" && v.calibration_version);
+  await log(db, runId, "PROBABILITY", validated.length ? `${validated.length} famílias com modelo calibrado e validado.` : "Produção continua bloqueada: nenhum modelo calibrado/validado out-of-sample.", validated.length ? "INFO" : "WARN");
   return { validatedFamilies: validated.length };
 }
 
 async function gates(db: Db, runId: string) {
-  await log(db, runId, "GATES", "Gate-base aplicado: binários p_cal >= 0,65; asiáticos p_profit_cal >= 0,65.");
+  await log(db, runId, "GATES", "Gate-base: binários >= 0,65; asiáticos p_profit >= 0,65.");
   return { gate: 0.65 };
 }
 
 async function markets(db: Db, runId: string) {
-  const predictionAtRun = await runPredictionAt(db, runId);
+  const predictionAt = await runPredictionAt(db, runId);
   const { data: matches } = await db
     .from("matches")
     .select("id, raw_partida, home_team, away_team, competition, kickoff_local")
     .eq("run_id", runId)
     .order("kickoff_local", { ascending: true });
-
-  const { data: versions } = await db
-    .from("model_versions")
-    .select("market_family, model_version, calibration_version, validation_status");
-  const registry = new Map<string, ModelRegistryEntry>(
-    (versions ?? []).map((v) => [
-      v.market_family,
-      {
-        family: v.market_family,
-        modelVersion: v.model_version,
-        calibrationVersion: v.calibration_version,
-        validationStatus: v.validation_status,
-      },
-    ]),
-  );
-
+  const { data: versions } = await db.from("model_versions").select("market_family, model_version, calibration_version, validation_status");
+  const registry = new Map<string, ModelRegistryEntry>((versions ?? []).map((v) => [v.market_family, {
+    family: v.market_family,
+    modelVersion: v.model_version,
+    calibrationVersion: v.calibration_version,
+    validationStatus: v.validation_status,
+  }]));
   const { data: normalized } = await db
     .from("normalized_match_stats")
     .select("match_id, metric, normalized_value, sample_size, source, definition_version")
     .eq("run_id", runId);
 
   await db.from("market_candidates").delete().eq("run_id", runId);
-
   let published = 0;
   let blocked = 0;
   let index = 0;
@@ -1153,32 +604,21 @@ async function markets(db: Db, runId: string) {
       matchLabel: m.home_team && m.away_team ? `${m.home_team} x ${m.away_team}` : m.raw_partida,
       league: m.competition ?? "",
       kickoff: m.kickoff_local,
-      predictionAt: predictionAtRun,
-      features: new Map(
-        (normalized ?? [])
-          .filter((n) => n.match_id === m.id)
-          .map((n) => [
-            n.metric,
-            {
-              metric: n.metric,
-              value: Number(n.normalized_value ?? 0),
-              sampleSize: n.sample_size ?? 0,
-              source: n.source ?? "",
-              definitionVersion: n.definition_version ?? "",
-              definitionCompatible: true,
-            },
-          ]),
-      ),
+      predictionAt,
+      features: new Map((normalized ?? []).filter((n) => n.match_id === m.id).map((n) => [n.metric, {
+        metric: n.metric,
+        value: Number(n.normalized_value ?? 0),
+        sampleSize: n.sample_size ?? 0,
+        source: n.source ?? "",
+        definitionVersion: n.definition_version ?? "",
+        definitionCompatible: true,
+      }])),
       countDistributions: new Map(),
       binaryProbabilities: new Map(),
       sources: [],
     };
 
-    const contracts = buildContracts({
-      home: m.home_team ?? "Mandante",
-      away: m.away_team ?? "Visitante",
-    });
-
+    const contracts = buildContracts({ home: m.home_team ?? "Mandante", away: m.away_team ?? "Visitante" });
     const rows = contracts.map((contract) => {
       index += 1;
       const out = evaluateContract(ctx, contract, registry, index);
@@ -1213,29 +653,18 @@ async function markets(db: Db, runId: string) {
         sources: out.sources as never,
       };
     });
-
     for (let i = 0; i < rows.length; i += 200) {
       await db.from("market_candidates").insert(rows.slice(i, i + 200));
     }
   }
 
-  await db
-    .from("analysis_runs")
-    .update({
-      candidates_published: published,
-      candidates_blocked: blocked,
-      status: "READY_FOR_ODDS",
-      current_step: "MARKETS",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", runId);
-
-  await log(
-    db,
-    runId,
-    "MARKETS",
-    `${published} contratos publicados para observação, ${blocked} bloqueados por gates/dados/modelo.`,
-    published ? "INFO" : "WARN",
-  );
-  return { published, blocked };
+  await db.from("analysis_runs").update({
+    candidates_published: published,
+    candidates_blocked: blocked,
+    status: "READY_FOR_ODDS",
+    current_step: "MARKETS",
+    updated_at: new Date().toISOString(),
+  }).eq("id", runId);
+  await log(db, runId, "MARKETS", `${published} contratos publicados, ${blocked} bloqueados.`, published ? "INFO" : "WARN", { provider: activeProvider() });
+  return { published, blocked, provider: activeProvider() };
 }
