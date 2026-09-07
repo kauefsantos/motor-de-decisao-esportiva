@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -6,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getRun } from "@/lib/analysis.functions";
 import {
   analyzeExperimentalCornersOdds,
   prepareExperimentalCornersRun,
@@ -16,16 +18,30 @@ const pct = (value: number | null | undefined, digits = 1) =>
 const dec = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : Number(value).toFixed(2);
 
+function selectionLimitForDate(isoDate: string | null | undefined) {
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year!, month! - 1, day!)).getUTCDay();
+  return weekday === 0 || weekday === 6 ? 3 : 2;
+}
+
 export function ExperimentalCornersPilot({ runId }: { runId: string }) {
+  const navigate = useNavigate();
   const prepare = useServerFn(prepareExperimentalCornersRun);
   const analyze = useServerFn(analyzeExperimentalCornersOdds);
+  const fetchRun = useServerFn(getRun);
   const [odds, setOdds] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<Awaited<ReturnType<typeof analyzeExperimentalCornersOdds>> | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["experimental-corners-run", runId],
     queryFn: () => prepare({ data: { runId } }),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: runData } = useQuery({
+    queryKey: ["run", runId],
+    queryFn: () => fetchRun({ data: { runId } }),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -54,13 +70,54 @@ export function ExperimentalCornersPilot({ runId }: { runId: string }) {
     setSubmitting(true);
     try {
       const evaluated = await analyze({ data: { runId, entries } });
-      setResult(evaluated);
+      const targetDate =
+        runData?.run?.target_date ?? data?.predictionAt?.slice(0, 10) ?? null;
+      const selectionLimit = selectionLimitForDate(targetDate);
+      const limitedSelections = evaluated.selections.slice(0, selectionLimit);
+      const selectedIds = new Set(limitedSelections.map((selection) => selection.predictionId));
+      const candidateByPrediction = new Map(
+        eligible.map((candidate) => [candidate.predictionId, candidate]),
+      );
+
+      const enrichedEvaluations = evaluated.evaluations.map((evaluation) => {
+        const candidate = candidateByPrediction.get(evaluation.predictionId);
+        return {
+          ...evaluation,
+          selected: selectedIds.has(evaluation.predictionId),
+          matchLabel: candidate?.matchLabel ?? "—",
+          competition: candidate?.competition ?? "",
+          sampleSize: candidate?.sampleSize ?? 0,
+          trainingMatches: candidate?.trainingMatches ?? 0,
+          lineCanonical: candidate?.lineCanonical ?? null,
+        };
+      });
+
+      const payload = {
+        runId,
+        analyzedAt: new Date().toISOString(),
+        targetDate,
+        dayType: selectionLimit === 3 ? "WEEKEND" : "WEEKDAY",
+        selectionLimit,
+        modelStatus: evaluated.modelStatus,
+        productionStatus: evaluated.productionStatus,
+        evaluations: enrichedEvaluations,
+        selectionOrder: limitedSelections.map((selection) => selection.predictionId),
+      };
+
+      localStorage.setItem(`experimental-result:${runId}`, JSON.stringify(payload));
+      navigate({
+        to: "/run/$runId/resultado",
+        params: { runId },
+        search: { mode: "experimental" },
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha no Motor 2 experimental.");
-    } finally {
       setSubmitting(false);
     }
   }
+
+  const targetDate = runData?.run?.target_date ?? data?.predictionAt?.slice(0, 10) ?? null;
+  const selectionLimit = selectionLimitForDate(targetDate);
 
   return (
     <section className="panel mt-8 overflow-hidden border-warning/50">
@@ -72,6 +129,9 @@ export function ExperimentalCornersPilot({ runId }: { runId: string }) {
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
           Produção permanece bloqueada como MODEL_NOT_PRODUCTION_VALIDATED. As odds abaixo são avaliadas apenas no piloto.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Limite da rodada: {selectionLimit} seleções ({selectionLimit === 3 ? "fim de semana" : "dia de semana"}).
         </p>
       </div>
 
@@ -143,47 +203,6 @@ export function ExperimentalCornersPilot({ runId }: { runId: string }) {
             </Button>
           </div>
         </>
-      )}
-
-      {result && (
-        <div className="border-t border-border p-6">
-          <p className="label-eyebrow">Resultado do Motor 2 experimental</p>
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-muted-foreground">
-                <tr>
-                  <th className="py-2">Mercado</th>
-                  <th>Odd</th>
-                  <th>Fair odd</th>
-                  <th>Odd mín. EV 2%</th>
-                  <th>Edge</th>
-                  <th>EV</th>
-                  <th>Decisão</th>
-                </tr>
-              </thead>
-              <tbody className="[&_td]:py-2 [&_tr]:border-t [&_tr]:border-border">
-                {result.evaluations.map((evaluation) => (
-                  <tr key={evaluation.predictionId}>
-                    <td>{evaluation.marketLabel}</td>
-                    <td className="num">{dec(evaluation.odd)}</td>
-                    <td className="num">{dec(evaluation.fairOdd)}</td>
-                    <td className="num">{dec(evaluation.minOddTarget)}</td>
-                    <td className="num">{pct(evaluation.edgeCons)}</td>
-                    <td className="num">{pct(evaluation.evCons, 2)}</td>
-                    <td>
-                      <span className="font-medium">
-                        {evaluation.selected ? "SELEÇÃO EXPERIMENTAL" : evaluation.valueStatus}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs font-semibold text-warning">
-            {result.modelStatus} · produção: {result.productionStatus}
-          </p>
-        </div>
       )}
     </section>
   );
