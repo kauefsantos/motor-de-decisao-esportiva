@@ -18,7 +18,14 @@ const pct = (value: number | null | undefined, digits = 1) =>
 const dec = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : Number(value).toFixed(2);
 
-const FAMILY_ORDER = ["CORNERS", "GOALS", "1X2", "BTTS"] as const;
+const FAMILY_ORDER = [
+  "CORNERS",
+  "GOALS",
+  "TEAM_GOALS",
+  "1X2",
+  "DOUBLE_CHANCE",
+  "BTTS",
+] as const;
 
 function selectionLimitForDate(isoDate: string | null | undefined) {
   if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
@@ -100,11 +107,14 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     setSubmitting(true);
     try {
       const evaluated = await analyze({ data: { runId, entries } });
-      const targetDate = runData?.run?.target_date ?? data?.predictionAt?.slice(0, 10) ?? null;
-      const selectionLimit = selectionLimitForDate(targetDate);
-      const limitedSelections = evaluated.selections.slice(0, selectionLimit);
+      const targetDate =
+        evaluated.targetDate ?? runData?.run?.target_date ?? data?.predictionAt?.slice(0, 10) ?? null;
+      const selectionLimit = evaluated.selectionLimit ?? selectionLimitForDate(targetDate);
+      const limitedSelections = evaluated.selections;
       const selectedIds = new Set(limitedSelections.map((selection) => selection.predictionId));
-      const candidateByPrediction = new Map(eligible.map((candidate) => [candidate.predictionId, candidate]));
+      const candidateByPrediction = new Map(
+        eligible.map((candidate) => [candidate.predictionId, candidate]),
+      );
 
       const enrichedEvaluations = evaluated.evaluations.map((evaluation) => {
         const candidate = candidateByPrediction.get(evaluation.predictionId);
@@ -114,11 +124,11 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           matchLabel: candidate?.matchLabel ?? "—",
           marketLabel: candidate?.marketLabel ?? evaluation.marketLabel,
           competition: candidate?.competition ?? "",
-          family: candidate?.family ?? "—",
+          family: candidate?.family ?? evaluation.family,
           modelVersion: candidate?.modelVersion ?? evaluation.modelVersion,
           sampleSize: candidate?.sampleSize ?? 0,
           trainingMatches: candidate?.trainingMatches ?? 0,
-          lineCanonical: candidate?.lineCanonical ?? null,
+          lineCanonical: candidate?.lineCanonical ?? evaluation.lineCanonical ?? null,
         };
       });
 
@@ -158,10 +168,13 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           MODELOS EXPERIMENTAIS — NÃO VALIDADOS PARA PRODUÇÃO
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
-          Corners usa corners-baseline-v1. Gols/1X2/BTTS usam goals-baseline-v1 com placares reais pré-jogo e Poisson independente. Nenhum xG é inventado.
+          Corners usa corners-baseline-v1. Gols, gols por time, 1X2, dupla chance e BTTS usam a mesma distribuição do goals-baseline-v1. Nenhum xG é inventado.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Limite da rodada: {selectionLimit} seleções ({selectionLimit === 3 ? "fim de semana" : "dia de semana"}). Todos os jogos e mercados competem pelo mesmo ranking final de EV.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          As seleções finais do piloto são registradas no histórico experimental para posterior CLV, resultado e ROI.
         </p>
       </div>
 
@@ -174,7 +187,9 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           <p>Nenhum mercado experimental atingiu o gate de 65% nesta run.</p>
           {(data?.issues ?? []).length > 0 && (
             <ul className="mt-3 list-disc space-y-1 pl-5 text-xs">
-              {data!.issues.slice(0, 16).map((issue) => <li key={issue}>{issue}</li>)}
+              {data!.issues.slice(0, 16).map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
             </ul>
           )}
         </div>
@@ -202,20 +217,38 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                     </thead>
                     <tbody>
                       {group.rows.map((candidate) => (
-                        <tr key={candidate.predictionId} className="border-b border-border/60 last:border-b-0">
+                        <tr
+                          key={candidate.predictionId}
+                          className="border-b border-border/60 last:border-b-0"
+                        >
                           <td className="px-4 py-3">
                             <div className="font-medium">{candidate.marketLabel}</div>
-                            <div className="mt-1 text-[11px] text-muted-foreground">{candidate.modelVersion}</div>
+                            <div className="mt-1 text-[11px] text-muted-foreground">
+                              {candidate.modelVersion}
+                            </div>
                           </td>
-                          <td className="num px-4 py-3 text-xs text-muted-foreground">{candidate.family}</td>
-                          <td className="num px-4 py-3">{pct(candidate.probabilityExperimental)}</td>
-                          <td className="num px-4 py-3">{dec(candidate.fairOddExperimental)}</td>
-                          <td className="num px-4 py-3">{candidate.sampleSize} time · {candidate.trainingMatches} liga</td>
+                          <td className="num px-4 py-3 text-xs text-muted-foreground">
+                            {candidate.family}
+                          </td>
+                          <td className="num px-4 py-3">
+                            {pct(candidate.probabilityExperimental)}
+                          </td>
+                          <td className="num px-4 py-3">
+                            {dec(candidate.fairOddExperimental)}
+                          </td>
+                          <td className="num px-4 py-3">
+                            {candidate.sampleSize} time · {candidate.trainingMatches} liga
+                          </td>
                           <td className="px-4 py-3">
                             <Input
                               inputMode="decimal"
                               value={odds[candidate.predictionId] ?? ""}
-                              onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))}
+                              onChange={(event) =>
+                                setOdds((current) => ({
+                                  ...current,
+                                  [candidate.predictionId]: event.target.value,
+                                }))
+                              }
                               className="num w-28"
                               aria-label={`Odd experimental para ${group.matchLabel} — ${candidate.marketLabel}`}
                             />

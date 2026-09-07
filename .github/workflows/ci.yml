@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Unit tests
+        run: bunx vitest run
+
+      - name: Build
+        run: bun run build
+
+  e2e-preview:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Wait for Lovable preview and run real E2E
+        env:
+          BASE_URL: https://id-preview--28664075-8af4-4155-9ee9-8ed86021681a.lovable.app
+        run: |
+          sleep 45
+          for attempt in 1 2 3; do
+            echo "E2E attempt ${attempt}"
+            if python tests/e2e/experimental-markets.py; then
+              exit 0
+            fi
+            sleep 30
+          done
+          exit 1
