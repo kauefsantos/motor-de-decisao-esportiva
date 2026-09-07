@@ -65,7 +65,6 @@ function clv(row: TrackingRow) {
   const entry = n(row.entry_odd);
   const close = nullableNumber(row.closing_odd);
   if (!(entry > 1) || close === null || !(close > 1)) return null;
-  // Positivo = a odd de entrada foi maior (melhor preço) que a odd de fechamento.
   return entry / close - 1;
 }
 
@@ -163,12 +162,12 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
 
   const sampleMessage =
     decided.length === 0
-      ? "Ainda não há resultados fechados. O painel começa a ganhar valor a partir das primeiras apostas registradas."
+      ? "Ainda não há resultados fechados. O painel começa a ganhar valor a partir das primeiras seleções registradas."
       : decided.length < 30
         ? "Amostra inicial: acompanhe tendência, preço de fechamento e disciplina, sem concluir ainda que o modelo é lucrativo."
         : decided.length < 100
           ? "Amostra em formação: já dá para comparar mercados e calibração, mas ainda há bastante variância."
-          : "Amostra mais informativa: continue avaliando ROI, calibração, preço de fechamento e estabilidade por mercado.";
+          : "Amostra mais informativa: continue avaliando retorno, calibração, preço de fechamento e estabilidade por mercado.";
 
   return {
     summary: {
@@ -226,7 +225,10 @@ export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handle
   if (trackingError) throw new Error(`Falha ao carregar histórico experimental: ${trackingError.message}`);
 
   const config = configData as BankrollConfig;
-  const rows = (trackingData ?? []) as TrackingRow[];
+  const allRows = (trackingData ?? []) as TrackingRow[];
+  const rows = allRows.filter(
+    (row) => typeof row.target_date === "string" && row.target_date >= config.start_date,
+  );
   return { rows, ...analytics(rows, config) };
 });
 
