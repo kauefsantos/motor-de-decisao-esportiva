@@ -1,7 +1,5 @@
 // Adapter NATIVO da 5DollarFootballAPI (https://api.5dollarfootballapi.com/v1). Server-only.
-// Credencial exclusivamente via FIVE_DOLLAR_FOOTBALL_API_KEY (header Authorization: Bearer),
-// nunca exposta em logs, banco, resposta ou interface.
-// Plano Community: 300 req/hora, burst 20/min -> este cliente limita a 18/min e 300/h.
+// Credencial exclusivamente via FIVE_DOLLAR_FOOTBALL_API_KEY (header Authorization: Bearer).
 
 import {
   externalMatchKey,
@@ -14,13 +12,13 @@ import {
   type FiveDollarFixture,
   type TeamRelativeStat,
 } from "./five_dollar.parse";
-import type { CsvMatchQuery, MatchResolution } from "./sofascore.parse";
+import type { CsvMatchQuery, MatchResolution } from "./football.shared";
 
 export { FIVE_DOLLAR_DEFINITION_VERSION, FIVE_DOLLAR_SOURCE };
 
 const BASE = "https://api.5dollarfootballapi.com/v1";
 const TIMEOUT_MS = 15000;
-const MAX_PER_MINUTE = 18; // margem sobre o burst de 20/min
+const MAX_PER_MINUTE = 18;
 const MAX_PER_HOUR = 300;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -85,7 +83,6 @@ export function fiveDollarConfigured(): boolean {
   return apiKey() !== null;
 }
 
-/** Fila sequencial: no máximo 18 chamadas/minuto e 300/hora. Nunca contorna o limite. */
 async function throttle(): Promise<{ ok: true } | { ok: false; reason: string }> {
   const now = Date.now();
   while (callTimestamps.length > 0 && now - callTimestamps[0]! > 3600_000) callTimestamps.shift();
@@ -110,46 +107,24 @@ function readRateHeaders(res: Response) {
   };
 }
 
-/** GET nativo autenticado. Sem retry agressivo; respeita Retry-After e nunca simula resposta. */
 export async function fiveDollarGet<T = unknown>(path: string): Promise<FiveDollarFetch<T>> {
   const endpoint = `${BASE}${path}`;
   const now = () => new Date().toISOString();
   const key = apiKey();
-
   const base = { endpoint, path, payload: null, fromCache: false, rateLimit: { ...lastHeaders } };
 
   if (!key) {
-    return {
-      ...base,
-      status: "NOT_CONFIGURED",
-      httpStatus: null,
-      errorMessage: "FIVE_DOLLAR_FOOTBALL_API_KEY ausente no servidor.",
-      fetchedAt: now(),
-    };
+    return { ...base, status: "NOT_CONFIGURED", httpStatus: null, errorMessage: "FIVE_DOLLAR_FOOTBALL_API_KEY ausente no servidor.", fetchedAt: now() };
   }
 
   const cached = cache.get(endpoint);
   if (cached && cached.expiresAt > Date.now()) {
     cacheHits += 1;
-    return {
-      ...base,
-      status: "OK",
-      payload: cached.payload as T,
-      httpStatus: cached.httpStatus,
-      errorMessage: null,
-      fetchedAt: cached.fetchedAt,
-      fromCache: true,
-    };
+    return { ...base, status: "OK", payload: cached.payload as T, httpStatus: cached.httpStatus, errorMessage: null, fetchedAt: cached.fetchedAt, fromCache: true };
   }
 
   if (Date.now() < rateBlockedUntil) {
-    return {
-      ...base,
-      status: "RATE_LIMITED",
-      httpStatus: 429,
-      errorMessage: `Rate limit ativo até ${new Date(rateBlockedUntil).toISOString()}; nenhuma nova chamada disparada.`,
-      fetchedAt: now(),
-    };
+    return { ...base, status: "RATE_LIMITED", httpStatus: 429, errorMessage: `Rate limit ativo até ${new Date(rateBlockedUntil).toISOString()}; nenhuma nova chamada disparada.`, fetchedAt: now() };
   }
 
   const slot = await throttle();
@@ -173,62 +148,30 @@ export async function fiveDollarGet<T = unknown>(path: string): Promise<FiveDoll
       rateLimitHits += 1;
       const retryAfter = Number(res.headers.get("retry-after") ?? "60");
       rateBlockedUntil = Date.now() + (Number.isFinite(retryAfter) ? retryAfter : 60) * 1000;
-      return {
-        ...base,
-        status: "RATE_LIMITED",
-        httpStatus: 429,
-        errorMessage: `HTTP 429 na fonte; aguardando ${retryAfter}s conforme Retry-After. Etapa encerrada em estado parcial.`,
-        fetchedAt: now(),
-        rateLimit: { ...lastHeaders },
-      };
+      return { ...base, status: "RATE_LIMITED", httpStatus: 429, errorMessage: `HTTP 429 na fonte; aguardando ${retryAfter}s conforme Retry-After. Etapa encerrada em estado parcial.`, fetchedAt: now(), rateLimit: { ...lastHeaders } };
     }
 
     if (!res.ok) {
-      return {
-        ...base,
-        status: "UNAVAILABLE",
-        httpStatus: res.status,
-        errorMessage: `HTTP ${res.status} em ${path}.`,
-        fetchedAt: now(),
-        rateLimit: { ...lastHeaders },
-      };
+      return { ...base, status: "UNAVAILABLE", httpStatus: res.status, errorMessage: `HTTP ${res.status} em ${path}.`, fetchedAt: now(), rateLimit: { ...lastHeaders } };
     }
 
     const payload = (await res.json()) as T;
     const envelope = payload as { success?: unknown; error?: { message?: string; code?: string } };
     if (envelope?.success === 0 || envelope?.error) {
-      return {
-        ...base,
-        status: "UNAVAILABLE",
-        httpStatus: res.status,
-        errorMessage: `Erro reportado pela fonte em ${path}: ${envelope?.error?.message ?? "sem detalhe"}`,
-        fetchedAt: now(),
-        rateLimit: { ...lastHeaders },
-      };
+      return { ...base, status: "UNAVAILABLE", httpStatus: res.status, errorMessage: `Erro reportado pela fonte em ${path}: ${envelope?.error?.message ?? "sem detalhe"}`, fetchedAt: now(), rateLimit: { ...lastHeaders } };
     }
 
     const fetchedAt = now();
     cache.set(endpoint, { payload, httpStatus: res.status, fetchedAt, expiresAt: Date.now() + CACHE_TTL_MS });
-    return {
-      ...base,
-      status: "OK",
-      payload,
-      httpStatus: res.status,
-      errorMessage: null,
-      fetchedAt,
-      rateLimit: { ...lastHeaders },
-    };
+    return { ...base, status: "OK", payload, httpStatus: res.status, errorMessage: null, fetchedAt, rateLimit: { ...lastHeaders } };
   } catch (error) {
     return {
       ...base,
       status: "UNAVAILABLE",
       httpStatus: null,
-      errorMessage:
-        error instanceof Error && error.name === "AbortError"
-          ? `Timeout de ${TIMEOUT_MS} ms em ${path}.`
-          : error instanceof Error
-            ? error.message
-            : "Falha de rede desconhecida.",
+      errorMessage: error instanceof Error && error.name === "AbortError"
+        ? `Timeout de ${TIMEOUT_MS} ms em ${path}.`
+        : error instanceof Error ? error.message : "Falha de rede desconhecida.",
       fetchedAt: now(),
     };
   } finally {
@@ -242,11 +185,6 @@ export interface FiveDollarResolution {
   events: FiveDollarFixture[];
 }
 
-/**
- * Agenda do dia LOCAL (America/Sao_Paulo, UTC-3) convertido para UTC:
- * 03:00Z da data até 03:00Z do dia seguinte. Janela de exatamente 24h —
- * a fonte rejeita (HTTP 400) intervalos maiores.
- */
 export async function fiveDollarResolveMatch(
   query: CsvMatchQuery,
   isoDate: string,
@@ -288,12 +226,6 @@ export interface FiveDollarHistory {
   fixtures: FiveDollarFixture[];
 }
 
-/**
- * Histórico pré-jogo de um time: últimas partidas encerradas ANTES de prediction_at.
- * Parâmetros nativos documentados: status, end_time, page, per_page (não existe "limit").
- * Gols, escanteios e cartões já vêm no endpoint de fixtures — nenhuma chamada extra
- * de statistics é feita aqui. Cada observação é relativa ao time pesquisado.
- */
 export async function fiveDollarTeamHistory(
   teamId: number,
   predictionAtIso: string,
@@ -304,9 +236,7 @@ export async function fiveDollarTeamHistory(
   const cutoff = Math.floor(Date.parse(predictionAtIso) / 1000) - 1;
   const perPage = Math.max(maxEvents, 1);
 
-  const res = await fiveDollarGet(
-    `/teams/${teamId}/fixtures?status=finished&end_time=${cutoff}&page=1&per_page=${perPage}`,
-  );
+  const res = await fiveDollarGet(`/teams/${teamId}/fixtures?status=finished&end_time=${cutoff}&page=1&per_page=${perPage}`);
   fetches.push(res);
   if (res.status !== "OK" || res.payload === null) {
     return { observations, fetches, eventsConsidered: 0, insufficientHistory: true, fixtures: [] };
@@ -320,9 +250,7 @@ export async function fiveDollarTeamHistory(
   for (const fixture of fixtures) {
     const relative = teamRelativeStats(fixture, teamId, predictionAtIso);
     if (!relative) continue;
-    const observedAt = fixture.startTimestamp
-      ? new Date(fixture.startTimestamp * 1000).toISOString()
-      : null;
+    const observedAt = fixture.startTimestamp ? new Date(fixture.startTimestamp * 1000).toISOString() : null;
     const externalMatchId = externalMatchKey(fixture);
     const fixtureDate = observedAt ? observedAt.slice(0, 10) : "";
     for (const observation of relative.stats) {
