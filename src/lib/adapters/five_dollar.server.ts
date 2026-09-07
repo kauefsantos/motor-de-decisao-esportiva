@@ -242,13 +242,17 @@ export interface FiveDollarResolution {
   events: FiveDollarFixture[];
 }
 
-/** Agenda da janela do dia informado (UTC) para identificar a fixture do CSV. */
+/**
+ * Agenda do dia LOCAL (America/Sao_Paulo, UTC-3) convertido para UTC:
+ * 03:00Z da data até 03:00Z do dia seguinte. Janela de exatamente 24h —
+ * a fonte rejeita (HTTP 400) intervalos maiores.
+ */
 export async function fiveDollarResolveMatch(
   query: CsvMatchQuery,
   isoDate: string,
 ): Promise<FiveDollarResolution> {
-  const start = Math.floor(Date.parse(`${isoDate}T00:00:00Z`) / 1000);
-  const end = start + 36 * 3600; // cobre kickoffs noturnos no Brasil (UTC-3)
+  const start = Math.floor(Date.parse(`${isoDate}T03:00:00Z`) / 1000);
+  const end = start + 24 * 3600;
   const res = await fiveDollarGet(`/fixtures?start_time=${start}&end_time=${end}`);
   if (res.status !== "OK" || res.payload === null) {
     return { resolution: null, fetch: res, events: [] };
