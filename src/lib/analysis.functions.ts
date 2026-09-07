@@ -460,7 +460,7 @@ export const getAudit = createServerFn({ method: "POST" })
         status: s.ok > 0 ? (s.unavailable > 0 ? "PARTIAL" : "OK") : s.notConfigured > 0 && s.unavailable === 0 ? "NOT_CONFIGURED" : "UNAVAILABLE",
       })),
       resolvedEvents: (externalIds ?? []).filter(
-        (e) => e.source === "sofascore_event" && matchIds.has(e.match_id),
+        (e) => e.source === "api_football_fixture" && matchIds.has(e.match_id),
       ).length,
       researchResolved: new Set(
         (externalIds ?? [])
