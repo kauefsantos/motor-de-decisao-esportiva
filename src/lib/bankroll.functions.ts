@@ -77,16 +77,23 @@ async function bankrollSnapshot(rawDb: Awaited<ReturnType<typeof db>>) {
   };
 }
 
+function hardCap(bankroll: number, maxStakePct: number) {
+  return floorCents(bankroll * maxStakePct);
+}
+
 function suggestion(row: TrackingRow, bankroll: number, maxStakePct: number, fractionalKelly: number) {
   const odd = num(row.entry_odd);
   const ev = Math.max(0, num(row.expected_value));
-  const hardCap = bankroll * maxStakePct;
+  const maxAllowed = hardCap(bankroll, maxStakePct);
   // Para binários, EV/(odd-1) coincide com Kelly bruto. Para asiáticos,
   // usamos esta razão apenas como freio conservador de exposição, nunca como
   // probabilidade/modelo adicional.
   const edgeFraction = odd > 1 ? ev / (odd - 1) : 0;
   const secondaryCap = Math.max(0, edgeFraction * fractionalKelly * bankroll);
-  return floorCents(Math.min(hardCap, secondaryCap));
+  return {
+    suggestedStake: floorCents(Math.min(maxAllowed, secondaryCap)),
+    maxAllowedStake: maxAllowed,
+  };
 }
 
 const planSchema = z.object({ runId: z.string().uuid() });
@@ -109,20 +116,13 @@ export const getExperimentalBetPlan = createServerFn({ method: "GET" })
     const open = all.filter((row) => row.bet_status === "OPEN");
     const declined = all.filter((row) => row.bet_status === "DECLINED");
     const next = proposed[0] ?? null;
+    const stakePlan = next
+      ? suggestion(next, snapshot.available, snapshot.maxStakePct, snapshot.fractionalKelly)
+      : null;
 
     return {
       bankroll: snapshot,
-      nextProposal: next
-        ? {
-            ...next,
-            suggestedStake: suggestion(
-              next,
-              snapshot.available,
-              snapshot.maxStakePct,
-              snapshot.fractionalKelly,
-            ),
-          }
-        : null,
+      nextProposal: next && stakePlan ? { ...next, ...stakePlan } : null,
       proposedCount: proposed.length,
       openCount: open.length,
       declinedCount: declined.length,
@@ -167,6 +167,13 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       throw new Error(`O valor informado supera o saldo disponível de R$ ${snapshot.available.toFixed(2).replace(".", ",")}.`);
     }
 
+    const maxAllowed = hardCap(snapshot.available, snapshot.maxStakePct);
+    if (stake > maxAllowed + 1e-9) {
+      throw new Error(
+        `O limite desta aposta é R$ ${maxAllowed.toFixed(2).replace(".", ",")} (${(snapshot.maxStakePct * 100).toFixed(0)}% do saldo disponível).`,
+      );
+    }
+
     const { error } = await rawDb
       .from("experimental_bet_tracking")
       .update({
@@ -183,6 +190,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       status: "OPEN" as const,
       stakeBrl: stake,
       availableAfter: Math.max(0, snapshot.available - stake),
+      maxAllowed,
     };
   });
 
