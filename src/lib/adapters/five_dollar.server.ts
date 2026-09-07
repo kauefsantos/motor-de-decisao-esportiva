@@ -262,13 +262,22 @@ export async function fiveDollarResolveMatch(
 }
 
 export interface FiveDollarRawObservation {
-  observation: NormalizedStat;
+  observation: TeamRelativeStat;
   endpoint: string;
   fetchedAt: string;
   observedAt: string | null;
   fixtureId: number;
   externalMatchId: string;
   fixtureDate: string;
+  teamId: number;
+  opponentId: number | null;
+  teamSide: "HOME" | "AWAY";
+  rawHomeAway: {
+    goalsHome: number | null;
+    goalsAway: number | null;
+    cornersHome: number | null;
+    cornersAway: number | null;
+  };
 }
 
 export interface FiveDollarHistory {
@@ -281,8 +290,9 @@ export interface FiveDollarHistory {
 
 /**
  * Histórico pré-jogo de um time: últimas partidas encerradas ANTES de prediction_at.
+ * Parâmetros nativos documentados: status, end_time, page, per_page (não existe "limit").
  * Gols, escanteios e cartões já vêm no endpoint de fixtures — nenhuma chamada extra
- * de statistics é feita aqui.
+ * de statistics é feita aqui. Cada observação é relativa ao time pesquisado.
  */
 export async function fiveDollarTeamHistory(
   teamId: number,
@@ -292,9 +302,10 @@ export async function fiveDollarTeamHistory(
   const fetches: FiveDollarFetch[] = [];
   const observations: FiveDollarRawObservation[] = [];
   const cutoff = Math.floor(Date.parse(predictionAtIso) / 1000) - 1;
+  const perPage = Math.max(maxEvents, 1);
 
   const res = await fiveDollarGet(
-    `/teams/${teamId}/fixtures?status=finished&end_time=${cutoff}&limit=${Math.max(maxEvents, 5)}`,
+    `/teams/${teamId}/fixtures?status=finished&end_time=${cutoff}&page=1&per_page=${perPage}`,
   );
   fetches.push(res);
   if (res.status !== "OK" || res.payload === null) {
@@ -307,13 +318,14 @@ export async function fiveDollarTeamHistory(
     .slice(0, maxEvents);
 
   for (const fixture of fixtures) {
+    const relative = teamRelativeStats(fixture, teamId, predictionAtIso);
+    if (!relative) continue;
     const observedAt = fixture.startTimestamp
       ? new Date(fixture.startTimestamp * 1000).toISOString()
       : null;
     const externalMatchId = externalMatchKey(fixture);
     const fixtureDate = observedAt ? observedAt.slice(0, 10) : "";
-    const stats = [...goalsFromFixture(fixture, predictionAtIso), ...statsFromFixture(fixture, predictionAtIso)];
-    for (const observation of stats) {
+    for (const observation of relative.stats) {
       observations.push({
         observation,
         endpoint: res.endpoint,
@@ -322,6 +334,10 @@ export async function fiveDollarTeamHistory(
         fixtureId: fixture.eventId,
         externalMatchId,
         fixtureDate,
+        teamId,
+        opponentId: relative.opponentId,
+        teamSide: relative.side,
+        rawHomeAway: relative.raw,
       });
     }
   }
