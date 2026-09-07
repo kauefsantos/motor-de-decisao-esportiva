@@ -49,18 +49,6 @@ function notConfigured(source: string, definitionVersion: string, missing: strin
 
 const definitions: AdapterDefinition[] = [
   {
-    source: "ogol",
-    definitionVersion: "ogol-v0",
-    envKeys: ["OGOL_API_BASE", "OGOL_API_KEY"],
-    fetchStats: async (_q, _s) => notConfigured("ogol", "ogol-v0", ["endpoint"]),
-  },
-  {
-    source: "transfermarkt",
-    definitionVersion: "transfermarkt-v0",
-    envKeys: ["TRANSFERMARKT_API_BASE", "TRANSFERMARKT_API_KEY"],
-    fetchStats: async (_q, _s) => notConfigured("transfermarkt", "transfermarkt-v0", ["endpoint"]),
-  },
-  {
     source: "opta",
     definitionVersion: "opta-v0",
     envKeys: ["OPTA_API_BASE", "OPTA_API_KEY"],
@@ -100,12 +88,10 @@ export async function collectFromSources(query: AdapterQuery): Promise<AdapterRe
   return results;
 }
 
-// sofascore é tratado pelo adapter dedicado (sofascore.server.ts) nas etapas RESOLVE/COLLECT.
 // research_adapter é o modo Desk Research / Dados Públicos (research.server.ts).
 export const adapterSources = [
   "api_football",
   "five_dollar_football",
-  "sofascore",
   "research_adapter",
   ...definitions.map((d) => d.source),
 ];
