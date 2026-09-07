@@ -29,6 +29,12 @@ export const Route = createFileRoute("/")({
   component: UploadScreen,
 });
 
+function dateLabel(iso: string | null) {
+  if (!iso) return "—";
+  const [year, month, day] = iso.split("-");
+  return `${day}/${month}/${year}`;
+}
+
 function UploadScreen() {
   const navigate = useNavigate();
   const create = useServerFn(createRun);
@@ -37,7 +43,6 @@ function UploadScreen() {
   const [filename, setFilename] = useState<string | null>(null);
   const [parsed, setParsed] = useState<CsvParseResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Sinaliza hidratação: evita que um upload chegue antes dos handlers React estarem ativos.
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
 
@@ -51,18 +56,18 @@ function UploadScreen() {
     setFilename(file.name);
     setParsed(result);
     if (result.rows.length === 0) {
-      toast.error("Nenhuma linha válida encontrada no CSV.");
+      toast.error(result.invalid[0]?.reason ?? "Nenhuma linha válida encontrada no CSV.");
     }
   }, []);
 
   async function processar() {
-    if (!parsed || !filename || parsed.rows.length === 0) return;
+    if (!parsed || !filename || parsed.rows.length === 0 || !parsed.targetDate) return;
     setSubmitting(true);
     try {
       const res = await create({
         data: {
           filename,
-          targetDate: new Date().toISOString().slice(0, 10),
+          targetDate: parsed.targetDate,
           headers: parsed.headers,
           invalidCount: parsed.invalid.length,
           leagues: parsed.leagues,
@@ -107,8 +112,8 @@ function UploadScreen() {
             <div>
               <p className="font-medium">Arraste o arquivo CSV aqui</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Colunas obrigatórias: Partida, Horário, Campeonato. Uma coluna de índice extra é
-                aceita e ignorada.
+                Colunas obrigatórias: Data, Partida, Horário, Campeonato. Use uma única data por arquivo.
+                O formato Data;Partida,Horário,Campeonato é aceito.
               </p>
             </div>
             <input
@@ -134,7 +139,11 @@ function UploadScreen() {
                 <FileSpreadsheet className="size-5 text-accent" aria-hidden />
                 <span className="font-medium">{filename}</span>
               </div>
-              <dl className="mt-5 grid gap-4 sm:grid-cols-3">
+              <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <dt className="label-eyebrow">Data dos jogos</dt>
+                  <dd className="num mt-1 text-2xl">{dateLabel(parsed.targetDate)}</dd>
+                </div>
                 <div>
                   <dt className="label-eyebrow">Partidas válidas</dt>
                   <dd className="num mt-1 text-2xl">{parsed.rows.length}</dd>
@@ -168,8 +177,8 @@ function UploadScreen() {
                     <AlertTriangle className="size-4" aria-hidden /> Linhas descartadas
                   </p>
                   <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {parsed.invalid.slice(0, 8).map((i) => (
-                      <li key={i.line} className="num">
+                    {parsed.invalid.slice(0, 8).map((i, index) => (
+                      <li key={`${i.line}-${index}`} className="num">
                         linha {i.line}: {i.reason}
                       </li>
                     ))}
@@ -181,7 +190,7 @@ function UploadScreen() {
                 className="mt-6 w-full"
                 size="lg"
                 data-testid="processar-jogos"
-                disabled={!ready || parsed.rows.length === 0 || submitting}
+                disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || submitting}
                 onClick={() => void processar()}
               >
                 {submitting ? "Criando análise…" : "PROCESSAR JOGOS"}
@@ -195,6 +204,10 @@ function UploadScreen() {
           <p className="label-eyebrow">Como o motor decide</p>
           <ol className="mt-4 space-y-4 text-sm text-muted-foreground">
             <li>
+              <span className="font-medium text-foreground">Data do CSV.</span> Define a rodada e a
+              janela consultada nas fontes. O sistema não presume mais que os jogos são de hoje.
+            </li>
+            <li>
               <span className="font-medium text-foreground">Motor 1 — Oportunidade.</span> Escolhe
               contratos com suporte quantitativo sem olhar preço. Gate-base: 65% em contratos
               binários e p_profit ≥ 65% em asiáticos.
@@ -205,13 +218,9 @@ function UploadScreen() {
             </li>
             <li>
               <span className="font-medium text-foreground">Motor 2 — Valor.</span> Calcula EV
-              conservador e devolve de zero a no máximo três escolhas. Nunca força três.
+              conservador e devolve de zero ao limite da rodada. Nunca força escolhas.
             </li>
           </ol>
-          <p className="mt-6 text-xs text-muted-foreground">
-            Sem dados de fonte licenciada configurada, o motor bloqueia o mercado com motivo
-            explícito em vez de estimar probabilidade.
-          </p>
         </aside>
       </div>
       </div>

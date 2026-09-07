@@ -1,7 +1,10 @@
-// Parser e validação do CSV (Partida, Horário, Campeonato).
+// Parser e validação do CSV (Data, Partida, Horário, Campeonato).
 // Client-safe: usado na Tela 1 para pré-validar antes de enviar ao backend.
+// Aceita CSV convencional separado por vírgula/ponto e vírgula e também o
+// formato operacional atual: Data;Partida,Horário,Campeonato.
 
 export interface CsvRow {
+  data: string; // ISO YYYY-MM-DD
   partida: string;
   horario: string;
   campeonato: string;
@@ -18,9 +21,10 @@ export interface CsvParseResult {
   invalid: CsvInvalidRow[];
   headers: string[];
   leagues: string[];
+  targetDate: string | null;
 }
 
-const REQUIRED = ["partida", "horario", "campeonato"] as const;
+const REQUIRED = ["data", "partida", "horario", "campeonato"] as const;
 
 function norm(s: string) {
   return s
@@ -36,7 +40,12 @@ function sanitize(v: string) {
   return /^[=+\-@]/.test(clean) ? `'${clean}` : clean;
 }
 
-function splitLine(line: string, delimiter: string): string[] {
+/**
+ * Divide a linha respeitando aspas e aceitando vírgula OU ponto e vírgula
+ * como separadores. Isso suporta tanto CSVs padrão quanto o modelo misto
+ * Data;Partida,Horário,Campeonato usado no fluxo diário.
+ */
+function splitFlexibleLine(line: string): string[] {
   const out: string[] = [];
   let cur = "";
   let quoted = false;
@@ -46,14 +55,51 @@ function splitLine(line: string, delimiter: string): string[] {
       if (quoted && line[i + 1] === '"') {
         cur += '"';
         i++;
-      } else quoted = !quoted;
-    } else if (c === delimiter && !quoted) {
+      } else {
+        quoted = !quoted;
+      }
+    } else if ((c === "," || c === ";") && !quoted) {
       out.push(cur);
       cur = "";
-    } else cur += c;
+    } else {
+      cur += c;
+    }
   }
   out.push(cur);
   return out.map((s) => s.trim());
+}
+
+/** DD/MM/YYYY (preferido) ou YYYY-MM-DD -> ISO YYYY-MM-DD, com validação real. */
+export function parseDateToIso(value: string): string | null {
+  const clean = value.trim();
+  let year: number;
+  let month: number;
+  let day: number;
+
+  const br = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const iso = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (br) {
+    day = Number(br[1]);
+    month = Number(br[2]);
+    year = Number(br[3]);
+  } else if (iso) {
+    year = Number(iso[1]);
+    month = Number(iso[2]);
+    day = Number(iso[3]);
+  } else {
+    return null;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 export function parseCsv(text: string): CsvParseResult {
@@ -63,11 +109,10 @@ export function parseCsv(text: string): CsvParseResult {
     .filter((l) => l.trim().length > 0);
 
   if (lines.length === 0) {
-    return { rows: [], invalid: [], headers: [], leagues: [] };
+    return { rows: [], invalid: [], headers: [], leagues: [], targetDate: null };
   }
 
-  const delimiter = (lines[0]!.match(/;/g)?.length ?? 0) > (lines[0]!.match(/,/g)?.length ?? 0) ? ";" : ",";
-  const headers = splitLine(lines[0]!, delimiter);
+  const headers = splitFlexibleLine(lines[0]!);
   const normHeaders = headers.map(norm);
 
   const idx: Record<string, number> = {};
@@ -88,6 +133,7 @@ export function parseCsv(text: string): CsvParseResult {
       ],
       headers,
       leagues: [],
+      targetDate: null,
     };
   }
 
@@ -95,16 +141,22 @@ export function parseCsv(text: string): CsvParseResult {
   const invalid: CsvInvalidRow[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const cells = splitLine(lines[i]!, delimiter);
+    const cells = splitFlexibleLine(lines[i]!);
+    const dataRaw = sanitize(cells[idx["data"]!] ?? "");
+    const data = parseDateToIso(dataRaw);
     const partida = sanitize(cells[idx["partida"]!] ?? "");
     const horario = sanitize(cells[idx["horario"]!] ?? "");
     const campeonato = sanitize(cells[idx["campeonato"]!] ?? "");
 
-    if (!partida || !horario || !campeonato) {
+    if (!dataRaw || !partida || !horario || !campeonato) {
       invalid.push({ line: i + 1, raw: lines[i]!, reason: "Campo obrigatório vazio" });
       continue;
     }
-    if (!/\d{1,2}[:h]\d{2}/.test(horario)) {
+    if (!data) {
+      invalid.push({ line: i + 1, raw: lines[i]!, reason: "Data inválida; use DD/MM/AAAA" });
+      continue;
+    }
+    if (!/^\d{1,2}[:h]\d{2}$/.test(horario)) {
       invalid.push({ line: i + 1, raw: lines[i]!, reason: "Horário em formato não reconhecido" });
       continue;
     }
@@ -116,9 +168,27 @@ export function parseCsv(text: string): CsvParseResult {
       invalid.push({ line: i + 1, raw: lines[i]!, reason: "Campo excede limite de caracteres" });
       continue;
     }
-    rows.push({ partida, horario, campeonato });
+    rows.push({ data, partida, horario, campeonato });
+  }
+
+  const dates = Array.from(new Set(rows.map((r) => r.data))).sort();
+  if (dates.length > 1) {
+    return {
+      rows: [],
+      invalid: [
+        ...invalid,
+        {
+          line: 1,
+          raw: lines[0]!,
+          reason: `O arquivo contém mais de uma data (${dates.join(", ")}). Envie uma data por análise.`,
+        },
+      ],
+      headers,
+      leagues: [],
+      targetDate: null,
+    };
   }
 
   const leagues = Array.from(new Set(rows.map((r) => r.campeonato))).sort();
-  return { rows, invalid, headers, leagues };
+  return { rows, invalid, headers, leagues, targetDate: dates[0] ?? null };
 }
