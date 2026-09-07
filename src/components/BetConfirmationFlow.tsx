@@ -69,6 +69,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
   }
 
   const suggested = Number(proposal.suggestedStake);
+  const maxAllowed = Number(proposal.maxAllowedStake);
   const customNumber = Number(custom.replace(",", "."));
 
   return (
@@ -88,7 +89,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
       </div>
 
       <div className="p-6">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-4">
           <div>
             <p className="text-xs text-muted-foreground">Odd informada</p>
             <p className="num mt-1 text-lg">{Number(proposal.entry_odd).toFixed(2)}</p>
@@ -100,6 +101,10 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
           <div>
             <p className="text-xs text-muted-foreground">Valor sugerido</p>
             <p className="num mt-1 text-lg font-semibold text-primary">{money(suggested)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Máximo nesta aposta</p>
+            <p className="num mt-1 text-lg">{money(maxAllowed)}</p>
           </div>
         </div>
 
@@ -124,7 +129,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         {showCustom && (
           <div className="mt-4 flex max-w-sm items-end gap-3 rounded-lg border border-border p-4">
             <label className="flex-1 text-sm">
-              <span className="text-muted-foreground">Valor que você quer usar</span>
+              <span className="text-muted-foreground">Valor que você quer usar (máx. {money(maxAllowed)})</span>
               <Input
                 className="num mt-2"
                 inputMode="decimal"
@@ -134,7 +139,12 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
               />
             </label>
             <Button
-              disabled={saving || !Number.isFinite(customNumber) || customNumber < 0}
+              disabled={
+                saving ||
+                !Number.isFinite(customNumber) ||
+                customNumber < 0 ||
+                customNumber > maxAllowed
+              }
               onClick={() => void submit(Number.isFinite(customNumber) ? customNumber : 0)}
             >
               Confirmar
@@ -143,7 +153,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          Digitar 0 equivale a recusar a sugestão. Você também pode usar um valor diferente do sugerido, desde que não ultrapasse o saldo disponível.
+          Digitar 0 equivale a recusar a sugestão. Um valor manual pode ser diferente da sugestão, mas nunca ultrapassa o limite de exposição da banca.
         </p>
       </div>
     </section>
