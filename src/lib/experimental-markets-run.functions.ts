@@ -28,6 +28,7 @@ import {
 import { BASE_GATE } from "./engine/opportunity";
 import { evaluateValue, finalSelection, type ValueInput, type ValueResult } from "./engine/value";
 import type { AsianOutcomeProbabilities, ContractType } from "./engine/types";
+import { eloAdjustGoalForecast } from "./elo-feature.server";
 
 export const EXPERIMENTAL_MARKETS_STATUS = "EXPERIMENTAL_CURRENT_SEASON" as const;
 const PRODUCTION_STATUS = "MODEL_NOT_PRODUCTION_VALIDATED" as const;
@@ -441,11 +442,28 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         continue;
       }
 
+      const eloForecast = await eloAdjustGoalForecast({
+        runId: data.runId,
+        matchId: match.id,
+        leagueKey: league,
+        homeTeamId: Number(homeId),
+        awayTeamId: Number(awayId),
+        predictionAt,
+        lambdaHome: goalForecast.lambdaHome,
+        lambdaAway: goalForecast.lambdaAway,
+      });
+      if (!eloForecast.applied) {
+        issues.push(`${label}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
+      }
+      const goalModelVersion = eloForecast.applied && eloForecast.modelVersionSuffix
+        ? `${GOALS_MODEL_VERSION}+${eloForecast.modelVersionSuffix}`
+        : GOALS_MODEL_VERSION;
+
       const projections = buildGoalMarketProjections({
         homeTeam: match.home_team ?? "Mandante",
         awayTeam: match.away_team ?? "Visitante",
-        lambdaHome: goalForecast.lambdaHome,
-        lambdaAway: goalForecast.lambdaAway,
+        lambdaHome: eloForecast.lambdaHome,
+        lambdaAway: eloForecast.lambdaAway,
       });
       const familyOrdinals = new Map<ExperimentalMarketFamily, number>();
 
@@ -466,7 +484,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           p_cal: null,
           conservative_probability: null,
           outcome_distribution: projection.outcomeDistribution ?? {},
-          model_version: GOALS_MODEL_VERSION,
+          model_version: goalModelVersion,
           calibration_version: null,
           model_status: EXPERIMENTAL_MARKETS_STATUS,
           data_status: "OK",
@@ -491,7 +509,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           trainingMatches: goalTraining.length,
           gate: BASE_GATE,
           gateMet: projection.probability >= BASE_GATE,
-          modelVersion: GOALS_MODEL_VERSION,
+          modelVersion: goalModelVersion,
           modelStatus: EXPERIMENTAL_MARKETS_STATUS,
           productionStatus: PRODUCTION_STATUS,
           dataStatus: "OK",
