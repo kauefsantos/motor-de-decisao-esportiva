@@ -237,7 +237,7 @@ async function resolveMatches(db: Db, runId: string) {
         const url = research.dataset.fetches.find((f) => f.status === "OK")?.url ?? null;
         if (r.status === "MATCH_RESOLVED") {
           externalResearch++;
-          if (!resolvedByApiFootball && status !== "RESOLVED_SOFASCORE") {
+          if (!resolvedByApiFootball) {
             status = "RESOLVED_RESEARCH";
             confidence = r.confidence;
           }
@@ -325,8 +325,8 @@ async function resolveMatches(db: Db, runId: string) {
     .eq("id", runId);
 
   const summary = sourceUnavailable
-    ? `${resolved} partidas normalizadas localmente; SofaScore indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
-    : `${resolved} partidas normalizadas; ${external} com evento SofaScore, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
+    ? `${resolved} partidas normalizadas localmente; fonte indisponível em ${sourceUnavailable} consultas (${sourceError ?? "sem detalhe"}).`
+    : `${resolved} partidas normalizadas; ${external} com evento externo, ${ambiguous} ambíguas, ${notFound} não encontradas.`;
   await log(
     db,
     runId,
@@ -346,7 +346,7 @@ async function collect(db: Db, runId: string) {
   const perSource: Record<string, number> = {};
   const predictionAt = new Date().toISOString();
 
-  // 1) SofaScore: coleta histórica pré-jogo só para partidas com evento resolvido.
+  // 1) IDs externos já resolvidos por partida.
   const { data: externalIds } = await db
     .from("match_external_ids")
     .select("match_id, source, external_id")
@@ -433,7 +433,6 @@ async function collect(db: Db, runId: string) {
     }
   }
 
-  const sofascoreObservations = 0;
 
 
   // 1b) Desk Research: histórico pré-jogo em datasets públicos e abertos.
@@ -639,10 +638,8 @@ async function collect(db: Db, runId: string) {
     db,
     runId,
     "COLLECT",
-    sofascoreObservations
-      ? `${sofascoreObservations} observações brutas coletadas na SofaScore; demais fontes sem credencial.`
-      : `Nenhuma observação bruta coletada. Estado por fonte registrado em source_fetches.`,
-    sofascoreObservations ? "INFO" : "WARN",
+    `Coleta concluída. Estado por fonte registrado em source_fetches.`,
+    "INFO",
     perSource,
   );
   return perSource;
