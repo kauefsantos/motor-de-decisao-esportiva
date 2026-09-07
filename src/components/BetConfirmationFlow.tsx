@@ -51,7 +51,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
     );
   }
 
-  if (!data) return null;
+  if (!data || data.all.length === 0) return null;
 
   const proposal = data.nextProposal;
   if (!proposal) {
@@ -108,9 +108,11 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         </p>
 
         <div className="mt-5 flex flex-wrap gap-3">
-          <Button disabled={saving} onClick={() => void submit(suggested)}>
-            <Check className="mr-2 size-4" /> Aceitar {money(suggested)}
-          </Button>
+          {suggested > 0 && (
+            <Button disabled={saving} onClick={() => void submit(suggested)}>
+              <Check className="mr-2 size-4" /> Aceitar {money(suggested)}
+            </Button>
+          )}
           <Button variant="outline" disabled={saving} onClick={() => setShowCustom((value) => !value)}>
             Informar outro valor
           </Button>
