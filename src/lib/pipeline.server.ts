@@ -125,7 +125,101 @@ async function resolveMatches(db: Db, runId: string) {
     let confidence = localOk ? 0.6 : 0;
 
     let resolvedByApiFootball = false;
-    if (localOk) {
+
+    // Fonte 5Dollar: API NATIVA (v1). Identidade própria no lineage; IDs nunca
+    // misturados com os da API-Sports.
+    if (localOk && FIVE_DOLLAR_ACTIVE) {
+      const {
+        fiveDollarResolveMatch,
+        fiveDollarConfigured,
+        FIVE_DOLLAR_SOURCE,
+        FIVE_DOLLAR_DEFINITION_VERSION,
+      } = await import("./adapters/five_dollar.server");
+
+      if (fiveDollarConfigured()) {
+        const fd = await fiveDollarResolveMatch(
+          { homeTeam: home, awayTeam: away, competition: m.raw_campeonato, kickoff },
+          targetDate,
+        );
+
+        await db.from("source_fetches").insert({
+          run_id: runId,
+          match_id: m.id,
+          source: FIVE_DOLLAR_SOURCE,
+          status:
+            fd.fetch.status === "OK"
+              ? "OK"
+              : fd.fetch.status === "RATE_LIMITED"
+                ? "RATE_LIMITED"
+                : "SOURCE_UNAVAILABLE",
+          http_status: fd.fetch.httpStatus,
+          error_message: fd.fetch.errorMessage,
+          fetched_at: fd.fetch.fetchedAt,
+        });
+
+        if (fd.resolution?.status === "MATCH_RESOLVED") {
+          resolvedByApiFootball = true;
+          external++;
+          status = "RESOLVED_FIVE_DOLLAR";
+          confidence = fd.resolution.confidence;
+          reason = fd.resolution.reason;
+          const event = fd.events.find((e) => e.eventId === fd.resolution!.eventId);
+          await db.from("match_external_ids").insert([
+            {
+              match_id: m.id,
+              source: "five_dollar_fixture",
+              external_id: String(fd.resolution.eventId),
+              confidence: fd.resolution.confidence,
+            },
+            ...(event?.homeTeamId
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "five_dollar_team_home",
+                    external_id: String(event.homeTeamId),
+                    confidence: fd.resolution.confidence,
+                  },
+                ]
+              : []),
+            ...(event?.awayTeamId
+              ? [
+                  {
+                    match_id: m.id,
+                    source: "five_dollar_team_away",
+                    external_id: String(event.awayTeamId),
+                    confidence: fd.resolution.confidence,
+                  },
+                ]
+              : []),
+          ]);
+        } else if (fd.resolution) {
+          reason = `${reason} 5Dollar: ${fd.resolution.reason}`;
+        } else {
+          sourceUnavailable++;
+          sourceError = fd.fetch.errorMessage;
+          reason = `${reason} 5Dollar indisponível: ${fd.fetch.errorMessage ?? "sem detalhe"}.`;
+        }
+
+        await log(
+          db,
+          runId,
+          "RESOLVE",
+          `Resolução 5Dollar (nativa) para ${m.raw_partida}: ${fd.resolution?.status ?? fd.fetch.status}`,
+          resolvedByApiFootball ? "INFO" : "WARN",
+          {
+            definitionVersion: FIVE_DOLLAR_DEFINITION_VERSION,
+            endpoint: fd.fetch.path,
+            httpStatus: fd.fetch.httpStatus,
+            fetchedAt: fd.fetch.fetchedAt,
+            rateLimit: fd.fetch.rateLimit,
+            predictionAt: predictionAtRun,
+            candidates: fd.resolution?.candidates ?? [],
+          },
+        );
+      }
+    }
+
+    if (localOk && !FIVE_DOLLAR_ACTIVE) {
       // Fonte principal: API-Football (credencial server-side). Nunca fabrica dados.
       const {
         apiFootballResolveMatch,
