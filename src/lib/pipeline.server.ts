@@ -1109,6 +1109,7 @@ async function gates(db: Db, runId: string) {
 }
 
 async function markets(db: Db, runId: string) {
+  const predictionAtRun = await runPredictionAt(db, runId);
   const { data: matches } = await db
     .from("matches")
     .select("id, raw_partida, home_team, away_team, competition, kickoff_local")
