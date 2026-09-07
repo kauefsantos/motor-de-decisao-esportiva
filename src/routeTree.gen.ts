@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ExperimentalCornersRouteImport } from './routes/experimental.corners'
 import { Route as RunRunIdOportunidadesRouteImport } from './routes/run.$runId.oportunidades'
 import { Route as RunRunIdProcessamentoRouteImport } from './routes/run.$runId.processamento'
 import { Route as RunRunIdResultadoRouteImport } from './routes/run.$runId.resultado'
@@ -17,6 +18,11 @@ import { Route as RunRunIdResultadoRouteImport } from './routes/run.$runId.resul
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExperimentalCornersRoute = ExperimentalCornersRouteImport.update({
+  id: '/experimental/corners',
+  path: '/experimental/corners',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RunRunIdOportunidadesRoute = RunRunIdOportunidadesRouteImport.update({
@@ -37,12 +43,14 @@ const RunRunIdResultadoRoute = RunRunIdResultadoRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/experimental/corners': typeof ExperimentalCornersRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
   '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
   '/run/$runId/resultado': typeof RunRunIdResultadoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/experimental/corners': typeof ExperimentalCornersRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
   '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
   '/run/$runId/resultado': typeof RunRunIdResultadoRoute
@@ -50,6 +58,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/experimental/corners': typeof ExperimentalCornersRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
   '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
   '/run/$runId/resultado': typeof RunRunIdResultadoRoute
@@ -58,18 +67,21 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/experimental/corners'
     | '/run/$runId/oportunidades'
     | '/run/$runId/processamento'
     | '/run/$runId/resultado'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/experimental/corners'
     | '/run/$runId/oportunidades'
     | '/run/$runId/processamento'
     | '/run/$runId/resultado'
   id:
     | '__root__'
     | '/'
+    | '/experimental/corners'
     | '/run/$runId/oportunidades'
     | '/run/$runId/processamento'
     | '/run/$runId/resultado'
@@ -77,6 +89,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ExperimentalCornersRoute: typeof ExperimentalCornersRoute
   RunRunIdOportunidadesRoute: typeof RunRunIdOportunidadesRoute
   RunRunIdProcessamentoRoute: typeof RunRunIdProcessamentoRoute
   RunRunIdResultadoRoute: typeof RunRunIdResultadoRoute
@@ -89,6 +102,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/experimental/corners': {
+      id: '/experimental/corners'
+      path: '/experimental/corners'
+      fullPath: '/experimental/corners'
+      preLoaderRoute: typeof ExperimentalCornersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/run/$runId/oportunidades': {
@@ -117,6 +137,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ExperimentalCornersRoute: ExperimentalCornersRoute,
   RunRunIdOportunidadesRoute: RunRunIdOportunidadesRoute,
   RunRunIdProcessamentoRoute: RunRunIdProcessamentoRoute,
   RunRunIdResultadoRoute: RunRunIdResultadoRoute,
