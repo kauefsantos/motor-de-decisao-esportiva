@@ -1,11 +1,12 @@
 # Value Bet Finder — Estado Canônico
 
-> Atualizado: 2026-09-08
+> Atualizado: 2026-09-08 20:34 BRT
 > Repo: `kauefsantos/quant-football-insights`
 > Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a` (`Value Bet Finder`)
 > Workspace: `IgC7Z3MS5vlDXWjvizgE`
 > Preview: `https://id-preview--28664075-8af4-4155-9ee9-8ed86021681a.lovable.app`
-> Commit funcional atual antes desta atualização documental: `f7fb11b13b30c5e5360b091f0f446dd51de62205`
+> `main` validado antes desta reconciliação: `f59e26276986737448ae02e66a19b24a87eab77b` (merge PR #21)
+> Lovable validado no mesmo commit `f59e26276986737448ae02e66a19b24a87eab77b`
 
 ## Regras que não podem ser quebradas
 
@@ -16,6 +17,7 @@
 - Nunca usar dados posteriores ao `prediction_at`.
 - Não inventar estatísticas/probabilidades nem marcar modelo como produção validada sem validação real.
 - Cards/shots/SOT permanecem bloqueados até compatibilidade de definição/settlement ser validada.
+- Migrações já materializadas no banco não devem ser reaplicadas cegamente apenas para corrigir histórico de `schema_migrations`.
 
 ## Fluxo
 
@@ -67,15 +69,15 @@ Versão: `goals-baseline-v2-recency`.
 
 ### Jogos continentais / cross-league
 
-Versão auxiliar: `cross-league-domestic-v1`, ainda dentro do MESMO Motor 1.
+Versão de base: `cross-league-domestic-v1`, ainda dentro do MESMO Motor 1.
 
 Para Champions/Libertadores/Sul-Americana etc.:
 - identifica a liga doméstica principal de cada clube usando os próprios dados 5Dollar dos últimos 365 dias;
 - exige pelo menos 3 partidas domésticas válidas para cada clube;
 - estima força ofensiva/defensiva de cada clube relativa à própria liga;
-- combina bases das duas ligas de forma conservadora e aplica ajuste suavizado;
-- NÃO converte Elo de países diferentes sem normalização validada;
-- se não houver histórico doméstico suficiente, bloqueia em vez de inventar.
+- combina bases das duas ligas de forma conservadora;
+- o Elo cross-league só é acrescentado quando houver evidência interligas medida suficiente e temporalmente válida;
+- se o Elo hierárquico não estiver elegível, o modelo faz fallback sem esse ajuste em vez de transformar prior em evidência.
 
 ## Corners
 
@@ -83,20 +85,93 @@ Base: `corners-baseline-v1`, rolling 365 dias.
 
 Em confrontos continentais pode usar `corners-baseline-v1+cross-league-domestic-v1` com a mesma lógica doméstica conservadora. Mercados: total da partida e total por time.
 
-## Elo
+## Elo hierárquico — estado real validado
 
-Feature auxiliar do modelo de gols, nunca segundo motor.
+Elo continua sendo **feature auxiliar do modelo de gols**, nunca um segundo motor.
 
-Versão: `elo-v1-w020`.
+Versões:
+- time local: `elo-v1-w020`;
+- liga: `league-elo-v1`;
+- composição cross-league: `hierarchical-elo-v1`.
+
+### Elo de times
+
 - inicial 1500; K=20;
+- cada time é avaliado na escala local de sua liga;
 - mando entra na atualização do rating, sem duplicar o mando do modelo de gols;
 - ajuste dos lambdas preserva `lambdaTotal`;
 - lookup doméstico prefere o `leagueId` oficial da 5Dollar;
-- cross-country Elo continua bloqueado sem normalização validada.
+- leitura para previsão é estritamente anterior ao `prediction_at`.
 
-Tabelas: `elo_fixtures`, `elo_team_ratings`, `elo_fixture_history`, `elo_sync_state`, `elo_prediction_context`.
+### Elo de ligas / cross-league
 
-Cron Supabase: **03:00 Brasília** (`0 6 * * *`). A rotina usa espaçamento de 6.2s e foi ampliada para ligas Pro relevantes: top-5 + segundas divisões, Brasil A/B, Portugal, Holanda, Bélgica, Turquia, Argentina, Equador, Noruega, Eslováquia, MLS e Saudi Pro quando disponíveis.
+PR #20 adicionou a camada hierárquica e PR #21 adicionou o gate de evidência medida.
+
+- `global_team_elo = league_elo + (team_local_elo - 1500)`;
+- league Elo parte de priors estruturais, mas o prior sozinho **não** pode alterar uma previsão;
+- para aplicar `CROSS_LEAGUE_HIERARCHICAL`, cada liga precisa de pelo menos **3 partidas interligas reais** em `evidence_matches`;
+- o snapshot de liga também precisa existir antes do `prediction_at`;
+- sem essas condições, o forecast segue sem Elo hierárquico;
+- atualização interligas usa K efetivo 6 e mantém o league Elo limitado a ±60 do prior;
+- divisão inferior com pai configurado fica no máximo 70 pontos abaixo da divisão superior;
+- divisões inferiores `CORE` também ficam abaixo do piso atual das Big 5 em pelo menos 25 pontos.
+
+Estado do banco validado em 08/09/2026 após o rollout:
+- 32 ligas-alvo ativas;
+- 737 ratings de times (`elo-v1-w020`);
+- 32 ratings de liga (`league-elo-v1`);
+- 9 competições cross-league ativas;
+- 1.275 fixtures continentais/interligas armazenadas;
+- 480 fixtures realmente aproveitadas para atualizar league Elo;
+- 20/32 ligas já possuem `evidence_matches >= 3`;
+- auditoria: 32/32 ligas `OK`, 0 violações hierárquicas, 0 erros de sync;
+- piso das Big 5 ≈ 1559,32 e maior rating de segunda divisão = 1505;
+- drift médio local máximo ≈ 12,63, dentro da tolerância auditada de 25.
+
+Tabelas principais: `elo_fixtures`, `elo_team_ratings`, `elo_fixture_history`, `elo_target_leagues`, `elo_cross_competitions`, `elo_cross_fixtures`, `elo_league_ratings`, `elo_league_fixture_history`, `elo_audit_runs`, `elo_sync_state`, `elo_prediction_context`.
+
+### Lacuna de validação ainda aberta
+
+Os 18 registros existentes em `elo_prediction_context` ainda são do modelo antigo (`elo-v1-w020`) e não têm `elo_scope` preenchido. Portanto, a implementação hierárquica está no código e o ledger de ligas está auditado, mas ainda falta registrar uma **nova previsão continental pós-rollout** que demonstre no banco:
+- `CROSS_LEAGUE_HIERARCHICAL` quando as duas ligas passam o gate de evidência;
+- fallback sem Elo quando uma das ligas não passa o gate.
+
+Não considerar essa validação E2E concluída até existir esse registro.
+
+## Jobs diários do Elo — estado real validado
+
+O cron monolítico antigo foi substituído pela fila incremental.
+
+Jobs ativos no Supabase:
+- `elo-daily-incremental`: `*/2 6-7 * * *` UTC = a cada 2 minutos entre **03:00 e 04:58 BRT**; processa um alvo por invocação;
+- `elo-daily-finalize`: `5 8 * * *` UTC = **05:05 BRT**; reconstrói league Elo, roda auditoria e consolida `elo_sync_state`.
+
+Job legado `elo-bootstrap-now` está inativo.
+
+Estado consolidado após o rollout:
+- `elo_sync_state.model_version = hierarchical-elo-v1`;
+- `last_status = OK`;
+- 32 ligas processadas;
+- 11.356 fixtures domésticas no ledger;
+- `pendingTargets = 0`;
+- último finalize/audit manual do rollout terminou OK.
+
+**Importante:** os novos job IDs 8/9 ainda não possuem execução normal registrada em `cron.job_run_details`. A primeira janela agendada real após o rollout precisa ser conferida depois de 05:05 BRT. O estado atual prova que as funções e a fila foram executadas no rollout, mas ainda não prova o primeiro ciclo automático completo desses novos jobs.
+
+## Divergência de histórico de migrações
+
+O schema live contém as tabelas/funções do Elo hierárquico e está operacional, porém `supabase_migrations.schema_migrations` ainda lista somente:
+- `20260906172209`
+- `20260906181530`
+- `20260906195556`
+
+Ou seja: o banco materializado avançou além do histórico oficial de migrações.
+
+Além disso, o audit live já usa `local_mean_drift` com tolerância 25 e resumo expandido, enquanto o arquivo original `20260908230000_hierarchical_league_elo.sql` no repositório ainda carregava a versão inicial do audit.
+
+Correção segura iniciada na branch `chore/reconcile-project-state-elo`:
+- nova migration aditiva/idempotente `20260908235000_reconcile_hierarchical_elo_audit.sql` espelha no repositório a definição de audit que já está saudável no banco;
+- **não** reaplicar cegamente `20260908230000_hierarchical_league_elo.sql` apenas para preencher metadata de migrations.
 
 ## Motor 1
 
@@ -153,9 +228,9 @@ Possível evolução posterior: reforecast automático da distribuição para a 
 
 ## Seleções qualificadas fora do corte automático
 
-PR #17 mergeado em `f7fb11b13b30c5e5360b091f0f446dd51de62205`.
+PRs #17, #18 e #19 consolidaram o fluxo de alternativas qualificadas.
 
-Na tela de resultado experimental, “Outras odds avaliadas” agora é dividida em:
+Na tela de resultado experimental, “Outras odds avaliadas” é dividida em:
 - **Qualificadas fora da seleção final**: passaram probabilidade + valor + execução, mas ficaram fora por limite/ranking. Aparecem com odd, EV e botão **Selecionar**.
 - **Sem margem ou não executáveis**: ficam em lista recolhível com motivo.
 
@@ -184,7 +259,7 @@ Dashboard acompanha banca, ROI, CLV, calibração, drawdown e desempenho por mer
 - FUNDO DO POÇO: banca R$0 → revisão completa antes de novas apostas.
 - AUGE / elegível para API-Football Pro: pelo menos 100 apostas liquidadas + CLV médio positivo + erro de calibração <= 5 p.p.; ROI é confirmação, não critério isolado.
 
-Revisão automática diária: 03:00 Brasília.
+A revisão Elo diária agora termina às 05:05 BRT depois da fila incremental iniciada às 03:00.
 
 ## Últimas validações
 
@@ -195,14 +270,24 @@ CSV 09/09 após correções Pro:
 - 17/17 jogos com previsões;
 - 131 previsões acima do gate.
 
-PR #17: E2E experimental + unit tests + build = **SUCCESS** antes do merge.
-Lovable sincronizado com commit `f7fb11b13b30c5e5360b091f0f446dd51de62205`.
+Estado técnico validado em 08/09/2026:
+- GitHub `main` = `f59e26276986737448ae02e66a19b24a87eab77b`;
+- Lovable canônico = mesmo commit;
+- PR #20 (Elo hierárquico) e PR #21 (evidence gate) mergeados;
+- banco hierárquico preenchido e auditoria `OK`;
+- jobs incrementais ativos;
+- migration history ainda divergente do schema materializado;
+- falta uma nova previsão continental pós-rollout e o primeiro ciclo cron automático completo dos jobs 8/9.
 
-## Próximo passo
+## Próximo passo obrigatório
 
-- Testar visualmente a nova lista de qualificadas e o botão **Selecionar** usando a run atual, em que as duas sugestões automáticas foram recusadas.
-- Se aprovado, considerar como próxima evolução técnica o reforecast automático para a linha principal Bet365 em gols/escanteios.
+1. Reconciliar o repositório com o audit live por migration aditiva, sem reaplicar a migration hierárquica original.
+2. Rodar uma nova análise continental pós-rollout e conferir `elo_prediction_context`:
+   - aplicar `CROSS_LEAGUE_HIERARCHICAL` somente com evidência >= 3 em ambas as ligas e snapshot pré-`prediction_at`;
+   - confirmar fallback sem Elo nos casos sem evidência suficiente.
+3. Depois da primeira janela automática, conferir `cron.job_run_details` dos jobs 8/9, novo `elo_audit_runs` e `elo_sync_state`.
+4. Só depois voltar ao próximo item funcional da UI: teste visual de “Qualificadas fora da seleção final” / botão **Selecionar** e, se aprovado, avaliar reforecast automático para a linha principal Bet365.
 
 Para continuar em outro chat:
 
-> Leia `docs/PROJECT_STATE.md` do repositório `kauefsantos/quant-football-insights`, confira GitHub/Lovable/Supabase e continue a partir do próximo passo. Não crie outro projeto Lovable.
+> Leia `docs/PROJECT_STATE.md` do repositório `kauefsantos/quant-football-insights`, confira GitHub/Lovable/Supabase e continue a partir do próximo passo. Não crie outro projeto Lovable. Antes de alterações, valide o estado real do banco e do main, incluindo Elo hierárquico e jobs diários.
