@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { matchBet365Price } from "./bet365-odds.server";
+import {
+  bet365ListOfferedLine,
+  matchBet365List1x2,
+  matchBet365Price,
+} from "./bet365-odds.server";
 
 const payload = {
   success: 1,
@@ -35,6 +39,16 @@ const payload = {
       },
     ],
   },
+};
+
+const listOdds = {
+  "1x2": {
+    opening: { home: 1.182, draw: 7.5, away: 15 },
+    closing: { home: 1.083, draw: 11, away: 23 },
+    inplay: null,
+  },
+  goal_line: { opening: 3.75, closing: 4.25, inplay: null },
+  corner_line: { opening: 9.5, closing: 9.5, inplay: null },
 };
 
 describe("matchBet365Price", () => {
@@ -81,5 +95,21 @@ describe("matchBet365Price", () => {
     );
     expect(quote.status).toBe("UNSUPPORTED");
     expect(quote.odd).toBeNull();
+  });
+});
+
+describe("Pro day odds preflight", () => {
+  it("reads 1X2 prices directly from the expanded day feed", () => {
+    const quote = matchBet365List1x2(
+      { predictionId: "p6", market: "1x2", side: "AWAY", lineCanonical: null },
+      listOdds,
+    );
+    expect(quote.status).toBe("MATCHED");
+    expect(quote.odd).toBe(23);
+  });
+
+  it("reads current total lines without pretending the list feed contains prices", () => {
+    expect(bet365ListOfferedLine(listOdds, "goals_match_total")).toBe(4.25);
+    expect(bet365ListOfferedLine(listOdds, "corners_match_total")).toBe(9.5);
   });
 });
