@@ -1,12 +1,12 @@
 # Value Bet Finder — Estado Canônico
 
-> Atualizado: 2026-09-08 20:51 BRT
+> Atualizado: 2026-09-08 20:55 BRT
 > Repo: `kauefsantos/quant-football-insights`
 > Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a` (`Value Bet Finder`)
 > Workspace: `IgC7Z3MS5vlDXWjvizgE`
 > Preview: `https://id-preview--28664075-8af4-4155-9ee9-8ed86021681a.lovable.app`
-> `main` atual: `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a` (merge PR #22)
-> Lovable canônico validado no mesmo commit `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`
+> Baseline funcional após a reconciliação: `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a` (merge PR #22)
+> PR #23 foi somente documental; antes de qualquer nova alteração, confirme novamente o HEAD real de `main` e o `latest_commit_sha` do Lovable.
 > Baseline auditado antes da reconciliação: `f59e26276986737448ae02e66a19b24a87eab77b` (merge PR #21)
 
 ## Regras que não podem ser quebradas
@@ -174,7 +174,7 @@ Reconciliação concluída no código via PR #22:
 - nova migration aditiva/idempotente `20260908235000_reconcile_hierarchical_elo_audit.sql` espelha no repositório a definição de audit que já está saudável no banco;
 - CI da PR #22 passou em **Experimental engine E2E + unit tests + build**;
 - PR #22 mergeada em `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`;
-- Lovable canônico sincronizou automaticamente para o mesmo commit;
+- Lovable canônico sincronizou automaticamente após os merges do `main`;
 - o banco não precisou receber DDL corretivo, pois já possuía a definição reconciliada;
 - `schema_migrations` continua divergente e não deve ser “consertado” manualmente nem por replay cego das migrations antigas.
 
@@ -276,8 +276,9 @@ CSV 09/09 após correções Pro:
 - 131 previsões acima do gate.
 
 Estado técnico validado em 08/09/2026:
-- GitHub `main` = `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`;
-- Lovable canônico = mesmo commit;
+- baseline funcional pós-reconciliação = `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`;
+- PR #23 foi somente atualização documental posterior;
+- Lovable canônico acompanhou os merges de `main`;
 - PR #20 (Elo hierárquico), PR #21 (evidence gate) e PR #22 (reconciliação do audit) mergeadas;
 - banco hierárquico preenchido e auditoria `OK`;
 - jobs incrementais ativos;
