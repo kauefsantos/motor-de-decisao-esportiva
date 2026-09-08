@@ -130,9 +130,9 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
     const selectionLimit = selectionLimitForDate(run.target_date ?? null);
     const { data: activeRows, error: activeError } = await supabase
       .from("experimental_bet_tracking")
-      .select("id,selection_rank")
+      .select("id")
       .eq("run_id", data.runId)
-      .in("bet_status", ["PROPOSED", "OPEN"]);
+      .in("bet_status", ["PROPOSED", "OPEN", "SETTLED"]);
     if (activeError) throw new Error(`Não foi possível conferir as vagas da rodada: ${activeError.message}`);
 
     const active = activeRows ?? [];
@@ -152,10 +152,6 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
     const matchLabel = match.home_team && match.away_team
       ? `${match.home_team} x ${match.away_team}`
       : match.raw_partida;
-    const ranks = active
-      .map((row: { selection_rank: number | null }) => Number(row.selection_rank))
-      .filter((rank: number) => Number.isFinite(rank) && rank > 0);
-    const selectionRank = ranks.length > 0 ? Math.max(...ranks) + 1 : active.length + 1;
     const now = new Date().toISOString();
 
     const row = {
@@ -186,7 +182,7 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       expected_value: evaluated.evCons,
       result: "PENDING",
       bet_status: "PROPOSED",
-      selection_rank: selectionRank,
+      selection_rank: null,
       notes: "Selecionada manualmente entre oportunidades qualificadas fora da seleção final automática.",
       updated_at: now,
     };
@@ -204,7 +200,6 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       ok: true,
       alreadySelected: false,
       trackingId: inserted.id,
-      selectionRank,
       selectionLimit,
       productionStatus: PRODUCTION_STATUS,
     };
