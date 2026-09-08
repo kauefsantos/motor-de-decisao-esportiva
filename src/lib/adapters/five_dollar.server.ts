@@ -18,8 +18,9 @@ export { FIVE_DOLLAR_DEFINITION_VERSION, FIVE_DOLLAR_SOURCE };
 
 const BASE = "https://api.5dollarfootballapi.com/v1";
 const TIMEOUT_MS = 15000;
-const MAX_PER_MINUTE = 18;
-const MAX_PER_HOUR = 300;
+// Plano Pro: limite local de 9 requisições por minuto e SEM teto horário.
+const MAX_PER_MINUTE = 9;
+
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 export type FiveDollarStatus = "OK" | "UNAVAILABLE" | "NOT_CONFIGURED" | "RATE_LIMITED";
@@ -86,9 +87,6 @@ export function fiveDollarConfigured(): boolean {
 async function throttle(): Promise<{ ok: true } | { ok: false; reason: string }> {
   const now = Date.now();
   while (callTimestamps.length > 0 && now - callTimestamps[0]! > 3600_000) callTimestamps.shift();
-  if (callTimestamps.length >= MAX_PER_HOUR) {
-    return { ok: false, reason: "Cota horária local (300 req/h) atingida; etapa encerrada em estado parcial." };
-  }
   const lastMinute = callTimestamps.filter((t) => now - t < 60_000);
   if (lastMinute.length >= MAX_PER_MINUTE) {
     const wait = 60_000 - (now - lastMinute[0]!) + 250;
