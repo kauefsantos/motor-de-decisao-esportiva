@@ -1,274 +1,161 @@
-# Value Bet Finder — Estado Canônico do Projeto
+# Value Bet Finder — Estado Canônico
 
-> Última consolidação: 2026-09-08
-> Repositório: `kauefsantos/quant-football-insights`
-> Projeto Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a`
-> Display name: `Value Bet Finder`
-> Workspace Lovable: `IgC7Z3MS5vlDXWjvizgE`
+> Atualizado: 2026-09-08
+> Repo: `kauefsantos/quant-football-insights`
+> Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a` (`Value Bet Finder`)
+> Workspace: `IgC7Z3MS5vlDXWjvizgE`
 > Preview: `https://id-preview--28664075-8af4-4155-9ee9-8ed86021681a.lovable.app`
-> Commit funcional imediatamente anterior a este documento: `1eda5b838e37312353d7bc85f6f82fda612a1887`
+> Commit funcional atual: `8ede9e30f43d8c003d96be35890b1af02ae2cde5`
 
-## Regra operacional principal
+## Regras que não podem ser quebradas
 
-- NUNCA criar, remixar ou iniciar outro projeto Lovable sem pedido explícito.
-- Continuar somente no projeto canônico acima.
-- Preferir edições via GitHub e leitura/SQL direto no projeto para poupar créditos Lovable.
-- Não expor ou pedir API keys no chat.
+- NUNCA criar/remixar outro projeto Lovable sem pedido explícito.
+- Preferir GitHub + Supabase e evitar gastar créditos Lovable desnecessariamente.
+- Nunca pedir/expor API keys.
+- Motor 1 não usa odds; Motor 2 recebe odds manualmente.
+- Nunca usar dados posteriores ao `prediction_at`.
+- Não inventar estatísticas/probabilidades nem marcar modelo como produção validada sem validação real.
+- Cards/shots/SOT permanecem bloqueados até compatibilidade de definição/settlement ser validada.
 
-## Objetivo do produto
+## Fluxo
 
-Aplicação quantitativa pré-jogo de futebol com dois motores separados:
+CSV: `Data`, `Partida`, `Horário`, `Campeonato`.
 
-1. **Motor 1 — Opportunity Engine**
-   - não usa odds da casa como feature;
-   - estima probabilidades e publica mercados apenas quando há suporte de dados/modelo;
-   - trabalha com `prediction_at` estrito para impedir leakage.
+Interface: Enviar jogos → Preparar análise → Conferir mercados → Ver seleções → Apostas abertas → Desempenho.
 
-2. **Motor 2 — Odds / Value Engine**
-   - recebe apenas a odd informada manualmente pelo usuário;
-   - calcula implied probability, edge, EV e seleção final;
-   - nunca força quantidade de apostas.
+Timezone: `America/Sao_Paulo`. Bookmaker operacional: bet365 Brasil.
 
-## Fluxo atual da interface
+## 5DollarFootballAPI
 
-1. Enviar jogos
-2. Preparar análise
-3. Conferir mercados
-4. Ver seleções
-5. Apostas abertas
-6. Desempenho
+Plano atual: **Pro US$5/mês**, confirmado em 08/09/2026.
 
-CSV oficial:
-- `Data`
-- `Partida`
-- `Horário`
-- `Campeonato`
+Integração atual:
+- limite local conservador de 9 req/min;
+- respeita rate headers/429/Retry-After;
+- fixtures do dia paginadas (`per_page=100`) e deduplicadas;
+- `fixtureId`, home/away team IDs e `leagueId` persistidos;
+- ligas domésticas usam histórico bulk por `leagueId`, até 365 dias pré-`prediction_at`;
+- competições continentais usam histórico recente por time para recuperar também as ligas domésticas;
+- `raw_observations` agora é lido com paginação real, sem `.limit(10000)` truncando a base Pro.
 
-Timezone operacional: `America/Sao_Paulo`.
+Teste do feed Pro em 09/09/2026 retornou 72 fixtures, incluindo Champions, Championship, Libertadores e Sul-Americana.
 
-## Provedor atual
+## Resolver
 
-### 5DollarFootballAPI Pro — US$5/mês
+Aliases determinísticos adicionados sem baixar o threshold global, incluindo:
+- Charlton Athletic ↔ Charlton
+- Queens Park Rangers ↔ QPR
+- Derby County ↔ Derby
+- West Bromwich Albion ↔ West Brom
+- Norwich City ↔ Norwich
+- Birmingham City ↔ Birmingham
+- Atlético-MG ↔ Atletico Mineiro
+- Estudiantes ↔ Estudiantes LP
+- VfB Stuttgart ↔ Stuttgart
 
-Upgrade confirmado em 2026-09-08.
-
-O sistema continua usando a mesma integração 5Dollar nativa, mas foi adaptado ao Pro:
-
-- limite local conservador: **9 chamadas/minuto**;
-- antigo teto local de 300/h removido;
-- respeita `X-RateLimit-*`, `Retry-After` e HTTP 429;
-- fixtures do dia paginadas com `per_page=100`;
-- dedupe por fixture ID;
-- `leagueId` persistido como `five_dollar_league`;
-- histórico preferencial por liga em bulk, até 365 dias pré-`prediction_at`;
-- fallback por time somente quando necessário.
-
-Teste real após upgrade para 09/09/2026 retornou **72 fixtures** no feed do dia e passou a incluir jogos que antes estavam fora do Community, como Champions League, Championship, Libertadores e Sul-Americana.
-
-Exemplos confirmados no feed Pro:
-- Barcelona x Feyenoord
-- Liverpool x Atlético de Madrid
-- Napoli x Arsenal
-- PSG x Slovan Bratislava
-- Sporting x Galatasaray
-- Stuttgart x Viking FK
-- Derby x West Brom
-- Norwich x Birmingham
-- Palmeiras x LDU Quito
-- Estudiantes x Corinthians
-- Santos x Atlético-MG
+Threshold de aceitação continua conservador (`0.78`).
 
 ## Modelo de gols
 
-Versão atual: **`goals-baseline-v2-recency`**.
+Versão: `goals-baseline-v2-recency`.
 
-Características:
-- janela móvel de até **365 dias**;
-- apenas jogos estritamente anteriores ao `prediction_at`;
-- mesma liga para o baseline doméstico;
-- meia-vida de recência: **120 dias**;
-- peso: `0.5^(ageDays/120)`;
-- mantém shrinkage;
-- `sampleSize` continua sendo contagem real de partidas, não soma de pesos;
-- saída em `lambdaHome`, `lambdaAway`, `lambdaTotal`;
-- Poisson independente gera matriz de placares;
-- dela derivam 1X2, BTTS e totais de gols.
+- rolling 365 dias;
+- meia-vida 120 dias (`0.5^(ageDays/120)`);
+- ataque/defesa por mando + shrinkage;
+- Poisson independente → matriz de placares → 1X2/BTTS/totais/team goals;
+- `sampleSize` é número real de jogos.
 
-Não marcar como produção validada apenas porque roda. Status permanece experimental até evidência suficiente.
+### Jogos continentais / cross-league
 
-## Modelo de corners
+Versão auxiliar: `cross-league-domestic-v1`, ainda dentro do MESMO Motor 1.
 
-Versão base: `corners-baseline-v1`.
+Para Champions/Libertadores/Sul-Americana etc.:
+- identifica a liga doméstica principal de cada clube usando os próprios dados 5Dollar dos últimos 365 dias;
+- exige pelo menos 3 partidas domésticas válidas para cada clube;
+- estima força ofensiva/defensiva de cada clube relativa à própria liga;
+- combina bases das duas ligas de forma conservadora e aplica ajuste suavizado;
+- NÃO converte Elo de países diferentes sem normalização validada;
+- se não houver histórico doméstico suficiente, bloqueia em vez de inventar.
 
-O pipeline experimental agora usa janela móvel de até **365 dias**, em vez de limitar somente à temporada corrente.
+## Corners
 
-Mercados atualmente habilitados:
-- total de escanteios da partida;
-- total de escanteios por time.
+Base: `corners-baseline-v1`, rolling 365 dias.
 
-Cards / shots / shots on target continuam bloqueados para seleção até compatibilidade de definição e settlement ser validada.
+Em confrontos continentais pode usar `corners-baseline-v1+cross-league-domestic-v1` com a mesma lógica doméstica conservadora. Mercados: total da partida e total por time.
 
 ## Elo
 
-Elo é **feature auxiliar do mesmo modelo de gols**, não um segundo motor.
+Feature auxiliar do modelo de gols, nunca segundo motor.
 
 Versão: `elo-v1-w020`.
+- inicial 1500; K=20;
+- mando entra na atualização do rating, sem duplicar o mando do modelo de gols;
+- ajuste dos lambdas preserva `lambdaTotal`;
+- lookup doméstico agora prefere o `leagueId` oficial da 5Dollar, evitando problemas de slug;
+- cross-country Elo continua bloqueado sem normalização validada.
 
-Parâmetros principais:
-- rating inicial: 1500;
-- K = 20;
-- mando usado na atualização do Elo, mas não duplicado no ajuste de gols;
-- rating armazenado é neutro;
-- ajuste Elo redistribui `lambdaHome`/`lambdaAway` preservando `lambdaTotal`;
-- se Elo não estiver disponível ou não for comparável, o modelo segue sem Elo.
+Tabelas: `elo_fixtures`, `elo_team_ratings`, `elo_fixture_history`, `elo_sync_state`, `elo_prediction_context`.
 
-Tabelas Supabase:
-- `elo_fixtures`
-- `elo_team_ratings`
-- `elo_fixture_history`
-- `elo_sync_state`
-- `elo_prediction_context`
+Cron Supabase: **03:00 Brasília** (`0 6 * * *`). O nome legado do job pode conter `0500`, mas o schedule é 06:00 UTC. A rotina usa espaçamento de 6.2s e foi ampliada para ligas Pro relevantes: top-5 + segundas divisões, Brasil A/B, Portugal, Holanda, Bélgica, Turquia, Argentina, Equador, Noruega, Eslováquia, MLS e Saudi Pro quando disponíveis.
 
-A rotina diária do Elo está agendada às **03:00 de Brasília** (`0 6 * * *` em UTC). O nome histórico do job no banco pode ainda mencionar `0500`, mas o schedule efetivo é 06:00 UTC = 03:00 BRT.
+## Motor 1
 
-Cobertura Elo doméstica foi ampliada para aproveitar o Pro, incluindo primeiras e segundas divisões relevantes. Para partidas continentais/cross-league, não assumir que Elo 1500 de países diferentes é diretamente comparável; usar fallback sem Elo quando a comparação não for segura.
+Mercados experimentais ativos: corners, gols, team goals, 1X2, double chance, BTTS.
 
-## Regras de Motor 1
+Gate-base:
+- binário `p_cal >= 0.65`;
+- asiático `p_profit_cal >= 0.65`.
 
-- nenhuma odd de bookmaker como feature;
-- probabilidades determinísticas no backend;
-- `prediction_at` sempre respeitado;
-- binários: gate-base `p_cal >= 0.65`;
-- asiáticos: `p_profit_cal >= 0.65`;
-- não inventar probabilidades nem preencher dado essencial faltante silenciosamente;
-- se dados/modelo não bastarem: bloquear honestamente.
+Status continua experimental/`MODEL_NOT_PRODUCTION_VALIDATED` quando aplicável.
 
-Mercados experimentais ativos:
-- corners
-- gols
-- team goals
-- 1X2
-- double chance
-- BTTS
+## Motor 2
 
-## Regras de Motor 2
+Odds manuais bet365 Brasil. EV mínimo 2%.
 
-Bookmaker operacional: **bet365 Brasil**.
+Binário: `EV = p_cons * odd - 1`.
 
-Binário:
-- `implied_probability = 1 / odd`
-- `EV = p_cons * odd - 1`
-- valor somente se `EV >= 2%`
+Asiático: preservar FW/HW/PUSH/HL/FL; `W_eff=P(FW)+0.5P(HW)`, `L_eff=P(FL)+0.5P(HL)`, `EV=W_eff*(O-1)-L_eff`, `fair=1+L_eff/W_eff`.
 
-Asiático:
-- preservar FULL_WIN / HALF_WIN / PUSH / HALF_LOSS / FULL_LOSS;
-- `W_eff = P(FW) + 0.5*P(HW)`
-- `L_eff = P(FL) + 0.5*P(HL)`
-- `EV = W_eff*(O-1) - L_eff`
-- `fair = 1 + L_eff/W_eff`
-- `O_min = 1 + (target + L_eff)/W_eff`
+Linha mudou → reforecast. Só odd mudou → recalcula valor. Seleção final nunca força apostas; máximo operacional atual: 2 em dias úteis / 3 no fim de semana.
 
-Linha alterada exige reforecast. Mudança apenas na odd recalcula valor sem refazer forecast.
+## Banca piloto
 
-Seleção final: no máximo 3; nunca forçar aposta.
+Início: 07/09/2026. Banca inicial: **R$10,00**.
+- stake mínima Bet365: R$0,50;
+- referência proporcional: 5% da banca disponível;
+- fractional Kelly 0.25 como controle secundário;
+- 0 = recusar aposta.
 
-## Banca operacional do piloto
+Aposta oficial #1: Vitória x Grêmio, Over 9,5 escanteios @1,80, stake R$0,50, p registrada 74,6%, fair 1,34, EV +34,28%, originalmente OPEN/PENDING. Nunca recalcular retroativamente essa aposta com modelos novos.
 
-Piloto oficial iniciado em 07/09/2026.
+## Analytics e decisão futura
 
-- banca inicial: **R$10,00**;
-- stake mínima operacional Bet365: **R$0,50**;
-- referência proporcional: **5% da banca disponível**;
-- fractional Kelly: **0,25** como controle secundário;
-- se sugestão positiva ficar abaixo de R$0,50 e a aposta for selecionada, piso operacional = R$0,50;
-- `0` significa não apostar;
-- próxima aposta recalcula usando banca disponível após stake travada.
+Dashboard acompanha banca, ROI, CLV, calibração, drawdown e desempenho por mercado.
 
-## Primeira aposta oficial
+- FUNDO DO POÇO: banca R$0 → revisão completa antes de novas apostas.
+- AUGE / elegível para API-Football Pro: pelo menos 100 apostas liquidadas + CLV médio positivo + erro de calibração <= 5 p.p.; ROI é confirmação, não critério isolado.
 
-Aposta #1 registrada:
-- Vitória x Grêmio
-- Mais de 9,5 escanteios
-- Bet365 @ 1,80
-- stake R$0,50
-- probabilidade do modelo registrada: 74,6%
-- fair odd: 1,34
-- odd mínima alvo: 1,37
-- EV registrado: +34,28%
-- status: OPEN / PENDING na última consolidação
+Revisão automática diária: 03:00 Brasília.
 
-Não reinterpretar retroativamente essa aposta com versões novas do modelo.
+## Última correção validada
 
-## Analytics
+PR #14 `Fix 5Dollar Pro continental pipeline` foi mergeado em `8ede9e30f43d8c003d96be35890b1af02ae2cde5`.
 
-Tabelas:
-- `experimental_bet_tracking`
-- `experimental_bankroll_config`
+CI final em main: E2E experimental + unit tests + build = **SUCCESS**.
 
-Dashboard acompanha:
-- banca inicial / atual / disponível;
-- stake aberta;
-- lucro/prejuízo;
-- ROI;
-- wins/losses/hit rate;
-- probabilidade média prevista;
-- closing odd / CLV quando preenchido;
-- drawdown máximo;
-- curva de banca;
-- desempenho por família de mercado;
-- calibração por buckets;
-- histórico detalhado.
+Supabase também foi atualizado diretamente para reconhecer novas ligas Elo e manter o rate limit seguro. Validações retornaram true para Championship, Spain Segunda, Netherlands Eerste Divisie, Norway Eliteserien, Slovakia Super Liga e Ecuador LigaPro.
 
-## Critério para comprar API-Football Pro futuramente
+## Próximo passo
 
-Não comprar para salvar modelo sem evidência.
+**Reprocessar o mesmo CSV de 09/09/2026.** Depois comparar com a run anterior (`c7b23ffb-f156-4fac-a37b-83d6780a40bc`):
+- resolução externa (antes 13/17);
+- aliases antes ambíguos;
+- observações e fixtures únicos;
+- previsões de Champions/Libertadores/Championship;
+- fallback continental doméstico;
+- Elo aplicado/fallback;
+- problemas restantes.
 
-Status **AUGE — ELEGÍVEL PARA COMPRAR API-FOOTBALL PRO** quando houver, como primeiro checkpoint:
-- pelo menos **100 apostas liquidadas**;
-- **CLV médio positivo**;
-- erro de calibração **<= 5 pontos percentuais**;
-- ROI usado como confirmação, não como requisito isolado.
+Para continuar em outro chat:
 
-Status **FUNDO DO POÇO** se a banca chegar a **R$0,00**; nesse caso revisar completamente antes de novas apostas.
-
-## Revisão automática diária
-
-Há uma automação de revisão diária às **03:00 de Brasília** para classificar o projeto como:
-- AVANÇANDO
-- NEUTRO
-- REGREDINDO
-- FUNDO DO POÇO
-- AUGE — ELEGÍVEL PARA COMPRAR API-FOOTBALL PRO
-
-A revisão deve olhar banca, apostas liquidadas, ROI, CLV, calibração, drawdown, mercados e saúde técnica/CI.
-
-## Situação técnica mais recente
-
-- Lovable está sincronizado ao repositório GitHub.
-- Projeto está privado e não publicado.
-- Supabase ativo.
-- CI/build passaram nas mudanças do upgrade Pro.
-- Pipeline foi adaptado para coleta Pro, janela rolling e Elo.
-- O CSV de 09/09 **ainda deve ser reprocessado como teste de aceitação final após o upgrade Pro**.
-
-## Próximo passo recomendado
-
-1. Rodar novamente o CSV de 09/09/2026 no Value Bet Finder.
-2. Comparar Community vs Pro:
-   - partidas resolvidas externamente;
-   - páginas de fixtures do dia;
-   - league IDs persistidos;
-   - histórico coletado por liga;
-   - volume de fixtures históricos únicos;
-   - mercados produzidos;
-   - Elo aplicado vs fallback;
-   - bloqueios remanescentes e motivos.
-3. Corrigir somente problemas reproduzidos nesse teste, sem abrir novas features antes de estabilizar o pipeline.
-
-## Como continuar em um chat novo
-
-Mensagem sugerida:
-
-> Leia `docs/PROJECT_STATE.md` do repositório `kauefsantos/quant-football-insights`, confira o estado atual do GitHub/Lovable/Supabase e continue a partir do próximo passo. Não crie outro projeto Lovable.
-
-Este arquivo deve ser atualizado após mudanças arquiteturais importantes para continuar sendo a referência canônica do projeto.
+> Leia `docs/PROJECT_STATE.md` do repositório `kauefsantos/quant-football-insights`, confira GitHub/Lovable/Supabase e continue a partir do próximo passo. Não crie outro projeto Lovable.
