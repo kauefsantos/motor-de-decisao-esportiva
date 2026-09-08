@@ -29,6 +29,9 @@ import { BASE_GATE } from "./engine/opportunity";
 import { evaluateValue, finalSelection, type ValueInput, type ValueResult } from "./engine/value";
 import type { AsianOutcomeProbabilities, ContractType } from "./engine/types";
 import { eloAdjustGoalForecast } from "./elo-feature.server";
+import { isCrossLeagueCompetitionName, isCrossLeagueLeagueKey } from "./competition-kind";
+import { CROSS_LEAGUE_MODEL_SUFFIX, crossLeagueCornersForecast, crossLeagueGoalForecast } from "./engine/cross-league";
+import { loadFiveDollarRawValues, loadRunFiveDollarRawValues } from "./raw-observations.server";
 
 export const EXPERIMENTAL_MARKETS_STATUS = "EXPERIMENTAL_CURRENT_SEASON" as const;
 const PRODUCTION_STATUS = "MODEL_NOT_PRODUCTION_VALIDATED" as const;
@@ -267,27 +270,17 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       };
     }
 
-    const [{ data: externalIds }, { data: runRaws }, { data: historicalRaws }] =
-      await Promise.all([
-        supabase
-          .from("match_external_ids")
-          .select("match_id, source, external_id")
-          .in("match_id", matchIds),
-        supabase
-          .from("raw_observations")
-          .select("match_id, raw_value")
-          .eq("run_id", data.runId)
-          .eq("source", SOURCE)
-          .limit(5000),
-        supabase
-          .from("raw_observations")
-          .select("raw_value")
-          .eq("source", SOURCE)
-          .limit(10000),
-      ]);
+    const [{ data: externalIds }, runRaws, historicalRaws] = await Promise.all([
+      supabase
+        .from("match_external_ids")
+        .select("match_id, source, external_id")
+        .in("match_id", matchIds),
+      loadRunFiveDollarRawValues(supabase, data.runId),
+      loadFiveDollarRawValues(supabase, predictionAt, 365),
+    ]);
 
     const datasets = buildDatasets(
-      (historicalRaws ?? [])
+      historicalRaws
         .map((r) => asRecord(r.raw_value))
         .filter((r): r is RawValue => Boolean(r)),
     );
@@ -309,8 +302,12 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       const awayId = (externalIds ?? []).find(
         (x) => x.match_id === match.id && x.source === "five_dollar_team_away",
       )?.external_id;
+      const leagueIdRaw = (externalIds ?? []).find(
+        (x) => x.match_id === match.id && x.source === "five_dollar_league",
+      )?.external_id;
+      const leagueId = leagueIdRaw && Number.isFinite(Number(leagueIdRaw)) ? Number(leagueIdRaw) : null;
       const league = mostFrequentLeague(
-        (runRaws ?? []) as { match_id: string | null; raw_value: unknown }[],
+        runRaws as { match_id: string | null; raw_value: unknown }[],
         match.id,
       );
       const label =
@@ -324,141 +321,199 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       const rollingStartDate = new Date(Date.parse(predictionDate + "T00:00:00Z") - 365 * 86400_000)
         .toISOString().slice(0, 10);
 
-      const cornerTraining = datasets.corners.filter(
-        (r) => r.league === league && r.date < predictionDate && r.date >= rollingStartDate,
+      const crossLeague =
+        isCrossLeagueCompetitionName(match.competition) || isCrossLeagueLeagueKey(league);
+      const rollingCorners = datasets.corners.filter(
+        (r) => r.date < predictionDate && r.date >= rollingStartDate,
       );
-      if (cornerTraining.length >= MIN_EXPERIMENTAL_MATCHES) {
-        const params = fitCornersBaseline(cornerTraining);
-        const forecast = predictCorners(params, {
-          league,
+      let cornerForecast: { lambdaHome: number; lambdaAway: number; lambdaTotal: number; sampleSize: number } | null = null;
+      let cornerTrainingMatches = 0;
+      let cornerModelVersion = CORNERS_MODEL_VERSION;
+
+      if (crossLeague) {
+        const crossCorners = crossLeagueCornersForecast(rollingCorners, {
           homeTeam: String(homeId),
           awayTeam: String(awayId),
         });
-        if (forecast.sampleSize > 0) {
-          const specs = [
-            {
-              market: "corners_match_total",
-              participant: null,
-              line: "9.5",
-              dist: poissonDistribution(forecast.lambdaTotal),
-            },
-            {
-              market: "corners_match_total",
-              participant: null,
-              line: "10.5",
-              dist: poissonDistribution(forecast.lambdaTotal),
-            },
-            {
-              market: "corners_team_total",
-              participant: match.home_team ?? "Mandante",
-              line: "4.5",
-              dist: poissonDistribution(forecast.lambdaHome),
-            },
-            {
-              market: "corners_team_total",
-              participant: match.away_team ?? "Visitante",
-              line: "4.5",
-              dist: poissonDistribution(forecast.lambdaAway),
-            },
-          ];
-          let ordinal = 0;
-          for (const spec of specs) {
-            for (const side of ["OVER", "UNDER"] as const) {
-              ordinal += 1;
-              const line = canonicalLine(spec.line);
-              const outcomes = asianOutcomes(spec.dist, line, side);
-              const p = pProfit(outcomes);
-              const id = predictionId(data.runId, match.id, "CORNERS", ordinal);
-              predictionRows.push({
-                run_id: data.runId,
-                match_id: match.id,
-                prediction_id: id,
-                market: spec.market,
-                participant: spec.participant,
-                side,
-                line_raw: spec.line,
-                line_canonical: line,
-                model_probability: p,
-                p_cal: null,
-                conservative_probability: null,
-                outcome_distribution: outcomes,
-                model_version: CORNERS_MODEL_VERSION,
-                calibration_version: null,
-                model_status: EXPERIMENTAL_MARKETS_STATUS,
-                data_status: "OK",
-                prediction_at: predictionAt,
-              });
-              candidates.push({
-                predictionId: id,
-                matchId: match.id,
-                matchLabel: label,
-                competition: match.competition ?? "",
-                family: "CORNERS",
-                market: spec.market,
-                marketLabel: labelFor(spec.market, spec.participant, side, spec.line),
-                participant: spec.participant,
-                side,
-                lineRaw: spec.line,
-                lineCanonical: line,
-                contractType: "ASIAN",
-                probabilityExperimental: p,
-                fairOddExperimental: asianFairOdd(outcomes),
-                sampleSize: forecast.sampleSize,
-                trainingMatches: cornerTraining.length,
-                gate: BASE_GATE,
-                gateMet: p >= BASE_GATE,
-                modelVersion: CORNERS_MODEL_VERSION,
-                modelStatus: EXPERIMENTAL_MARKETS_STATUS,
-                productionStatus: PRODUCTION_STATUS,
-                dataStatus: "OK",
-              });
-            }
+        if (crossCorners) {
+          cornerForecast = crossCorners;
+          cornerTrainingMatches = crossCorners.trainingMatches;
+          cornerModelVersion = `${CORNERS_MODEL_VERSION}+${CROSS_LEAGUE_MODEL_SUFFIX}`;
+        } else {
+          issues.push(`${label}: escanteios continentais sem amostra doméstica suficiente para os dois clubes.`);
+        }
+      } else {
+        const cornerTraining = rollingCorners.filter((r) => r.league === league);
+        if (cornerTraining.length >= MIN_EXPERIMENTAL_MATCHES) {
+          const params = fitCornersBaseline(cornerTraining);
+          const forecast = predictCorners(params, {
+            league,
+            homeTeam: String(homeId),
+            awayTeam: String(awayId),
+          });
+          if (forecast.sampleSize > 0) {
+            cornerForecast = forecast;
+            cornerTrainingMatches = cornerTraining.length;
           }
         }
       }
 
-      const goalTraining = datasets.goals.filter(
-        (r) => r.league === league && r.date < predictionDate && r.date >= rollingStartDate,
-      );
-      if (goalTraining.length < MIN_EXPERIMENTAL_MATCHES) {
-        issues.push(
-          `${label}: gols com ${goalTraining.length} partida(s) nos últimos 365 dias; mínimo experimental ${MIN_EXPERIMENTAL_MATCHES}.`,
-        );
-        continue;
-      }
-      const goalParams = fitGoalsBaseline(goalTraining, predictionDate);
-      const goalForecast = predictGoals(goalParams, {
-        league,
-        homeTeam: String(homeId),
-        awayTeam: String(awayId),
-      });
-      if (goalForecast.sampleSize < 1) {
-        issues.push(`${label}: pelo menos um time não possui partida própria de gols nos últimos 365 dias.`);
-        continue;
+      if (cornerForecast && cornerForecast.sampleSize > 0) {
+        const specs = [
+          {
+            market: "corners_match_total",
+            participant: null,
+            line: "9.5",
+            dist: poissonDistribution(cornerForecast.lambdaTotal),
+          },
+          {
+            market: "corners_match_total",
+            participant: null,
+            line: "10.5",
+            dist: poissonDistribution(cornerForecast.lambdaTotal),
+          },
+          {
+            market: "corners_team_total",
+            participant: match.home_team ?? "Mandante",
+            line: "4.5",
+            dist: poissonDistribution(cornerForecast.lambdaHome),
+          },
+          {
+            market: "corners_team_total",
+            participant: match.away_team ?? "Visitante",
+            line: "4.5",
+            dist: poissonDistribution(cornerForecast.lambdaAway),
+          },
+        ];
+        let ordinal = 0;
+        for (const spec of specs) {
+          for (const side of ["OVER", "UNDER"] as const) {
+            ordinal += 1;
+            const line = canonicalLine(spec.line);
+            const outcomes = asianOutcomes(spec.dist, line, side);
+            const p = pProfit(outcomes);
+            const id = predictionId(data.runId, match.id, "CORNERS", ordinal);
+            predictionRows.push({
+              run_id: data.runId,
+              match_id: match.id,
+              prediction_id: id,
+              market: spec.market,
+              participant: spec.participant,
+              side,
+              line_raw: spec.line,
+              line_canonical: line,
+              model_probability: p,
+              p_cal: null,
+              conservative_probability: null,
+              outcome_distribution: outcomes,
+              model_version: cornerModelVersion,
+              calibration_version: null,
+              model_status: EXPERIMENTAL_MARKETS_STATUS,
+              data_status: "OK",
+              prediction_at: predictionAt,
+            });
+            candidates.push({
+              predictionId: id,
+              matchId: match.id,
+              matchLabel: label,
+              competition: match.competition ?? "",
+              family: "CORNERS",
+              market: spec.market,
+              marketLabel: labelFor(spec.market, spec.participant, side, spec.line),
+              participant: spec.participant,
+              side,
+              lineRaw: spec.line,
+              lineCanonical: line,
+              contractType: "ASIAN",
+              probabilityExperimental: p,
+              fairOddExperimental: asianFairOdd(outcomes),
+              sampleSize: cornerForecast.sampleSize,
+              trainingMatches: cornerTrainingMatches,
+              gate: BASE_GATE,
+              gateMet: p >= BASE_GATE,
+              modelVersion: cornerModelVersion,
+              modelStatus: EXPERIMENTAL_MARKETS_STATUS,
+              productionStatus: PRODUCTION_STATUS,
+              dataStatus: "OK",
+            });
+          }
+        }
       }
 
-      const eloForecast = await eloAdjustGoalForecast({
-        runId: data.runId,
-        matchId: match.id,
-        leagueKey: league,
-        homeTeamId: Number(homeId),
-        awayTeamId: Number(awayId),
-        predictionAt,
-        lambdaHome: goalForecast.lambdaHome,
-        lambdaAway: goalForecast.lambdaAway,
-      });
-      if (!eloForecast.applied) {
-        issues.push(`${label}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
+      const rollingGoals = datasets.goals.filter(
+        (r) => r.date < predictionDate && r.date >= rollingStartDate,
+      );
+      let goalForecast: { lambdaHome: number; lambdaAway: number; lambdaTotal: number; sampleSize: number } | null = null;
+      let goalTrainingMatches = 0;
+      let adjustedLambdaHome = 0;
+      let adjustedLambdaAway = 0;
+      let goalModelVersion = GOALS_MODEL_VERSION;
+
+      if (crossLeague) {
+        const crossGoals = crossLeagueGoalForecast(rollingGoals, {
+          homeTeam: String(homeId),
+          awayTeam: String(awayId),
+          referenceDate: predictionDate,
+        });
+        if (!crossGoals) {
+          issues.push(`${label}: gols continentais sem pelo menos ${MIN_EXPERIMENTAL_MATCHES} partidas domésticas válidas para cada clube nos últimos 365 dias.`);
+          continue;
+        }
+        goalForecast = crossGoals;
+        goalTrainingMatches = crossGoals.trainingMatches;
+        adjustedLambdaHome = crossGoals.lambdaHome;
+        adjustedLambdaAway = crossGoals.lambdaAway;
+        goalModelVersion = `${GOALS_MODEL_VERSION}+${CROSS_LEAGUE_MODEL_SUFFIX}`;
+        issues.push(
+          `${label}: baseline continental usa histórico doméstico (${crossGoals.homeDomesticLeague} x ${crossGoals.awayDomesticLeague}); Elo cross-country não aplicado sem normalização validada.`,
+        );
+      } else {
+        const goalTraining = rollingGoals.filter((r) => r.league === league);
+        if (goalTraining.length < MIN_EXPERIMENTAL_MATCHES) {
+          issues.push(
+            `${label}: gols com ${goalTraining.length} partida(s) nos últimos 365 dias; mínimo experimental ${MIN_EXPERIMENTAL_MATCHES}.`,
+          );
+          continue;
+        }
+        const goalParams = fitGoalsBaseline(goalTraining, predictionDate);
+        goalForecast = predictGoals(goalParams, {
+          league,
+          homeTeam: String(homeId),
+          awayTeam: String(awayId),
+        });
+        goalTrainingMatches = goalTraining.length;
+        if (goalForecast.sampleSize < 1) {
+          issues.push(`${label}: pelo menos um time não possui partida própria de gols nos últimos 365 dias.`);
+          continue;
+        }
+
+        const eloForecast = await eloAdjustGoalForecast({
+          runId: data.runId,
+          matchId: match.id,
+          leagueKey: league,
+          leagueId,
+          homeTeamId: Number(homeId),
+          awayTeamId: Number(awayId),
+          predictionAt,
+          lambdaHome: goalForecast.lambdaHome,
+          lambdaAway: goalForecast.lambdaAway,
+        });
+        adjustedLambdaHome = eloForecast.lambdaHome;
+        adjustedLambdaAway = eloForecast.lambdaAway;
+        if (!eloForecast.applied) {
+          issues.push(`${label}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
+        } else if (eloForecast.modelVersionSuffix) {
+          goalModelVersion = `${GOALS_MODEL_VERSION}+${eloForecast.modelVersionSuffix}`;
+        }
       }
-      const goalModelVersion = eloForecast.applied && eloForecast.modelVersionSuffix
-        ? `${GOALS_MODEL_VERSION}+${eloForecast.modelVersionSuffix}`
-        : GOALS_MODEL_VERSION;
+
+      if (!goalForecast) continue;
 
       const projections = buildGoalMarketProjections({
         homeTeam: match.home_team ?? "Mandante",
         awayTeam: match.away_team ?? "Visitante",
-        lambdaHome: eloForecast.lambdaHome,
-        lambdaAway: eloForecast.lambdaAway,
+        lambdaHome: adjustedLambdaHome,
+        lambdaAway: adjustedLambdaAway,
       });
       const familyOrdinals = new Map<ExperimentalMarketFamily, number>();
 
@@ -501,7 +556,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           probabilityExperimental: projection.probability,
           fairOddExperimental: projection.fairOdd,
           sampleSize: goalForecast.sampleSize,
-          trainingMatches: goalTraining.length,
+          trainingMatches: goalTrainingMatches,
           gate: BASE_GATE,
           gateMet: projection.probability >= BASE_GATE,
           modelVersion: goalModelVersion,

@@ -40,14 +40,22 @@ const db = supabaseAdmin as unknown as UntypedDb;
 
 async function ratingAt(
   leagueKey: string,
+  leagueId: number | null | undefined,
   teamId: number,
   predictionAt: string,
 ): Promise<EloAt> {
-  const res = await db
+  let query = db
     .from("elo_fixture_history")
     .select("league_id,home_team_id,away_team_id,home_rating_after,away_rating_after")
-    .eq("model_version", ELO_MODEL_VERSION)
-    .eq("league_key", leagueKey)
+    .eq("model_version", ELO_MODEL_VERSION);
+
+  // League ID vem diretamente da fixture 5Dollar e é mais estável que slugs.
+  // Mantemos league_key apenas como fallback para dados legados.
+  query = leagueId && Number.isFinite(leagueId)
+    ? query.eq("league_id", leagueId)
+    : query.eq("league_key", leagueKey);
+
+  const res = await query
     .lt("kickoff_at", predictionAt)
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
     .order("kickoff_at", { ascending: false })
@@ -71,6 +79,7 @@ export async function eloAdjustGoalForecast(input: {
   runId: string;
   matchId: string;
   leagueKey: string;
+  leagueId?: number | null;
   homeTeamId: number;
   awayTeamId: number;
   predictionAt: string;
@@ -78,8 +87,8 @@ export async function eloAdjustGoalForecast(input: {
   lambdaAway: number;
 }) {
   const [home, away] = await Promise.all([
-    ratingAt(input.leagueKey, input.homeTeamId, input.predictionAt),
-    ratingAt(input.leagueKey, input.awayTeamId, input.predictionAt),
+    ratingAt(input.leagueKey, input.leagueId, input.homeTeamId, input.predictionAt),
+    ratingAt(input.leagueKey, input.leagueId, input.awayTeamId, input.predictionAt),
   ]);
 
   if (!home.found || !away.found || home.leagueId === null || home.leagueId !== away.leagueId) {
@@ -120,9 +129,7 @@ export async function eloAdjustGoalForecast(input: {
     },
     { onConflict: "run_id,match_id" },
   );
-  if (write.error) {
-    throw new Error(`Falha ao auditar ajuste Elo: ${write.error.message}`);
-  }
+  if (write.error) throw new Error(`Falha ao auditar ajuste Elo: ${write.error.message}`);
 
   return {
     applied: true as const,

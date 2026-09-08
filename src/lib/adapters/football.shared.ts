@@ -87,6 +87,23 @@ const ALIASES: Record<string, string> = {
   "internazionale milano": "internazionale",
   "athletic club mg": "athletic club",
   "athletic mg": "athletic club",
+  "charlton athletic": "charlton",
+  "queens park rangers": "qpr",
+  "queens park rangers fc": "qpr",
+  "derby county": "derby",
+  "derby county fc": "derby",
+  "west bromwich albion": "west brom",
+  "west bromwich albion fc": "west brom",
+  "norwich city": "norwich",
+  "norwich city fc": "norwich",
+  "birmingham city": "birmingham",
+  "birmingham city fc": "birmingham",
+  "atletico mg": "atletico mineiro",
+  "atletico mineiro mg": "atletico mineiro",
+  "clube atletico mineiro": "atletico mineiro",
+  "estudiantes": "estudiantes lp",
+  "estudiantes de la plata": "estudiantes lp",
+  "vfb stuttgart": "stuttgart",
 };
 
 export function normalizeTeamName(input: string): string {
