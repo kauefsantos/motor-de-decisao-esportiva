@@ -20,8 +20,8 @@ const BASE = "https://api.5dollarfootballapi.com/v1";
 const TIMEOUT_MS = 15000;
 // Plano Pro: limite local de 9 requisições por minuto e SEM teto horário.
 const MAX_PER_MINUTE = 9;
-
 const CACHE_TTL_MS = 15 * 60 * 1000;
+const PAGE_SIZE = 100;
 
 export type FiveDollarStatus = "OK" | "UNAVAILABLE" | "NOT_CONFIGURED" | "RATE_LIMITED";
 
@@ -86,11 +86,12 @@ export function fiveDollarConfigured(): boolean {
 
 async function throttle(): Promise<{ ok: true } | { ok: false; reason: string }> {
   const now = Date.now();
-  while (callTimestamps.length > 0 && now - callTimestamps[0]! > 3600_000) callTimestamps.shift();
-  const lastMinute = callTimestamps.filter((t) => now - t < 60_000);
-  if (lastMinute.length >= MAX_PER_MINUTE) {
-    const wait = 60_000 - (now - lastMinute[0]!) + 250;
-    await new Promise((r) => setTimeout(r, wait));
+  while (callTimestamps.length > 0 && now - callTimestamps[0]! > 60_000) callTimestamps.shift();
+  if (callTimestamps.length >= MAX_PER_MINUTE) {
+    const wait = 60_000 - (now - callTimestamps[0]!) + 350;
+    await new Promise((r) => setTimeout(r, Math.max(0, wait)));
+    const after = Date.now();
+    while (callTimestamps.length > 0 && after - callTimestamps[0]! > 60_000) callTimestamps.shift();
   }
   callTimestamps.push(Date.now());
   return { ok: true };
@@ -177,9 +178,34 @@ export async function fiveDollarGet<T = unknown>(path: string): Promise<FiveDoll
   }
 }
 
+function hasMore(payload: unknown): boolean {
+  if (typeof payload !== "object" || payload === null) return false;
+  const pagination = (payload as { pagination?: unknown }).pagination;
+  return Boolean(
+    typeof pagination === "object" &&
+      pagination !== null &&
+      (pagination as { has_more?: unknown }).has_more === true,
+  );
+}
+
+async function paginatedFixtures(basePath: string): Promise<{ fixtures: FiveDollarFixture[]; fetches: FiveDollarFetch[] }> {
+  const fetches: FiveDollarFetch[] = [];
+  const byId = new Map<number, FiveDollarFixture>();
+  for (let page = 1; page <= 50; page += 1) {
+    const join = basePath.includes("?") ? "&" : "?";
+    const res = await fiveDollarGet(`${basePath}${join}page=${page}&per_page=${PAGE_SIZE}`);
+    fetches.push(res);
+    if (res.status !== "OK" || res.payload === null) break;
+    for (const fixture of parseFixtures(res.payload)) byId.set(fixture.eventId, fixture);
+    if (!hasMore(res.payload)) break;
+  }
+  return { fixtures: [...byId.values()], fetches };
+}
+
 export interface FiveDollarResolution {
   resolution: MatchResolution | null;
   fetch: FiveDollarFetch;
+  fetches: FiveDollarFetch[];
   events: FiveDollarFixture[];
 }
 
@@ -189,12 +215,22 @@ export async function fiveDollarResolveMatch(
 ): Promise<FiveDollarResolution> {
   const start = Math.floor(Date.parse(`${isoDate}T03:00:00Z`) / 1000);
   const end = start + 24 * 3600;
-  const res = await fiveDollarGet(`/fixtures?start_time=${start}&end_time=${end}`);
-  if (res.status !== "OK" || res.payload === null) {
-    return { resolution: null, fetch: res, events: [] };
+  const { fixtures, fetches } = await paginatedFixtures(`/fixtures?start_time=${start}&end_time=${end}`);
+  const fetch = fetches[0] ?? {
+    status: "UNAVAILABLE" as const,
+    endpoint: `${BASE}/fixtures`,
+    path: "/fixtures",
+    payload: null,
+    httpStatus: null,
+    errorMessage: "Nenhuma página retornada pela fonte.",
+    fetchedAt: new Date().toISOString(),
+    fromCache: false,
+    rateLimit: { ...lastHeaders },
+  };
+  if (fetches.some((f) => f.status !== "OK")) {
+    return { resolution: null, fetch, fetches, events: fixtures };
   }
-  const events = parseFixtures(res.payload);
-  return { resolution: resolveFixture(query, events), fetch: res, events };
+  return { resolution: resolveFixture(query, fixtures), fetch, fetches, events: fixtures };
 }
 
 export interface FiveDollarRawObservation {
@@ -224,15 +260,73 @@ export interface FiveDollarHistory {
   fixtures: FiveDollarFixture[];
 }
 
+function observationsForFixtures(fixtures: FiveDollarFixture[], teamIds: number[], predictionAtIso: string, endpoint: string, fetchedAt: string) {
+  const allowed = new Set(teamIds);
+  const observations: FiveDollarRawObservation[] = [];
+  for (const fixture of fixtures) {
+    for (const teamId of [fixture.homeTeamId, fixture.awayTeamId]) {
+      if (teamId === null || !allowed.has(teamId)) continue;
+      const relative = teamRelativeStats(fixture, teamId, predictionAtIso);
+      if (!relative) continue;
+      const observedAt = fixture.startTimestamp ? new Date(fixture.startTimestamp * 1000).toISOString() : null;
+      const externalMatchId = externalMatchKey(fixture);
+      const fixtureDate = observedAt ? observedAt.slice(0, 10) : "";
+      for (const observation of relative.stats) {
+        observations.push({
+          observation,
+          endpoint,
+          fetchedAt,
+          observedAt,
+          fixtureId: fixture.eventId,
+          externalMatchId,
+          fixtureDate,
+          teamId,
+          opponentId: relative.opponentId,
+          teamSide: relative.side,
+          rawHomeAway: relative.raw,
+        });
+      }
+    }
+  }
+  return observations;
+}
+
+export async function fiveDollarLeagueHistory(
+  leagueId: number,
+  teamIds: number[],
+  predictionAtIso: string,
+  lookbackDays = 365,
+): Promise<FiveDollarHistory> {
+  const cutoffMs = Date.parse(predictionAtIso) - 1;
+  const start = Math.floor((cutoffMs - lookbackDays * 86400_000) / 1000);
+  const end = Math.floor(cutoffMs / 1000);
+  const { fixtures: rawFixtures, fetches } = await paginatedFixtures(
+    `/leagues/${leagueId}/fixtures?status=finished&start_time=${start}&end_time=${end}`,
+  );
+  const fixtures = rawFixtures
+    .filter((f) => isPreMatchFinished(f, predictionAtIso))
+    .sort((a, b) => (a.startTimestamp ?? 0) - (b.startTimestamp ?? 0));
+  const endpoint = fetches[0]?.endpoint ?? `${BASE}/leagues/${leagueId}/fixtures`;
+  const fetchedAt = fetches[0]?.fetchedAt ?? new Date().toISOString();
+  const observations = observationsForFixtures(fixtures, teamIds, predictionAtIso, endpoint, fetchedAt);
+  return {
+    observations,
+    fetches,
+    eventsConsidered: fixtures.length,
+    insufficientHistory: fixtures.length < 3,
+    fixtures,
+  };
+}
+
 export async function fiveDollarTeamHistory(
   teamId: number,
   predictionAtIso: string,
-  maxEvents = 5,
+  maxEvents = 20,
 ): Promise<FiveDollarHistory> {
   const fetches: FiveDollarFetch[] = [];
   const observations: FiveDollarRawObservation[] = [];
   const cutoff = Math.floor(Date.parse(predictionAtIso) / 1000) - 1;
-  const perPage = Math.max(maxEvents, 1);
+  const perPage = Math.min(Math.max(maxEvents, 1), PAGE_SIZE);
 
   const res = await fiveDollarGet(`/teams/${teamId}/fixtures?status=finished&end_time=${cutoff}&page=1&per_page=${perPage}`);
   fetches.push(res);
@@ -272,7 +366,7 @@ export async function fiveDollarTeamHistory(
     observations,
     fetches,
     eventsConsidered: fixtures.length,
-    insufficientHistory: fixtures.length < maxEvents,
+    insufficientHistory: fixtures.length < Math.min(maxEvents, 3),
     fixtures,
   };
 }
