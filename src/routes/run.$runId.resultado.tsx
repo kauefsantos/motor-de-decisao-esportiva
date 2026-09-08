@@ -1,12 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { getResults } from "@/lib/analysis.functions";
+import { promoteQualifiedExperimentalBet } from "@/lib/qualified-alternates.functions";
 
 export const Route = createFileRoute("/run/$runId/resultado")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -265,6 +267,32 @@ function ExperimentalResultScreen({
   showRejected: boolean;
   setShowRejected: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
+  const promote = useServerFn(promoteQualifiedExperimentalBet);
+  const queryClient = useQueryClient();
+  const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [promotedIds, setPromotedIds] = useState<Set<string>>(() => new Set());
+
+  async function selectAlternate(evaluation: ExperimentalStoredEvaluation) {
+    setPromotingId(evaluation.predictionId);
+    try {
+      await promote({
+        data: {
+          runId,
+          predictionId: evaluation.predictionId,
+          odd: Number(evaluation.odd),
+          lineAtEntry: evaluation.lineCanonical,
+        },
+      });
+      setPromotedIds((current) => new Set(current).add(evaluation.predictionId));
+      await queryClient.invalidateQueries({ queryKey: ["experimental-bet-plan", runId] });
+      toast.success("Oportunidade adicionada à fila de confirmação.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível selecionar esta oportunidade.");
+    } finally {
+      setPromotingId(null);
+    }
+  }
+
   if (!loaded) {
     return (
       <AppShell stage="resultado">
@@ -306,6 +334,16 @@ function ExperimentalResultScreen({
     .filter((evaluation): evaluation is ExperimentalStoredEvaluation => Boolean(evaluation));
   const selectedIds = new Set(data.selectionOrder);
   const rejected = data.evaluations.filter((evaluation) => !selectedIds.has(evaluation.predictionId));
+  const qualifiedAlternates = rejected
+    .filter(
+      (evaluation) =>
+        evaluation.valueStatus === "TEM_VALOR" && evaluation.executionStatus === "EXECUTAVEL",
+    )
+    .sort((a, b) => (b.evCons ?? 0) - (a.evCons ?? 0) || (b.edgeCons ?? 0) - (a.edgeCons ?? 0));
+  const withoutValue = rejected.filter(
+    (evaluation) =>
+      evaluation.valueStatus !== "TEM_VALOR" || evaluation.executionStatus !== "EXECUTAVEL",
+  );
 
   return (
     <AppShell stage="resultado">
@@ -357,36 +395,85 @@ function ExperimentalResultScreen({
         ))}
       </div>
 
-      <div className="panel mt-8">
-        <button
-          type="button"
-          onClick={() => setShowRejected((s) => !s)}
-          className="flex w-full items-center justify-between px-6 py-4 text-left"
-        >
-          <span className="text-sm font-medium">Outras odds avaliadas ({rejected.length})</span>
-          <ChevronDown
-            className={`size-4 transition-transform ${showRejected ? "rotate-180" : ""}`}
-            aria-hidden
-          />
-        </button>
-        {showRejected && (
-          <ul className="divide-y divide-border border-t border-border">
-            {rejected.map((evaluation) => (
-              <li
-                key={evaluation.predictionId}
-                className="grid gap-1 px-6 py-3 md:grid-cols-[1fr_1fr_auto_auto]"
-              >
-                <span className="text-sm">{evaluation.matchLabel}</span>
-                <span className="text-sm text-muted-foreground">{evaluation.marketLabel}</span>
-                <span className="num text-xs">odd {dec(evaluation.odd)}</span>
-                <span className="text-[11px] text-warning">
-                  {friendlyReason(evaluation.rejectionReason)}
-                </span>
-              </li>
-            ))}
-          </ul>
+      <section className="panel mt-8 overflow-hidden">
+        <div className="border-b border-border px-6 py-4">
+          <p className="text-sm font-semibold">Outras odds avaliadas ({rejected.length})</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            As qualificadas passaram pelos mesmos critérios de probabilidade, valor e execução, mas ficaram fora do corte final por limite/ranking.
+          </p>
+        </div>
+
+        {qualifiedAlternates.length > 0 && (
+          <div>
+            <div className="bg-primary/5 px-6 py-3">
+              <p className="text-sm font-medium">Qualificadas fora da seleção final ({qualifiedAlternates.length})</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Se você recusou uma sugestão, pode escolher uma destas. O sistema revalida a odd e respeita o limite da rodada antes de colocá-la na confirmação.
+              </p>
+            </div>
+            <ul className="divide-y divide-border">
+              {qualifiedAlternates.map((evaluation) => {
+                const promoted = promotedIds.has(evaluation.predictionId);
+                return (
+                  <li
+                    key={evaluation.predictionId}
+                    className="grid items-center gap-3 px-6 py-4 lg:grid-cols-[1.2fr_1.2fr_auto_auto_auto]"
+                  >
+                    <span className="text-sm">{evaluation.matchLabel}</span>
+                    <span className="text-sm text-muted-foreground">{evaluation.marketLabel}</span>
+                    <span className="num text-xs">odd {dec(evaluation.odd)}</span>
+                    <span className="num text-xs text-primary">EV {pct(evaluation.evCons, 1)}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={promoted ? "secondary" : "outline"}
+                      disabled={promoted || promotingId !== null}
+                      onClick={() => void selectAlternate(evaluation)}
+                    >
+                      {promoted
+                        ? "Selecionada"
+                        : promotingId === evaluation.predictionId
+                          ? "Selecionando…"
+                          : "Selecionar"}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
-      </div>
+
+        <div className={qualifiedAlternates.length > 0 ? "border-t border-border" : ""}>
+          <button
+            type="button"
+            onClick={() => setShowRejected((s) => !s)}
+            className="flex w-full items-center justify-between px-6 py-4 text-left"
+          >
+            <span className="text-sm font-medium">Sem margem ou não executáveis ({withoutValue.length})</span>
+            <ChevronDown
+              className={`size-4 transition-transform ${showRejected ? "rotate-180" : ""}`}
+              aria-hidden
+            />
+          </button>
+          {showRejected && (
+            <ul className="divide-y divide-border border-t border-border">
+              {withoutValue.map((evaluation) => (
+                <li
+                  key={evaluation.predictionId}
+                  className="grid gap-1 px-6 py-3 md:grid-cols-[1fr_1fr_auto_auto]"
+                >
+                  <span className="text-sm">{evaluation.matchLabel}</span>
+                  <span className="text-sm text-muted-foreground">{evaluation.marketLabel}</span>
+                  <span className="num text-xs">odd {dec(evaluation.odd)}</span>
+                  <span className="text-[11px] text-warning">
+                    {friendlyReason(evaluation.rejectionReason)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
 
       <div className="mt-8 flex flex-wrap gap-3">
         <Button asChild variant="outline">
