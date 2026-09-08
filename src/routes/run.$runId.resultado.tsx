@@ -10,7 +10,7 @@ import { getResults } from "@/lib/analysis.functions";
 
 export const Route = createFileRoute("/run/$runId/resultado")({
   validateSearch: (search: Record<string, unknown>) => ({
-    mode: search.mode === "experimental" ? ("experimental" as const) : undefined,
+    mode: search["mode"] === "experimental" ? ("experimental" as const) : undefined,
   }),
   head: () => ({
     meta: [

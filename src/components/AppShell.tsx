@@ -34,18 +34,34 @@ export function AppShell({
             <span className="num text-[11px] text-muted-foreground">V2.1.1</span>
           </Link>
           <nav className="flex flex-wrap items-center gap-1">
-            {STAGES.map((s) => (
-              <span
-                key={s.key}
-                className={`rounded-md px-3 py-1.5 text-[11px] tracking-wide ${
-                  s.key === stage
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {s.label}
-              </span>
-            ))}
+            {STAGES.map((s, index) => {
+              const isActive = s.key === stage;
+              const baseClasses =
+                "rounded-md px-3 py-1.5 text-[11px] tracking-wide transition-colors";
+              const activeClasses = "bg-primary/15 text-primary";
+              const inactiveClasses = "text-muted-foreground hover:bg-secondary hover:text-foreground";
+
+              if (index === 0) {
+                return (
+                  <Link
+                    key={s.key}
+                    to="/"
+                    className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
+                  >
+                    {s.label}
+                  </Link>
+                );
+              }
+
+              return (
+                <span
+                  key={s.key}
+                  className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
+                >
+                  {s.label}
+                </span>
+              );
+            })}
             <Link
               to="/open-bets"
               className={`ml-1 rounded-md px-3 py-1.5 text-[11px] tracking-wide transition-colors ${

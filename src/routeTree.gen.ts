@@ -10,6 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as OpenBetsRouteImport } from './routes/open-bets'
+import { Route as ApiEloSyncRouteImport } from './routes/api.elo-sync'
 import { Route as RunRunIdOportunidadesRouteImport } from './routes/run.$runId.oportunidades'
 import { Route as RunRunIdProcessamentoRouteImport } from './routes/run.$runId.processamento'
 import { Route as RunRunIdResultadoRouteImport } from './routes/run.$runId.resultado'
@@ -17,6 +20,21 @@ import { Route as RunRunIdResultadoRouteImport } from './routes/run.$runId.resul
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpenBetsRoute = OpenBetsRouteImport.update({
+  id: '/open-bets',
+  path: '/open-bets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEloSyncRoute = ApiEloSyncRouteImport.update({
+  id: '/api/elo-sync',
+  path: '/api/elo-sync',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RunRunIdOportunidadesRoute = RunRunIdOportunidadesRouteImport.update({
@@ -37,12 +55,18 @@ const RunRunIdResultadoRoute = RunRunIdResultadoRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/open-bets': typeof OpenBetsRoute
+  '/api/elo-sync': typeof ApiEloSyncRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
   '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
   '/run/$runId/resultado': typeof RunRunIdResultadoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/open-bets': typeof OpenBetsRoute
+  '/api/elo-sync': typeof ApiEloSyncRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
   '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
   '/run/$runId/resultado': typeof RunRunIdResultadoRoute
@@ -50,6 +74,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/open-bets': typeof OpenBetsRoute
+  '/api/elo-sync': typeof ApiEloSyncRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
   '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
   '/run/$runId/resultado': typeof RunRunIdResultadoRoute
@@ -58,18 +85,27 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/analytics'
+    | '/open-bets'
+    | '/api/elo-sync'
     | '/run/$runId/oportunidades'
     | '/run/$runId/processamento'
     | '/run/$runId/resultado'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/analytics'
+    | '/open-bets'
+    | '/api/elo-sync'
     | '/run/$runId/oportunidades'
     | '/run/$runId/processamento'
     | '/run/$runId/resultado'
   id:
     | '__root__'
     | '/'
+    | '/analytics'
+    | '/open-bets'
+    | '/api/elo-sync'
     | '/run/$runId/oportunidades'
     | '/run/$runId/processamento'
     | '/run/$runId/resultado'
@@ -77,6 +113,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyticsRoute: typeof AnalyticsRoute
+  OpenBetsRoute: typeof OpenBetsRoute
+  ApiEloSyncRoute: typeof ApiEloSyncRoute
   RunRunIdOportunidadesRoute: typeof RunRunIdOportunidadesRoute
   RunRunIdProcessamentoRoute: typeof RunRunIdProcessamentoRoute
   RunRunIdResultadoRoute: typeof RunRunIdResultadoRoute
@@ -89,6 +128,27 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/open-bets': {
+      id: '/open-bets'
+      path: '/open-bets'
+      fullPath: '/open-bets'
+      preLoaderRoute: typeof OpenBetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/elo-sync': {
+      id: '/api/elo-sync'
+      path: '/api/elo-sync'
+      fullPath: '/api/elo-sync'
+      preLoaderRoute: typeof ApiEloSyncRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/run/$runId/oportunidades': {
@@ -117,6 +177,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyticsRoute: AnalyticsRoute,
+  OpenBetsRoute: OpenBetsRoute,
+  ApiEloSyncRoute: ApiEloSyncRoute,
   RunRunIdOportunidadesRoute: RunRunIdOportunidadesRoute,
   RunRunIdProcessamentoRoute: RunRunIdProcessamentoRoute,
   RunRunIdResultadoRoute: RunRunIdResultadoRoute,

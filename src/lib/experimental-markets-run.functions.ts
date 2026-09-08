@@ -121,7 +121,7 @@ function mostFrequentLeague(
   for (const row of raws) {
     if (row.match_id !== matchId) continue;
     const rv = asRecord(row.raw_value);
-    const league = leagueFromExternalMatchId(String(rv?.externalMatchId ?? ""));
+    const league = leagueFromExternalMatchId(String(rv?.["externalMatchId"] ?? ""));
     if (!league) continue;
     counts.set(league, (counts.get(league) ?? 0) + 1);
   }
@@ -136,22 +136,22 @@ function buildDatasets(observations: RawValue[]) {
   const conflicts = new Set<string>();
 
   for (const rv of observations) {
-    const externalMatchId = String(rv.externalMatchId ?? "");
-    const date = String(rv.fixtureDate ?? "");
+    const externalMatchId = String(rv["externalMatchId"] ?? "");
+    const date = String(rv["fixtureDate"] ?? "");
     const league = leagueFromExternalMatchId(externalMatchId);
-    const raw = asRecord(rv.rawHomeAway);
-    const teamId = String(rv.teamId ?? rv.teamExternalId ?? "");
-    const opponentId = String(rv.opponentId ?? "");
-    const side = String(rv.teamSideInFixture ?? "");
+    const raw = asRecord(rv["rawHomeAway"]);
+    const teamId = String(rv["teamId"] ?? rv["teamExternalId"] ?? "");
+    const opponentId = String(rv["opponentId"] ?? "");
+    const side = String(rv["teamSideInFixture"] ?? "");
     if (!externalMatchId || !date || !league || !raw || !teamId || !opponentId) continue;
     if (side !== "HOME" && side !== "AWAY") continue;
 
     const homeTeam = side === "HOME" ? teamId : opponentId;
     const awayTeam = side === "HOME" ? opponentId : teamId;
-    const homeCorners = finiteNumber(raw.cornersHome);
-    const awayCorners = finiteNumber(raw.cornersAway);
-    const homeGoals = finiteNumber(raw.goalsHome);
-    const awayGoals = finiteNumber(raw.goalsAway);
+    const homeCorners = finiteNumber(raw["cornersHome"]);
+    const awayCorners = finiteNumber(raw["cornersAway"]);
+    const homeGoals = finiteNumber(raw["goalsHome"]);
+    const awayGoals = finiteNumber(raw["goalsAway"]);
 
     if (homeCorners !== null && awayCorners !== null) {
       const next: CornerMatchRow = {

@@ -31,7 +31,7 @@ async function authorized(request: Request): Promise<boolean> {
     .eq("id", "main")
     .single();
   if (res.error || !res.data || typeof res.data !== "object") return false;
-  const expected = (res.data as Record<string, unknown>).bearer_token;
+  const expected = (res.data as Record<string, unknown>)["bearer_token"];
   if (typeof expected !== "string" || expected.length !== token.length) return false;
 
   const { timingSafeEqual } = await import("node:crypto");
