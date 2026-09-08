@@ -20,17 +20,17 @@ describe("experimental goal market projections", () => {
 
   it("keeps 1X2 exhaustive and double chance coherent", () => {
     const oneXtwo = markets.filter((m) => m.market === "1x2");
-    const p = Object.fromEntries(oneXtwo.map((m) => [m.side, m.probability]));
-    expect(p.HOME + p.DRAW + p.AWAY).toBeCloseTo(1, 8);
+    const p = Object.fromEntries(oneXtwo.map((m) => [m.side, m.probability])) as Record<string, number>;
+    expect(p["HOME"] + p["DRAW"] + p["AWAY"]).toBeCloseTo(1, 8);
 
     const dc = Object.fromEntries(
       markets
         .filter((m) => m.market === "double_chance")
         .map((m) => [m.side, m.probability]),
-    );
-    expect(dc["1X"]).toBeCloseTo(p.HOME + p.DRAW, 8);
-    expect(dc.X2).toBeCloseTo(p.DRAW + p.AWAY, 8);
-    expect(dc["12"]).toBeCloseTo(p.HOME + p.AWAY, 8);
+    ) as Record<string, number>;
+    expect(dc["1X"]).toBeCloseTo(p["HOME"] + p["DRAW"], 8);
+    expect(dc["X2"]).toBeCloseTo(p["DRAW"] + p["AWAY"], 8);
+    expect(dc["12"]).toBeCloseTo(p["HOME"] + p["AWAY"], 8);
   });
 
   it("adds match over/under 1.5 and team goals 0.5/1.5 with Asian settlement", () => {

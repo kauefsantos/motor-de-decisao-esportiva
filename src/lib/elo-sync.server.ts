@@ -86,12 +86,12 @@ function stringValue(value: unknown): string | null {
 
 function apiData(payload: unknown): unknown[] {
   const root = record(payload);
-  return Array.isArray(root?.data) ? root.data : [];
+  return Array.isArray(root?.["data"]) ? root["data"] : [];
 }
 
 function hasMore(payload: unknown): boolean {
-  const pagination = record(record(payload)?.pagination);
-  return pagination?.has_more === true;
+  const pagination = record(record(payload)?.["pagination"]);
+  return pagination?.["has_more"] === true;
 }
 
 function normalizedText(value: string): string {
@@ -152,10 +152,10 @@ async function discoverLeagues(activeSince: number): Promise<ApiLeague[]> {
       }
       for (const item of apiData(res.payload)) {
         const league = record(item);
-        const id = numberValue(league?.id);
-        const name = stringValue(league?.name);
-        const countryRow = record(league?.country);
-        const countryCode = stringValue(countryRow?.code) ?? country;
+        const id = numberValue(league?.["id"]);
+        const name = stringValue(league?.["name"]);
+        const countryRow = record(league?.["country"]);
+        const countryCode = stringValue(countryRow?.["code"]) ?? country;
         if (id !== null && name && targetLeague(countryCode, name)) {
           found.set(id, { id, name, countryCode });
         }
@@ -178,7 +178,7 @@ async function latestStoredKickoff(leagueId: number): Promise<string | null> {
     .limit(1)
     .maybeSingle();
   if (res.error || !res.data) return null;
-  return stringValue((res.data as Row).kickoff_at);
+  return stringValue((res.data as Row)["kickoff_at"]);
 }
 
 function fixtureRow(fixture: FiveDollarFixture, league: ApiLeague, fetchedAt: string): StoredFixture | null {
