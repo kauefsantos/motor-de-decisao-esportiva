@@ -1,12 +1,13 @@
 # Value Bet Finder — Estado Canônico
 
-> Atualizado: 2026-09-08 20:34 BRT
+> Atualizado: 2026-09-08 20:51 BRT
 > Repo: `kauefsantos/quant-football-insights`
 > Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a` (`Value Bet Finder`)
 > Workspace: `IgC7Z3MS5vlDXWjvizgE`
 > Preview: `https://id-preview--28664075-8af4-4155-9ee9-8ed86021681a.lovable.app`
-> `main` validado antes desta reconciliação: `f59e26276986737448ae02e66a19b24a87eab77b` (merge PR #21)
-> Lovable validado no mesmo commit `f59e26276986737448ae02e66a19b24a87eab77b`
+> `main` atual: `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a` (merge PR #22)
+> Lovable canônico validado no mesmo commit `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`
+> Baseline auditado antes da reconciliação: `f59e26276986737448ae02e66a19b24a87eab77b` (merge PR #21)
 
 ## Regras que não podem ser quebradas
 
@@ -165,13 +166,17 @@ O schema live contém as tabelas/funções do Elo hierárquico e está operacion
 - `20260906181530`
 - `20260906195556`
 
-Ou seja: o banco materializado avançou além do histórico oficial de migrações.
+Ou seja: o banco materializado avançou além do histórico oficial de migrações; as migrations do repositório a partir de 07/09 não estão refletidas nessa tabela de histórico.
 
-Além disso, o audit live já usa `local_mean_drift` com tolerância 25 e resumo expandido, enquanto o arquivo original `20260908230000_hierarchical_league_elo.sql` no repositório ainda carregava a versão inicial do audit.
+Além disso, o audit live já usa `local_mean_drift` com tolerância 25 e resumo expandido, enquanto o arquivo original `20260908230000_hierarchical_league_elo.sql` carregava a versão inicial do audit.
 
-Correção segura iniciada na branch `chore/reconcile-project-state-elo`:
+Reconciliação concluída no código via PR #22:
 - nova migration aditiva/idempotente `20260908235000_reconcile_hierarchical_elo_audit.sql` espelha no repositório a definição de audit que já está saudável no banco;
-- **não** reaplicar cegamente `20260908230000_hierarchical_league_elo.sql` apenas para preencher metadata de migrations.
+- CI da PR #22 passou em **Experimental engine E2E + unit tests + build**;
+- PR #22 mergeada em `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`;
+- Lovable canônico sincronizou automaticamente para o mesmo commit;
+- o banco não precisou receber DDL corretivo, pois já possuía a definição reconciliada;
+- `schema_migrations` continua divergente e não deve ser “consertado” manualmente nem por replay cego das migrations antigas.
 
 ## Motor 1
 
@@ -271,9 +276,9 @@ CSV 09/09 após correções Pro:
 - 131 previsões acima do gate.
 
 Estado técnico validado em 08/09/2026:
-- GitHub `main` = `f59e26276986737448ae02e66a19b24a87eab77b`;
+- GitHub `main` = `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`;
 - Lovable canônico = mesmo commit;
-- PR #20 (Elo hierárquico) e PR #21 (evidence gate) mergeados;
+- PR #20 (Elo hierárquico), PR #21 (evidence gate) e PR #22 (reconciliação do audit) mergeadas;
 - banco hierárquico preenchido e auditoria `OK`;
 - jobs incrementais ativos;
 - migration history ainda divergente do schema materializado;
@@ -281,12 +286,11 @@ Estado técnico validado em 08/09/2026:
 
 ## Próximo passo obrigatório
 
-1. Reconciliar o repositório com o audit live por migration aditiva, sem reaplicar a migration hierárquica original.
-2. Rodar uma nova análise continental pós-rollout e conferir `elo_prediction_context`:
+1. Rodar uma nova análise continental pós-rollout e conferir `elo_prediction_context`:
    - aplicar `CROSS_LEAGUE_HIERARCHICAL` somente com evidência >= 3 em ambas as ligas e snapshot pré-`prediction_at`;
    - confirmar fallback sem Elo nos casos sem evidência suficiente.
-3. Depois da primeira janela automática, conferir `cron.job_run_details` dos jobs 8/9, novo `elo_audit_runs` e `elo_sync_state`.
-4. Só depois voltar ao próximo item funcional da UI: teste visual de “Qualificadas fora da seleção final” / botão **Selecionar** e, se aprovado, avaliar reforecast automático para a linha principal Bet365.
+2. Depois da primeira janela automática, conferir `cron.job_run_details` dos jobs 8/9, novo `elo_audit_runs` e `elo_sync_state`.
+3. Só depois voltar ao próximo item funcional da UI: teste visual de “Qualificadas fora da seleção final” / botão **Selecionar** e, se aprovado, avaliar reforecast automático para a linha principal Bet365.
 
 Para continuar em outro chat:
 
