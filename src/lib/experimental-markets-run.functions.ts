@@ -321,13 +321,11 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         issues.push(`${label}: sem IDs/league 5Dollar suficientes para inferência experimental.`);
         continue;
       }
-      const targetSeason = seasonKey(predictionDate, league);
+      const rollingStartDate = new Date(Date.parse(predictionDate + "T00:00:00Z") - 365 * 86400_000)
+        .toISOString().slice(0, 10);
 
       const cornerTraining = datasets.corners.filter(
-        (r) =>
-          r.league === league &&
-          r.date < predictionDate &&
-          seasonKey(r.date, league) === targetSeason,
+        (r) => r.league === league && r.date < predictionDate && r.date >= rollingStartDate,
       );
       if (cornerTraining.length >= MIN_EXPERIMENTAL_MATCHES) {
         const params = fitCornersBaseline(cornerTraining);
@@ -420,25 +418,22 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       }
 
       const goalTraining = datasets.goals.filter(
-        (r) =>
-          r.league === league &&
-          r.date < predictionDate &&
-          seasonKey(r.date, league) === targetSeason,
+        (r) => r.league === league && r.date < predictionDate && r.date >= rollingStartDate,
       );
       if (goalTraining.length < MIN_EXPERIMENTAL_MATCHES) {
         issues.push(
-          `${label}: gols com ${goalTraining.length} partida(s) da temporada atual; mínimo experimental ${MIN_EXPERIMENTAL_MATCHES}.`,
+          `${label}: gols com ${goalTraining.length} partida(s) nos últimos 365 dias; mínimo experimental ${MIN_EXPERIMENTAL_MATCHES}.`,
         );
         continue;
       }
-      const goalParams = fitGoalsBaseline(goalTraining);
+      const goalParams = fitGoalsBaseline(goalTraining, predictionDate);
       const goalForecast = predictGoals(goalParams, {
         league,
         homeTeam: String(homeId),
         awayTeam: String(awayId),
       });
       if (goalForecast.sampleSize < 1) {
-        issues.push(`${label}: times ainda sem amostra própria suficiente de gols na temporada atual.`);
+        issues.push(`${label}: pelo menos um time não possui partida própria de gols nos últimos 365 dias.`);
         continue;
       }
 

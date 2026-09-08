@@ -88,12 +88,16 @@ async function replaceExternalIds(
   homeTeamId: number | null,
   awayTeamId: number | null,
   confidence: number,
+  leagueSource?: string,
+  leagueId?: number | null,
 ) {
-  await db.from("match_external_ids").delete().eq("match_id", matchId).in("source", [fixtureSource, homeSource, awaySource]);
+  const sources = [fixtureSource, homeSource, awaySource, ...(leagueSource ? [leagueSource] : [])];
+  await db.from("match_external_ids").delete().eq("match_id", matchId).in("source", sources);
   await db.from("match_external_ids").insert([
     { match_id: matchId, source: fixtureSource, external_id: String(eventId), confidence },
     ...(homeTeamId ? [{ match_id: matchId, source: homeSource, external_id: String(homeTeamId), confidence }] : []),
     ...(awayTeamId ? [{ match_id: matchId, source: awaySource, external_id: String(awayTeamId), confidence }] : []),
+    ...(leagueSource && leagueId ? [{ match_id: matchId, source: leagueSource, external_id: String(leagueId), confidence }] : []),
   ]);
 }
 
@@ -156,7 +160,7 @@ async function resolveMatches(db: Db, runId: string) {
           reason = fd.resolution.reason;
           confidence = fd.resolution.confidence;
           const event = fd.events.find((e) => e.eventId === fd.resolution!.eventId);
-          await replaceExternalIds(db, m.id, "five_dollar_fixture", "five_dollar_team_home", "five_dollar_team_away", fd.resolution.eventId!, event?.homeTeamId ?? null, event?.awayTeamId ?? null, fd.resolution.confidence);
+          await replaceExternalIds(db, m.id, "five_dollar_fixture", "five_dollar_team_home", "five_dollar_team_away", fd.resolution.eventId!, event?.homeTeamId ?? null, event?.awayTeamId ?? null, fd.resolution.confidence, "five_dollar_league", event?.leagueId ?? null);
         } else if (fd.resolution?.status === "MATCH_AMBIGUOUS") {
           ambiguous += 1;
           reason = `${reason} 5Dollar: ${fd.resolution.reason}`;
@@ -172,6 +176,7 @@ async function resolveMatches(db: Db, runId: string) {
           provider,
           definitionVersion: FIVE_DOLLAR_DEFINITION_VERSION,
           endpoint: fd.fetch.path,
+          pages: fd.fetches?.length ?? 1,
           httpStatus: fd.fetch.httpStatus,
           fetchedAt: fd.fetch.fetchedAt,
           rateLimit: fd.fetch.rateLimit,
@@ -263,7 +268,7 @@ async function collect(db: Db, runId: string) {
   const perSource: Record<string, number> = {};
 
   if (provider === "five_dollar") {
-    const { fiveDollarTeamHistory, fiveDollarConfigured, fiveDollarUsage, FIVE_DOLLAR_SOURCE, FIVE_DOLLAR_DEFINITION_VERSION } = await import("./adapters/five_dollar.server");
+    const { fiveDollarTeamHistory, fiveDollarLeagueHistory, fiveDollarConfigured, fiveDollarUsage, FIVE_DOLLAR_SOURCE, FIVE_DOLLAR_DEFINITION_VERSION } = await import("./adapters/five_dollar.server");
     let observationsCount = 0;
     let insufficient = 0;
     let reusedFromCache = 0;
@@ -285,9 +290,11 @@ async function collect(db: Db, runId: string) {
         cacheIndex.set(key, list);
       }
 
+      const leagueHistoryCache = new Map<string, Awaited<ReturnType<typeof fiveDollarLeagueHistory>>>();
       for (const m of matches ?? []) {
         if (rateLimited) break;
         const teams = (externalIds ?? []).filter((e) => e.match_id === m.id && (e.source === "five_dollar_team_home" || e.source === "five_dollar_team_away"));
+        const leagueExternal = (externalIds ?? []).find((e) => e.match_id === m.id && e.source === "five_dollar_league");
         if (teams.length === 0) {
           perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] = (perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
           continue;
@@ -309,7 +316,22 @@ async function collect(db: Db, runId: string) {
             continue;
           }
 
-          const history = await fiveDollarTeamHistory(Number(team.external_id), predictionAt);
+          let history;
+          if (leagueExternal?.external_id) {
+            const key = `${leagueExternal.external_id}:${predictionAt}`;
+            history = leagueHistoryCache.get(key);
+            if (!history) {
+              history = await fiveDollarLeagueHistory(
+                Number(leagueExternal.external_id),
+                teams.map((t) => Number(t.external_id)),
+                predictionAt,
+                365,
+              );
+              leagueHistoryCache.set(key, history);
+            }
+          } else {
+            history = await fiveDollarTeamHistory(Number(team.external_id), predictionAt, 20);
+          }
           for (const f of history.fetches) {
             perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] = (perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] ?? 0) + 1;
             if (f.status === "RATE_LIMITED") rateLimited = true;
