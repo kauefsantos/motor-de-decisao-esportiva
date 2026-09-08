@@ -1,12 +1,13 @@
-// MODELO EXPERIMENTAL DE GOLS — goals-baseline-v1.
+// MODELO EXPERIMENTAL DE GOLS — goals-baseline-v2-recency.
 // Determinístico e sem odds como feature. Usa apenas placares históricos pré-prediction_at.
-// Implementa ataque/defesa por mando com shrinkage para a média da competição e
-// distribuição de gols por Poisson independente para mandante/visitante.
+// Implementa ataque/defesa por mando com shrinkage para a média da competição,
+// ponderação temporal por meia-vida e distribuição de gols por Poisson independente.
 
 import { poissonDistribution } from "./corners";
 
-export const GOALS_MODEL_VERSION = "goals-baseline-v1";
+export const GOALS_MODEL_VERSION = "goals-baseline-v2-recency";
 export const GOALS_SHRINKAGE_K = 5;
+export const GOALS_RECENCY_HALF_LIFE_DAYS = 120;
 
 export interface GoalMatchRow {
   date: string;
@@ -27,53 +28,77 @@ export interface GoalsModelParams {
   defense: Record<string, { home: number; away: number }>;
   sampleSizes: Record<string, number>;
   trainMatches: number;
+  referenceDate: string;
+}
+
+interface WeightedAgg {
+  sum: number;
+  weight: number;
+  n: number;
 }
 
 function teamKey(league: string, team: string) {
   return `${league}::${team}`;
 }
 
-function mean(xs: number[]) {
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+function dayDiff(referenceDate: string, date: string): number {
+  const ref = Date.parse(`${referenceDate.slice(0, 10)}T00:00:00Z`);
+  const d = Date.parse(`${date.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(ref) || !Number.isFinite(d)) return 0;
+  return Math.max(0, (ref - d) / 86400_000);
 }
 
-function factor(agg: { sum: number; n: number } | undefined, base: number): number {
-  if (!agg || agg.n === 0 || base <= 0) return 1;
+export function recencyWeight(ageDays: number, halfLifeDays = GOALS_RECENCY_HALF_LIFE_DAYS): number {
+  if (!Number.isFinite(ageDays) || ageDays <= 0) return 1;
+  return 0.5 ** (ageDays / halfLifeDays);
+}
+
+function weightedMean(rows: Array<{ value: number; weight: number }>) {
+  const den = rows.reduce((a, r) => a + r.weight, 0);
+  return den > 0 ? rows.reduce((a, r) => a + r.value * r.weight, 0) / den : 0;
+}
+
+function factor(agg: WeightedAgg | undefined, base: number): number {
+  if (!agg || agg.weight <= 0 || base <= 0) return 1;
+  const priorWeight = GOALS_SHRINKAGE_K;
   const observed = agg.sum;
-  const expected = agg.n * base;
-  return (observed + GOALS_SHRINKAGE_K * base) / (expected + GOALS_SHRINKAGE_K * base);
+  const expected = agg.weight * base;
+  return (observed + priorWeight * base) / (expected + priorWeight * base);
 }
 
-export function fitGoalsBaseline(train: GoalMatchRow[]): GoalsModelParams {
-  const leagueHome = new Map<string, { sum: number; n: number }>();
-  const leagueAway = new Map<string, { sum: number; n: number }>();
-  const forHome = new Map<string, { sum: number; n: number }>();
-  const forAway = new Map<string, { sum: number; n: number }>();
-  const agHome = new Map<string, { sum: number; n: number }>();
-  const agAway = new Map<string, { sum: number; n: number }>();
+export function fitGoalsBaseline(train: GoalMatchRow[], referenceDate?: string): GoalsModelParams {
+  const inferredReference = referenceDate ?? [...train].sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? new Date(0).toISOString().slice(0, 10);
+  const leagueHome = new Map<string, WeightedAgg>();
+  const leagueAway = new Map<string, WeightedAgg>();
+  const forHome = new Map<string, WeightedAgg>();
+  const forAway = new Map<string, WeightedAgg>();
+  const agHome = new Map<string, WeightedAgg>();
+  const agAway = new Map<string, WeightedAgg>();
 
-  const bump = (m: Map<string, { sum: number; n: number }>, k: string, v: number) => {
-    const cur = m.get(k) ?? { sum: 0, n: 0 };
-    cur.sum += v;
+  const bump = (m: Map<string, WeightedAgg>, k: string, v: number, weight: number) => {
+    const cur = m.get(k) ?? { sum: 0, weight: 0, n: 0 };
+    cur.sum += v * weight;
+    cur.weight += weight;
     cur.n += 1;
     m.set(k, cur);
   };
 
-  for (const row of train) {
-    bump(leagueHome, row.league, row.homeGoals);
-    bump(leagueAway, row.league, row.awayGoals);
-    bump(forHome, teamKey(row.league, row.homeTeam), row.homeGoals);
-    bump(agHome, teamKey(row.league, row.awayTeam), row.homeGoals);
-    bump(forAway, teamKey(row.league, row.awayTeam), row.awayGoals);
-    bump(agAway, teamKey(row.league, row.homeTeam), row.awayGoals);
+  const weightedRows = train.map((row) => ({ row, weight: recencyWeight(dayDiff(inferredReference, row.date)) }));
+  for (const { row, weight } of weightedRows) {
+    bump(leagueHome, row.league, row.homeGoals, weight);
+    bump(leagueAway, row.league, row.awayGoals, weight);
+    bump(forHome, teamKey(row.league, row.homeTeam), row.homeGoals, weight);
+    bump(agHome, teamKey(row.league, row.awayTeam), row.homeGoals, weight);
+    bump(forAway, teamKey(row.league, row.awayTeam), row.awayGoals, weight);
+    bump(agAway, teamKey(row.league, row.homeTeam), row.awayGoals, weight);
   }
 
-  const globalMeanHome = mean(train.map((r) => r.homeGoals));
-  const globalMeanAway = mean(train.map((r) => r.awayGoals));
+  const globalMeanHome = weightedMean(weightedRows.map(({ row, weight }) => ({ value: row.homeGoals, weight })));
+  const globalMeanAway = weightedMean(weightedRows.map(({ row, weight }) => ({ value: row.awayGoals, weight })));
   const leagueMeanHome: Record<string, number> = {};
   const leagueMeanAway: Record<string, number> = {};
-  for (const [league, agg] of leagueHome) leagueMeanHome[league] = agg.sum / agg.n;
-  for (const [league, agg] of leagueAway) leagueMeanAway[league] = agg.sum / agg.n;
+  for (const [league, agg] of leagueHome) leagueMeanHome[league] = agg.weight > 0 ? agg.sum / agg.weight : globalMeanHome;
+  for (const [league, agg] of leagueAway) leagueMeanAway[league] = agg.weight > 0 ? agg.sum / agg.weight : globalMeanAway;
 
   const attack: GoalsModelParams["attack"] = {};
   const defense: GoalsModelParams["defense"] = {};
@@ -105,6 +130,7 @@ export function fitGoalsBaseline(train: GoalMatchRow[]): GoalsModelParams {
     defense,
     sampleSizes,
     trainMatches: train.length,
+    referenceDate: inferredReference,
   };
 }
 
@@ -123,14 +149,8 @@ export function predictGoals(
   const ka = teamKey(input.league, input.awayTeam);
   const baseHome = params.leagueMeanHome[input.league] ?? params.globalMeanHome;
   const baseAway = params.leagueMeanAway[input.league] ?? params.globalMeanAway;
-  const lambdaHome = Math.max(
-    0.05,
-    baseHome * (params.attack[kh]?.home ?? 1) * (params.defense[ka]?.away ?? 1),
-  );
-  const lambdaAway = Math.max(
-    0.05,
-    baseAway * (params.attack[ka]?.away ?? 1) * (params.defense[kh]?.home ?? 1),
-  );
+  const lambdaHome = Math.max(0.05, baseHome * (params.attack[kh]?.home ?? 1) * (params.defense[ka]?.away ?? 1));
+  const lambdaAway = Math.max(0.05, baseAway * (params.attack[ka]?.away ?? 1) * (params.defense[kh]?.home ?? 1));
   return {
     lambdaHome,
     lambdaAway,
@@ -147,10 +167,7 @@ export interface MatchOutcomeProbabilities {
   bttsNo: number;
 }
 
-export function goalOutcomeProbabilities(
-  lambdaHome: number,
-  lambdaAway: number,
-): MatchOutcomeProbabilities {
+export function goalOutcomeProbabilities(lambdaHome: number, lambdaAway: number): MatchOutcomeProbabilities {
   const homeDist = poissonDistribution(lambdaHome, 15);
   const awayDist = poissonDistribution(lambdaAway, 15);
   let home = 0;
