@@ -182,6 +182,60 @@ export function matchBet365Price(candidate: AutoOddsCandidate, payload: unknown)
   };
 }
 
+export function matchBet365List1x2(candidate: AutoOddsCandidate, embeddedOdds: unknown): AutoOddsMatch {
+  const payload = {
+    data: {
+      bookmakers: [{ slug: "bet365", odds: embeddedOdds }],
+    },
+  };
+  return matchBet365Price(candidate, payload);
+}
+
+export function bet365ListOfferedLine(
+  embeddedOdds: unknown,
+  market: "goals_match_total" | "corners_match_total",
+): number | null {
+  const odds = record(embeddedOdds);
+  const apiMarket = market === "goals_match_total" ? "goal_line" : "corner_line";
+  const row = record(odds?.[apiMarket]);
+  if (!row) return null;
+  // No feed diário Pro as linhas de totais são números, não os pares de preços.
+  return finite(row["closing"] ?? row["opening"]);
+}
+
+function hasMore(payload: unknown): boolean {
+  const pagination = record(record(payload)?.["pagination"]);
+  return pagination?.["has_more"] === true;
+}
+
+export async function fetchBet365DayOdds(isoDate: string): Promise<{
+  oddsByFixture: Map<number, unknown>;
+  fetches: FiveDollarFetch[];
+}> {
+  const start = Math.floor(Date.parse(`${isoDate}T03:00:00Z`) / 1000);
+  const end = start + 24 * 3600;
+  const oddsByFixture = new Map<number, unknown>();
+  const fetches: FiveDollarFetch[] = [];
+
+  for (let page = 1; page <= 20; page += 1) {
+    const fetched = await fiveDollarGet(
+      `/fixtures?start_time=${start}&end_time=${end}&include=odds&page=${page}&per_page=50`,
+    );
+    fetches.push(fetched);
+    if (fetched.status !== "OK" || fetched.payload === null) break;
+    const root = record(fetched.payload);
+    const data = Array.isArray(root?.["data"]) ? root!["data"] as unknown[] : [];
+    for (const item of data) {
+      const fixture = record(item);
+      const id = finite(fixture?.["id"]);
+      if (id !== null) oddsByFixture.set(id, fixture?.["odds"] ?? null);
+    }
+    if (!hasMore(fetched.payload)) break;
+  }
+
+  return { oddsByFixture, fetches };
+}
+
 export async function fetchBet365FixtureOdds(fixtureId: number): Promise<FiveDollarFetch> {
   return fiveDollarGet(`/fixtures/${fixtureId}/odds?bookmakers=bet365`);
 }
