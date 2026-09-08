@@ -2,7 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import {
+  bet365ListOfferedLine,
+  fetchBet365DayOdds,
   fetchBet365FixtureOdds,
+  matchBet365List1x2,
   matchBet365Price,
   type AutoOddsCandidate,
   type AutoOddsMatch,
@@ -11,6 +14,7 @@ import { BASE_GATE } from "./engine/opportunity";
 
 const inputSchema = z.object({ runId: z.string().uuid() });
 const EXPERIMENTAL_STATUS = "EXPERIMENTAL_CURRENT_SEASON";
+const DIRECT_MARKETS = new Set(["1x2", "btts", "goals_match_total", "corners_match_total"]);
 
 type PredictionRow = {
   prediction_id: string;
@@ -33,11 +37,47 @@ type MatchRow = {
   away_team: string | null;
 };
 
+type QuoteWithMatch = AutoOddsMatch & { matchId: string; matchLabel: string };
+
 function label(match: MatchRow | undefined) {
   if (!match) return "—";
   return match.home_team && match.away_team
     ? `${match.home_team} x ${match.away_team}`
     : match.raw_partida;
+}
+
+function candidateFromRow(row: PredictionRow): AutoOddsCandidate {
+  return {
+    predictionId: row.prediction_id,
+    market: row.market,
+    side: row.side,
+    lineCanonical: row.line_canonical === null ? null : Number(row.line_canonical),
+  };
+}
+
+function unsupported(row: PredictionRow): AutoOddsMatch {
+  return {
+    predictionId: row.prediction_id,
+    status: "UNSUPPORTED",
+    odd: null,
+    offeredLine: null,
+    stage: null,
+    apiMarket: null,
+    reason: "A 5Dollar Pro não expõe diretamente este contrato Bet365; o campo continua disponível para entrada manual.",
+  };
+}
+
+function lineMismatch(row: PredictionRow, offeredLine: number): AutoOddsMatch {
+  const apiMarket = row.market === "goals_match_total" ? "goal_line" : "corner_line";
+  return {
+    predictionId: row.prediction_id,
+    status: "LINE_MISMATCH",
+    odd: null,
+    offeredLine,
+    stage: "closing",
+    apiMarket,
+    reason: `A linha atual da Bet365 (${offeredLine}) difere da linha modelada (${row.line_canonical ?? "—"}); preço não foi injetado.`,
+  };
 }
 
 export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
@@ -46,7 +86,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const supabase = supabaseAdmin;
 
-    const [{ data: predictions }, { data: matches }] = await Promise.all([
+    const [{ data: predictions }, { data: matches }, { data: run }] = await Promise.all([
       supabase
         .from("model_predictions")
         .select("prediction_id,match_id,market,side,line_canonical,model_probability")
@@ -56,6 +96,11 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
         .from("matches")
         .select("id,raw_partida,home_team,away_team")
         .eq("run_id", data.runId),
+      supabase
+        .from("analysis_runs")
+        .select("target_date")
+        .eq("id", data.runId)
+        .single(),
     ]);
 
     const eligible = ((predictions ?? []) as PredictionRow[]).filter(
@@ -64,13 +109,14 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
     const matchIds = [...new Set(eligible.map((row) => row.match_id))];
     if (matchIds.length === 0) {
       return {
-        quotes: [] as (AutoOddsMatch & { matchId: string; matchLabel: string })[],
+        quotes: [] as QuoteWithMatch[],
         matched: 0,
         lineMismatch: 0,
         unsupported: 0,
         noPrice: 0,
         sourceUnavailable: 0,
         fixturesRequested: 0,
+        dayPagesRequested: 0,
         message: "Nenhum mercado experimental passou pelo gate para buscar preço.",
       };
     }
@@ -92,12 +138,30 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       predictionsByMatch.set(row.match_id, list);
     }
 
-    const quotes: (AutoOddsMatch & { matchId: string; matchLabel: string })[] = [];
+    // O plano Pro permite include=odds no feed do dia. Usamos esse feed barato como
+    // preflight: 1X2 já traz preço e totais trazem a linha atual. Assim evitamos
+    // uma chamada /odds por partida quando a linha já sabemos que não coincide.
+    const targetDate = run?.target_date ?? null;
+    const day = targetDate
+      ? await fetchBet365DayOdds(targetDate)
+      : { oddsByFixture: new Map<number, unknown>(), fetches: [] };
+    for (const fetched of day.fetches) {
+      await supabase.from("source_fetches").insert({
+        run_id: data.runId,
+        match_id: null,
+        source: "five_dollar_bet365_day_odds",
+        status: fetched.status === "OK" ? "OK" : fetched.status,
+        http_status: fetched.httpStatus,
+        error_message: fetched.errorMessage,
+        fetched_at: fetched.fetchedAt,
+      });
+    }
+    const dayFetchedAt = day.fetches.find((item) => item.status === "OK")?.fetchedAt ?? new Date().toISOString();
+
+    const quotes: QuoteWithMatch[] = [];
     const snapshotRows: Record<string, unknown>[] = [];
     let fixturesRequested = 0;
 
-    // Uma única chamada de odds por partida. O adapter 5Dollar aplica o throttle Pro
-    // global e reaproveita o cache por 15 min em reaberturas da mesma tela.
     for (const matchId of matchIds) {
       const fixtureId = fixtureByMatch.get(matchId);
       const rows = predictionsByMatch.get(matchId) ?? [];
@@ -105,7 +169,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
 
       if (!fixtureId || !Number.isFinite(fixtureId)) {
         for (const row of rows) {
-          const quote: AutoOddsMatch & { matchId: string; matchLabel: string } = {
+          quotes.push({
             predictionId: row.prediction_id,
             matchId,
             matchLabel,
@@ -115,43 +179,77 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
             stage: null,
             apiMarket: null,
             reason: "Fixture ID da 5Dollar indisponível para esta partida.",
-          };
-          quotes.push(quote);
+          });
         }
         continue;
       }
 
-      fixturesRequested += 1;
-      const fetched = await fetchBet365FixtureOdds(fixtureId);
-      await supabase.from("source_fetches").insert({
-        run_id: data.runId,
-        match_id: matchId,
-        source: "five_dollar_bet365_odds",
-        status: fetched.status === "OK" ? "OK" : fetched.status,
-        http_status: fetched.httpStatus,
-        error_message: fetched.errorMessage,
-        fetched_at: fetched.fetchedAt,
-      });
+      const embeddedOdds = day.oddsByFixture.get(fixtureId);
+      const resolvedBeforeFull = new Map<string, AutoOddsMatch>();
+      const needsFull = new Set<string>();
 
       for (const row of rows) {
-        const candidate: AutoOddsCandidate = {
-          predictionId: row.prediction_id,
-          market: row.market,
-          side: row.side,
-          lineCanonical:
-            row.line_canonical === null ? null : Number(row.line_canonical),
-        };
-        const parsed = fetched.status === "OK" && fetched.payload !== null
-          ? matchBet365Price(candidate, fetched.payload)
-          : {
-              predictionId: row.prediction_id,
-              status: "SOURCE_UNAVAILABLE" as const,
-              odd: null,
-              offeredLine: null,
-              stage: null,
-              apiMarket: null,
-              reason: fetched.errorMessage ?? `Falha ao consultar odds: ${fetched.status}.`,
-            };
+        if (!DIRECT_MARKETS.has(row.market)) {
+          resolvedBeforeFull.set(row.prediction_id, unsupported(row));
+          continue;
+        }
+
+        const candidate = candidateFromRow(row);
+        if (row.market === "1x2" && embeddedOdds) {
+          resolvedBeforeFull.set(row.prediction_id, matchBet365List1x2(candidate, embeddedOdds));
+          continue;
+        }
+
+        if ((row.market === "goals_match_total" || row.market === "corners_match_total") && embeddedOdds) {
+          const offeredLine = bet365ListOfferedLine(embeddedOdds, row.market);
+          const modelLine = candidate.lineCanonical;
+          if (offeredLine !== null && modelLine !== null && Math.abs(offeredLine - modelLine) > 1e-9) {
+            resolvedBeforeFull.set(row.prediction_id, lineMismatch(row, offeredLine));
+            continue;
+          }
+        }
+
+        // BTTS não vem expandido no feed diário atual; totais com linha coincidente
+        // precisam do endpoint por fixture para receber over/under; 1X2 cai aqui
+        // apenas se o preflight não trouxe a partida.
+        needsFull.add(row.prediction_id);
+      }
+
+      let fullFetch: Awaited<ReturnType<typeof fetchBet365FixtureOdds>> | null = null;
+      if (needsFull.size > 0) {
+        fixturesRequested += 1;
+        fullFetch = await fetchBet365FixtureOdds(fixtureId);
+        await supabase.from("source_fetches").insert({
+          run_id: data.runId,
+          match_id: matchId,
+          source: "five_dollar_bet365_odds",
+          status: fullFetch.status === "OK" ? "OK" : fullFetch.status,
+          http_status: fullFetch.httpStatus,
+          error_message: fullFetch.errorMessage,
+          fetched_at: fullFetch.fetchedAt,
+        });
+      }
+
+      for (const row of rows) {
+        const candidate = candidateFromRow(row);
+        let parsed = resolvedBeforeFull.get(row.prediction_id);
+        let fetchedAt = dayFetchedAt;
+        if (!parsed && needsFull.has(row.prediction_id)) {
+          fetchedAt = fullFetch?.fetchedAt ?? dayFetchedAt;
+          parsed = fullFetch?.status === "OK" && fullFetch.payload !== null
+            ? matchBet365Price(candidate, fullFetch.payload)
+            : {
+                predictionId: row.prediction_id,
+                status: "SOURCE_UNAVAILABLE" as const,
+                odd: null,
+                offeredLine: null,
+                stage: null,
+                apiMarket: null,
+                reason: fullFetch?.errorMessage ?? `Falha ao consultar odds: ${fullFetch?.status ?? "sem resposta"}.`,
+              };
+        }
+        parsed ??= unsupported(row);
+
         quotes.push({ ...parsed, matchId, matchLabel });
         snapshotRows.push({
           run_id: data.runId,
@@ -168,7 +266,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
           api_market: parsed.apiMarket,
           status: parsed.status,
           reason: parsed.reason,
-          fetched_at: fetched.fetchedAt,
+          fetched_at: fetchedAt,
         });
       }
     }
@@ -195,6 +293,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       noPrice: count("NO_PRICE"),
       sourceUnavailable: count("SOURCE_UNAVAILABLE"),
       fixturesRequested,
+      dayPagesRequested: day.fetches.length,
       message: "Odds pré-jogo da Bet365 consultadas após o Motor 1, sem usar preço na geração das probabilidades.",
     };
   });
