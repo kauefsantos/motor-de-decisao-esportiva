@@ -37,16 +37,14 @@ const FAMILY_LABELS: Record<string, string> = {
   BTTS: "Ambas marcam",
 };
 
-type AutoQuote = Awaited<ReturnType<ReturnType<typeof useServerFn<typeof collectAutomaticBet365Odds>>>> extends never
-  ? never
-  : {
-      predictionId: string;
-      status: "MATCHED" | "LINE_MISMATCH" | "UNSUPPORTED" | "NO_PRICE" | "SOURCE_UNAVAILABLE";
-      odd: number | null;
-      offeredLine: number | null;
-      stage: "closing" | "opening" | null;
-      reason: string;
-    };
+type AutoQuote = {
+  predictionId: string;
+  status: "MATCHED" | "LINE_MISMATCH" | "UNSUPPORTED" | "NO_PRICE" | "SOURCE_UNAVAILABLE";
+  odd: number | null;
+  offeredLine: number | null;
+  stage: "closing" | "opening" | null;
+  reason: string;
+};
 
 function selectionLimitForDate(isoDate: string | null | undefined) {
   if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
