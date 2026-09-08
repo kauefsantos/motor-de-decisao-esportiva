@@ -1,0 +1,30 @@
+name: Patch Elo League ID
+
+on:
+  push:
+    branches: [fix/pro-continental-pipeline]
+    paths: [.github/workflows/patch-elo-league-id.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/pro-continental-pipeline
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: python3 scripts/patch_elo_league_id.py
+      - run: bun install --frozen-lockfile
+      - run: bunx vitest run
+      - run: bun run build
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/experimental-markets-run.functions.ts src/lib/elo-sync.server.ts
+          git commit -m "Use league ID for Elo and align Pro coverage" || exit 0
+          git push origin HEAD:fix/pro-continental-pipeline
