@@ -302,6 +302,10 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       const awayId = (externalIds ?? []).find(
         (x) => x.match_id === match.id && x.source === "five_dollar_team_away",
       )?.external_id;
+      const leagueIdRaw = (externalIds ?? []).find(
+        (x) => x.match_id === match.id && x.source === "five_dollar_league",
+      )?.external_id;
+      const leagueId = leagueIdRaw && Number.isFinite(Number(leagueIdRaw)) ? Number(leagueIdRaw) : null;
       const league = mostFrequentLeague(
         runRaws as { match_id: string | null; raw_value: unknown }[],
         match.id,
@@ -487,6 +491,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           runId: data.runId,
           matchId: match.id,
           leagueKey: league,
+          leagueId,
           homeTeamId: Number(homeId),
           awayTeamId: Number(awayId),
           predictionAt,

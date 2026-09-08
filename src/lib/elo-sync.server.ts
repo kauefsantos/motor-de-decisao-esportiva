@@ -119,6 +119,9 @@ function targetLeague(country: string, name: string): boolean {
   if (country === "NO") return n === "norway eliteserien" || n === "norway division 1";
   if (country === "AR") return n === "argentina liga profesional" || n === "argentina nacional b";
   if (country === "EC") return n === "ecuador ligapro serie a" || n === "ecuador ligapro serie b";
+  if (country === "BE") return n === "belgium pro league";
+  if (country === "US") return n === "usa major league soccer" || n === "major league soccer" || n === "mls";
+  if (country === "SA") return n === "saudi arabia pro league" || n === "saudi pro league";
   return false;
 }
 
@@ -142,7 +145,7 @@ function fallbackLeagueKey(league: ApiLeague): string {
 }
 
 async function discoverLeagues(activeSince: number): Promise<ApiLeague[]> {
-  const countries = ["GB-ENG", "DE", "ES", "IT", "FR", "BR", "NL", "PT", "TR", "SK", "NO", "AR", "EC"];
+  const countries = ["GB-ENG", "DE", "ES", "IT", "FR", "BR", "NL", "PT", "BE", "TR", "SK", "NO", "AR", "EC", "US", "SA"];
   const found = new Map<number, ApiLeague>();
 
   for (const country of countries) {
