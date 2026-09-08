@@ -35,6 +35,7 @@ type HistoryRow = {
 type LeagueRatingRow = {
   league_id: number | string;
   rating: number | string;
+  evidence_matches: number | string;
   updated_at: string;
 };
 
@@ -48,9 +49,11 @@ type LeagueAt = {
   found: boolean;
   leagueId: number | null;
   rating: number;
+  evidenceMatches: number;
 };
 
 const db = supabaseAdmin as unknown as UntypedDb;
+const MIN_LEAGUE_EVIDENCE_MATCHES = 3;
 
 function parseHistoryRow(data: unknown, teamId: number): EloAt {
   if (!data || typeof data !== "object") {
@@ -115,14 +118,16 @@ async function latestDomesticRatingAt(teamId: number, predictionAt: string): Pro
 }
 
 /**
- * O rating de liga atual só pode ser usado quando foi calculado antes do
- * prediction_at. Isso evita reaproveitar, em backtests, evidência continental
- * que ainda não existia naquele instante.
+ * O rating de liga só é elegível quando:
+ * - o snapshot foi calculado antes do prediction_at; e
+ * - há pelo menos 3 partidas interligas reais sustentando o ajuste.
+ *
+ * Assim, o prior estrutural nunca entra sozinho como se fosse evidência medida.
  */
 async function leagueRatingAtCurrentSnapshot(leagueId: number, predictionAt: string): Promise<LeagueAt> {
   const res = await db
     .from("elo_league_ratings")
-    .select("league_id,rating,updated_at")
+    .select("league_id,rating,evidence_matches,updated_at")
     .eq("model_version", LEAGUE_ELO_MODEL_VERSION)
     .eq("league_id", leagueId)
     .lt("updated_at", predictionAt)
@@ -130,15 +135,21 @@ async function leagueRatingAtCurrentSnapshot(leagueId: number, predictionAt: str
     .maybeSingle();
 
   if (res.error || !res.data || typeof res.data !== "object") {
-    return { found: false, leagueId: null, rating: ELO_INITIAL_RATING };
+    return { found: false, leagueId: null, rating: ELO_INITIAL_RATING, evidenceMatches: 0 };
   }
   const row = res.data as LeagueRatingRow;
   const rating = Number(row.rating);
   const id = Number(row.league_id);
+  const evidenceMatches = Number(row.evidence_matches ?? 0);
   return {
-    found: Number.isFinite(rating) && Number.isFinite(id),
+    found:
+      Number.isFinite(rating) &&
+      Number.isFinite(id) &&
+      Number.isFinite(evidenceMatches) &&
+      evidenceMatches >= MIN_LEAGUE_EVIDENCE_MATCHES,
     leagueId: Number.isFinite(id) ? id : null,
     rating: Number.isFinite(rating) ? rating : ELO_INITIAL_RATING,
+    evidenceMatches: Number.isFinite(evidenceMatches) ? evidenceMatches : 0,
   };
 }
 
@@ -199,7 +210,7 @@ export async function eloAdjustGoalForecast(input: {
         lambdaAway: input.lambdaAway,
         homeRating: home.rating,
         awayRating: away.rating,
-        reason: "Elo de liga hierárquico ainda não estava disponível no prediction_at.",
+        reason: `Elo de liga sem evidência interligas suficiente no prediction_at (mínimo ${MIN_LEAGUE_EVIDENCE_MATCHES}; casa ${homeLeagueRating.evidenceMatches}, fora ${awayLeagueRating.evidenceMatches}).`,
       };
     }
   }
@@ -256,6 +267,8 @@ export async function eloAdjustGoalForecast(input: {
     awayRating: away.rating,
     homeLeagueRating: homeLeagueRating?.rating ?? null,
     awayLeagueRating: awayLeagueRating?.rating ?? null,
+    homeLeagueEvidenceMatches: homeLeagueRating?.evidenceMatches ?? null,
+    awayLeagueEvidenceMatches: awayLeagueRating?.evidenceMatches ?? null,
     homeGlobalRating: homeEffective,
     awayGlobalRating: awayEffective,
     eloScope: scope,
