@@ -106,14 +106,19 @@ function normalizedText(value: string): string {
 function targetLeague(country: string, name: string): boolean {
   const n = normalizedText(name);
   if (/women|femin|feminin|u\d|youth|junior/.test(n)) return false;
-  if (country === "GB-ENG") return n === "premier league" || n === "england premier league";
-  if (country === "DE") return n === "bundesliga" || n === "germany bundesliga";
-  if (country === "ES") return n === "la liga" || n === "spain la liga";
-  if (country === "IT") return n === "serie a" || n === "italy serie a";
-  if (country === "FR") return n === "ligue 1" || n === "france ligue 1";
-  if (country === "BR") {
-    return /(^| )(brazil |brasil )?serie [ab]$/.test(n) || /brasileirao serie [ab]$/.test(n);
-  }
+  if (country === "GB-ENG") return /england (premier league|championship)$/.test(n) || n === "premier league" || n === "championship";
+  if (country === "DE") return /germany bundesliga (i|ii)$/.test(n) || /bundesliga (i|ii)$/.test(n);
+  if (country === "ES") return n === "spain la liga" || n === "la liga" || n === "spain segunda";
+  if (country === "IT") return /(^|italy )serie [ab]$/.test(n);
+  if (country === "FR") return /(^|france )ligue [12]$/.test(n);
+  if (country === "BR") return /(^| )(brazil |brasil )?serie [ab]$/.test(n) || /brasileirao serie [ab]$/.test(n);
+  if (country === "NL") return n === "netherlands eredivisie" || n === "netherlands eerste divisie";
+  if (country === "PT") return n === "portugal primeira liga" || n === "portugal segunda liga";
+  if (country === "TR") return n === "turkiye super lig" || n === "turkiye 1 lig";
+  if (country === "SK") return n === "slovakia super liga";
+  if (country === "NO") return n === "norway eliteserien" || n === "norway division 1";
+  if (country === "AR") return n === "argentina liga profesional" || n === "argentina nacional b";
+  if (country === "EC") return n === "ecuador ligapro serie a" || n === "ecuador ligapro serie b";
   return false;
 }
 
@@ -137,7 +142,7 @@ function fallbackLeagueKey(league: ApiLeague): string {
 }
 
 async function discoverLeagues(activeSince: number): Promise<ApiLeague[]> {
-  const countries = ["GB-ENG", "DE", "ES", "IT", "FR", "BR"];
+  const countries = ["GB-ENG", "DE", "ES", "IT", "FR", "BR", "NL", "PT", "TR", "SK", "NO", "AR", "EC"];
   const found = new Map<number, ApiLeague>();
 
   for (const country of countries) {

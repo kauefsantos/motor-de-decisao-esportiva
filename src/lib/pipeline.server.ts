@@ -3,6 +3,7 @@
 
 import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
+import { isCrossLeagueCompetitionName } from "./competition-kind";
 
 export type { PipelineStepKey } from "./pipeline.steps";
 import type { PipelineStepKey } from "./pipeline.steps";
@@ -308,6 +309,7 @@ async function collect(db: Db, runId: string) {
         if (rateLimited) break;
         const teams = (externalIds ?? []).filter((e) => e.match_id === m.id && (e.source === "five_dollar_team_home" || e.source === "five_dollar_team_away"));
         const leagueExternal = (externalIds ?? []).find((e) => e.match_id === m.id && e.source === "five_dollar_league");
+        const crossLeague = isCrossLeagueCompetitionName(m.competition);
         if (teams.length === 0) {
           perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] = (perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
           continue;
@@ -330,7 +332,7 @@ async function collect(db: Db, runId: string) {
           }
 
           let history;
-          if (leagueExternal?.external_id) {
+          if (leagueExternal?.external_id && !crossLeague) {
             const key = `${leagueExternal.external_id}:${predictionAt}`;
             history = leagueHistoryCache.get(key);
             if (!history) {
@@ -343,7 +345,7 @@ async function collect(db: Db, runId: string) {
               leagueHistoryCache.set(key, history);
             }
           } else {
-            history = await fiveDollarTeamHistory(Number(team.external_id), predictionAt, 20);
+            history = await fiveDollarTeamHistory(Number(team.external_id), predictionAt, crossLeague ? 40 : 20);
           }
           for (const f of history.fetches) {
             perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] = (perSource[`${FIVE_DOLLAR_SOURCE}:${f.status}`] ?? 0) + 1;
