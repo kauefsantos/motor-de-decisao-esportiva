@@ -1,13 +1,14 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getRun } from "@/lib/analysis.functions";
+import { collectAutomaticBet365Odds } from "@/lib/auto-bet365-odds.functions";
 import {
   analyzeExperimentalMarketsOdds,
   prepareExperimentalMarketsRun,
@@ -36,6 +37,17 @@ const FAMILY_LABELS: Record<string, string> = {
   BTTS: "Ambas marcam",
 };
 
+type AutoQuote = Awaited<ReturnType<ReturnType<typeof useServerFn<typeof collectAutomaticBet365Odds>>>> extends never
+  ? never
+  : {
+      predictionId: string;
+      status: "MATCHED" | "LINE_MISMATCH" | "UNSUPPORTED" | "NO_PRICE" | "SOURCE_UNAVAILABLE";
+      odd: number | null;
+      offeredLine: number | null;
+      stage: "closing" | "opening" | null;
+      reason: string;
+    };
+
 function selectionLimitForDate(isoDate: string | null | undefined) {
   if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
   const [year, month, day] = isoDate.split("-").map(Number);
@@ -47,9 +59,20 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const prepare = useServerFn(prepareExperimentalMarketsRun);
   const analyze = useServerFn(analyzeExperimentalMarketsOdds);
+  const collectAutoOdds = useServerFn(collectAutomaticBet365Odds);
   const fetchRun = useServerFn(getRun);
   const [odds, setOdds] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [autoOddsLoading, setAutoOddsLoading] = useState(false);
+  const [autoQuotes, setAutoQuotes] = useState<Record<string, AutoQuote>>({});
+  const [autoSummary, setAutoSummary] = useState<{
+    matched: number;
+    lineMismatch: number;
+    unsupported: number;
+    noPrice: number;
+    sourceUnavailable: number;
+  } | null>(null);
+  const autoStartedForRun = useRef<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["experimental-markets-run", runId],
@@ -67,6 +90,58 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     () => (data?.candidates ?? []).filter((candidate) => candidate.gateMet),
     [data],
   );
+
+  useEffect(() => {
+    if (eligible.length === 0 || autoStartedForRun.current === runId) return;
+    autoStartedForRun.current = runId;
+    let cancelled = false;
+
+    async function runAutomaticOdds() {
+      setAutoOddsLoading(true);
+      try {
+        const result = await collectAutoOdds({ data: { runId } });
+        if (cancelled) return;
+        const byPrediction: Record<string, AutoQuote> = {};
+        const automaticValues: Record<string, string> = {};
+        for (const quote of result.quotes) {
+          byPrediction[quote.predictionId] = quote as AutoQuote;
+          if (quote.status === "MATCHED" && quote.odd !== null && quote.odd > 1) {
+            automaticValues[quote.predictionId] = String(quote.odd);
+          }
+        }
+        setAutoQuotes(byPrediction);
+        setAutoSummary({
+          matched: result.matched,
+          lineMismatch: result.lineMismatch,
+          unsupported: result.unsupported,
+          noPrice: result.noPrice,
+          sourceUnavailable: result.sourceUnavailable,
+        });
+        setOdds((current) => {
+          const next = { ...current };
+          for (const [predictionId, odd] of Object.entries(automaticValues)) {
+            if (!next[predictionId]?.trim()) next[predictionId] = odd;
+          }
+          return next;
+        });
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(
+            error instanceof Error
+              ? `Não foi possível preencher as odds automaticamente: ${error.message}`
+              : "Não foi possível preencher as odds automaticamente.",
+          );
+        }
+      } finally {
+        if (!cancelled) setAutoOddsLoading(false);
+      }
+    }
+
+    void runAutomaticOdds();
+    return () => {
+      cancelled = true;
+    };
+  }, [collectAutoOdds, eligible.length, runId]);
 
   const groupedByMatch = useMemo(() => {
     const groups = new Map<
@@ -109,7 +184,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
       .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1);
 
     if (entries.length === 0) {
-      toast.error("Digite pelo menos uma odd válida para comparar.");
+      toast.error("Nenhuma odd válida disponível para comparar.");
       return;
     }
 
@@ -177,11 +252,23 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           Ainda estamos validando o modelo com resultados reais
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
-          As chances abaixo são calculadas antes de olhar a odd. Agora você só precisa informar o preço da bet365 para ver se existe margem suficiente.
+          As chances são calculadas primeiro, sem preço. Depois o sistema busca automaticamente as odds pré-jogo da Bet365 pela 5Dollar e preenche somente contratos compatíveis.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Nesta rodada o sistema pode escolher até {selectionLimit} mercado(s). Se nada compensar, ele pode escolher nenhum.
+          Mercados sem preço disponível ou com linha diferente continuam editáveis manualmente. Nesta rodada o sistema pode escolher até {selectionLimit} mercado(s).
         </p>
+        {autoOddsLoading ? (
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" /> Buscando preços atuais da Bet365…
+          </div>
+        ) : autoSummary ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Bet365 automática: {autoSummary.matched} preço(s) compatível(is)
+            {autoSummary.lineMismatch > 0 ? ` · ${autoSummary.lineMismatch} linha(s) diferente(s)` : ""}
+            {autoSummary.unsupported > 0 ? ` · ${autoSummary.unsupported} mercado(s) sem cobertura direta` : ""}
+            {autoSummary.noPrice > 0 ? ` · ${autoSummary.noPrice} sem preço` : ""}.
+          </p>
+        ) : null}
       </div>
 
       {isLoading ? (
@@ -221,44 +308,56 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                         <th className="px-4 py-3 text-xs text-muted-foreground">Chance estimada</th>
                         <th className="px-4 py-3 text-xs text-muted-foreground">Odd justa</th>
                         <th className="px-4 py-3 text-xs text-muted-foreground">Base usada</th>
-                        <th className="w-36 px-4 py-3 text-xs text-muted-foreground">Odd bet365</th>
+                        <th className="w-44 px-4 py-3 text-xs text-muted-foreground">Odd bet365</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {group.rows.map((candidate) => (
-                        <tr
-                          key={candidate.predictionId}
-                          className="border-b border-border/60 last:border-b-0"
-                        >
-                          <td className="px-4 py-3 font-medium">{candidate.marketLabel}</td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground">
-                            {FAMILY_LABELS[candidate.family] ?? candidate.family}
-                          </td>
-                          <td className="num px-4 py-3">
-                            {pct(candidate.probabilityExperimental)}
-                          </td>
-                          <td className="num px-4 py-3">
-                            {dec(candidate.fairOddExperimental)}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground">
-                            {candidate.sampleSize} jogos do time · {candidate.trainingMatches} da liga
-                          </td>
-                          <td className="px-4 py-3">
-                            <Input
-                              inputMode="decimal"
-                              value={odds[candidate.predictionId] ?? ""}
-                              onChange={(event) =>
-                                setOdds((current) => ({
-                                  ...current,
-                                  [candidate.predictionId]: event.target.value,
-                                }))
-                              }
-                              className="num w-28"
-                              aria-label={`Odd bet365 para ${group.matchLabel} — ${candidate.marketLabel}`}
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {group.rows.map((candidate) => {
+                        const quote = autoQuotes[candidate.predictionId];
+                        return (
+                          <tr
+                            key={candidate.predictionId}
+                            className="border-b border-border/60 last:border-b-0"
+                          >
+                            <td className="px-4 py-3 font-medium">{candidate.marketLabel}</td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">
+                              {FAMILY_LABELS[candidate.family] ?? candidate.family}
+                            </td>
+                            <td className="num px-4 py-3">
+                              {pct(candidate.probabilityExperimental)}
+                            </td>
+                            <td className="num px-4 py-3">
+                              {dec(candidate.fairOddExperimental)}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">
+                              {candidate.sampleSize} jogos do time · {candidate.trainingMatches} da liga
+                            </td>
+                            <td className="px-4 py-3">
+                              <Input
+                                inputMode="decimal"
+                                value={odds[candidate.predictionId] ?? ""}
+                                onChange={(event) =>
+                                  setOdds((current) => ({
+                                    ...current,
+                                    [candidate.predictionId]: event.target.value,
+                                  }))
+                                }
+                                className="num w-28"
+                                aria-label={`Odd bet365 para ${group.matchLabel} — ${candidate.marketLabel}`}
+                              />
+                              {quote?.status === "MATCHED" ? (
+                                <p className="mt-1 text-[10px] text-muted-foreground">Automática · preço pré-jogo atual</p>
+                              ) : quote?.status === "LINE_MISMATCH" ? (
+                                <p className="mt-1 max-w-40 text-[10px] text-muted-foreground">
+                                  Bet365 está na linha {quote.offeredLine ?? "—"}; este contrato permanece manual.
+                                </p>
+                              ) : quote?.status === "UNSUPPORTED" ? (
+                                <p className="mt-1 text-[10px] text-muted-foreground">Entrada manual</p>
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -267,8 +366,8 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           </div>
 
           <div className="border-t border-border p-6">
-            <Button onClick={() => void evaluate()} disabled={submitting}>
-              {submitting ? "Comparando…" : "COMPARAR ODDS"}
+            <Button onClick={() => void evaluate()} disabled={submitting || autoOddsLoading}>
+              {submitting ? "Comparando…" : autoOddsLoading ? "Buscando odds…" : "COMPARAR ODDS"}
             </Button>
           </div>
         </>
