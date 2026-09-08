@@ -121,7 +121,7 @@ function mostFrequentLeague(
   for (const row of raws) {
     if (row.match_id !== matchId) continue;
     const rv = asRecord(row.raw_value);
-    const league = leagueFromExternalMatchId(String(rv?.externalMatchId ?? ""));
+    const league = leagueFromExternalMatchId(String(rv?.["externalMatchId"] ?? ""));
     if (!league) continue;
     counts.set(league, (counts.get(league) ?? 0) + 1);
   }

@@ -86,7 +86,7 @@ function OpportunitiesScreen() {
     setSubmitting(true);
     try {
       await analyze({ data: { runId, entries } });
-      navigate({ to: "/run/$runId/resultado", params: { runId }, search: {} });
+      navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: undefined } });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível comparar as odds.");
       setSubmitting(false);
