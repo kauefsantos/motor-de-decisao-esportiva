@@ -291,6 +291,19 @@ async function collect(db: Db, runId: string) {
       }
 
       const leagueHistoryCache = new Map<string, Awaited<ReturnType<typeof fiveDollarLeagueHistory>>>();
+      const leagueTeamIds = new Map<string, Set<number>>();
+      for (const m of matches ?? []) {
+        const leagueExternal = (externalIds ?? []).find((e) => e.match_id === m.id && e.source === "five_dollar_league");
+        if (!leagueExternal?.external_id) continue;
+        const key = String(leagueExternal.external_id);
+        const set = leagueTeamIds.get(key) ?? new Set<number>();
+        for (const e of (externalIds ?? []).filter((x) => x.match_id === m.id && (x.source === "five_dollar_team_home" || x.source === "five_dollar_team_away"))) {
+          const id = Number(e.external_id);
+          if (Number.isFinite(id)) set.add(id);
+        }
+        leagueTeamIds.set(key, set);
+      }
+
       for (const m of matches ?? []) {
         if (rateLimited) break;
         const teams = (externalIds ?? []).filter((e) => e.match_id === m.id && (e.source === "five_dollar_team_home" || e.source === "five_dollar_team_away"));
@@ -323,7 +336,7 @@ async function collect(db: Db, runId: string) {
             if (!history) {
               history = await fiveDollarLeagueHistory(
                 Number(leagueExternal.external_id),
-                teams.map((t) => Number(t.external_id)),
+                [...(leagueTeamIds.get(String(leagueExternal.external_id)) ?? new Set<number>())],
                 predictionAt,
                 365,
               );
@@ -343,9 +356,10 @@ async function collect(db: Db, runId: string) {
           }
           if (history.insufficientHistory) insufficient += 1;
 
-          if (history.observations.length > 0) {
-            observationsCount += history.observations.length;
-            await db.from("raw_observations").insert(history.observations.map((o) => ({
+          const teamObservations = history.observations.filter((o) => o.teamId === Number(team.external_id));
+          if (teamObservations.length > 0) {
+            observationsCount += teamObservations.length;
+            await db.from("raw_observations").insert(teamObservations.map((o) => ({
               run_id: runId,
               match_id: m.id,
               source: FIVE_DOLLAR_SOURCE,
@@ -400,6 +414,8 @@ async function collect(db: Db, runId: string) {
 
       await log(db, runId, "COLLECT", `${observationsCount} observações 5Dollar; ${reusedFromCache} de cache; ${insufficient} times com histórico insuficiente${rateLimited ? "; coleta parcial por rate limit" : ""}.`, observationsCount ? "INFO" : "WARN", {
         provider, predictionAt, requestsMade: usage.requestsMade, rateLimit: usage.rateLimit, rateLimitHits: usage.rateLimitHits,
+        bulkLeagues: leagueHistoryCache.size,
+        uniqueHistoricalFixtures: [...leagueHistoryCache.values()].reduce((sum, h) => sum + h.fixtures.length, 0),
       });
     }
   }
