@@ -9,6 +9,8 @@ export const ELO_K = 20;
 export const ELO_DEFAULT_HOME_ADVANTAGE = 60;
 export const ELO_GOAL_SHARE_WEIGHT = 0.2;
 export const ELO_MODEL_VERSION = `${ELO_VERSION}-w020`;
+export const LEAGUE_ELO_MODEL_VERSION = "league-elo-v1";
+export const HIERARCHICAL_ELO_MODEL_VERSION = "elo-v2-hierarchical";
 
 export interface EloUpdateInput {
   homeRating: number;
