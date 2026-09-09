@@ -156,7 +156,11 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
 
                 {open === match.id && (
                   <div className="pb-4 text-xs text-muted-foreground">
-                    <p>{match.resolution_reason}</p>
+                    <p>
+                      {match.externalIds.length > 0
+                        ? "O jogo foi relacionado às informações encontradas nas fontes disponíveis."
+                        : "Não foi possível relacionar este jogo a uma partida das fontes disponíveis."}
+                    </p>
                     <p className="mt-1">
                       Grau de certeza na identificação: {match.resolver_confidence === null ? "—" : `${(Number(match.resolver_confidence) * 100).toFixed(0)}%`}
                     </p>
