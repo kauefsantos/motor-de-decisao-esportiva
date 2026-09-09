@@ -15,15 +15,15 @@ import { getRun, analyzeOdds } from "@/lib/analysis.functions";
 export const Route = createFileRoute("/run/$runId/oportunidades")({
   head: () => ({
     meta: [
-      { title: "Mercados para conferir · Bet Value Engine" },
+      { title: "Opções para conferir · Bet Value Engine" },
       {
         name: "description",
-        content: "Veja os mercados que passaram pelos filtros e informe as odds da bet365 para comparar preço.",
+        content: "Veja as opções que passaram pela análise e informe as odds da bet365 para comparar.",
       },
-      { property: "og:title", content: "Mercados para conferir · Bet Value Engine" },
+      { property: "og:title", content: "Opções para conferir · Bet Value Engine" },
       {
         property: "og:description",
-        content: "As chances são calculadas antes do preço; depois você informa as odds para verificar se há margem.",
+        content: "Primeiro calculamos as chances. Depois você informa as odds para ver se o preço compensa.",
       },
     ],
   }),
@@ -31,6 +31,29 @@ export const Route = createFileRoute("/run/$runId/oportunidades")({
 });
 
 type Candidate = Awaited<ReturnType<typeof getRun>>["candidates"][number];
+
+function simpleStatus(status: string | null | undefined) {
+  const labels: Record<string, string> = {
+    READY: "Pronto para análise",
+    VALID: "Dados suficientes",
+    OK: "Tudo certo",
+    MODEL_NOT_PRODUCTION_VALIDATED: "Ainda em fase de teste",
+    DATA_DEFINITION_MISMATCH: "Os dados disponíveis não combinam com esta opção",
+    INSUFFICIENT_DATA: "Faltam dados suficientes",
+    REFORECAST_REQUIRED: "A linha mudou e precisa ser recalculada",
+  };
+  return status ? labels[status] ?? "Em verificação" : "—";
+}
+
+function simpleBlockedReason(reason: string | null | undefined) {
+  const labels: Record<string, string> = {
+    MODEL_NOT_PRODUCTION_VALIDATED: "Esta opção ainda está em fase de teste.",
+    DATA_DEFINITION_MISMATCH: "Os dados encontrados não são compatíveis com esta opção.",
+    INSUFFICIENT_DATA: "Não há dados suficientes para mostrar esta opção com segurança.",
+    REFORECAST_REQUIRED: "A linha disponível mudou e precisa ser recalculada.",
+  };
+  return reason ? labels[reason] ?? "Esta opção não atingiu os critérios mínimos da análise." : "Esta opção não atingiu os critérios mínimos da análise.";
+}
 
 function OpportunitiesScreen() {
   const { runId } = Route.useParams();
@@ -96,22 +119,22 @@ function OpportunitiesScreen() {
   return (
     <AppShell stage="oportunidades">
       <p className="label-eyebrow">Etapa 3</p>
-      <h1 className="mt-2 text-3xl font-bold">Mercados para conferir</h1>
+      <h1 className="mt-2 text-3xl font-bold">Opções para conferir</h1>
       <p className="mt-2 max-w-3xl text-muted-foreground">
-        As chances já foram calculadas sem olhar o preço. Agora informe apenas as odds que quiser comparar com a nossa estimativa.
+        As chances já foram calculadas sem olhar as odds. Agora você pode informar os preços da bet365 que quiser comparar.
       </p>
 
       {isLoading && (
         <div className="panel mt-8 flex items-center gap-3 p-8 text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando os mercados…
+          <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando as opções…
         </div>
       )}
 
       {!isLoading && published.length === 0 && (
         <div className="panel mt-8 p-8">
-          <p className="font-medium">A versão definitiva ainda não liberou nenhum mercado nesta rodada.</p>
+          <p className="font-medium">Nenhuma opção da versão principal foi liberada nesta rodada.</p>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Como ainda estamos validando os modelos, o modo de teste aparece separadamente abaixo quando existem dados suficientes.
+            Como o sistema ainda está sendo validado, as opções do modo de teste aparecem separadamente abaixo quando há dados suficientes.
           </p>
         </div>
       )}
@@ -122,7 +145,7 @@ function OpportunitiesScreen() {
             <thead>
               <tr className="border-b border-border text-left">
                 <th className="px-6 py-3 text-xs text-muted-foreground">Jogo</th>
-                <th className="px-6 py-3 text-xs text-muted-foreground">Mercado</th>
+                <th className="px-6 py-3 text-xs text-muted-foreground">Opção</th>
                 <th className="w-40 px-6 py-3 text-xs text-muted-foreground">Odd bet365</th>
               </tr>
             </thead>
@@ -152,7 +175,7 @@ function OpportunitiesScreen() {
           className="flex w-full items-center justify-between px-6 py-4 text-left"
         >
           <span className="text-sm font-medium">
-            Ver mercados que ficaram de fora ({blocked.length})
+            Ver opções que ficaram de fora ({blocked.length})
           </span>
           <ChevronDown
             className={`size-4 transition-transform ${showBlocked ? "rotate-180" : ""}`}
@@ -165,10 +188,10 @@ function OpportunitiesScreen() {
               <li key={c.id} className="grid gap-1 px-6 py-3 md:grid-cols-[1fr_1fr_auto]">
                 <span className="text-sm">{matchLabel.get(c.match_id ?? "") ?? ""}</span>
                 <span className="text-sm text-muted-foreground">{c.market_label}</span>
-                <span className="text-[11px] text-warning">Não passou pelo filtro</span>
+                <span className="text-[11px] text-warning">Ficou fora</span>
                 <details className="text-xs text-muted-foreground md:col-span-3">
-                  <summary className="cursor-pointer">Motivo técnico</summary>
-                  <p className="mt-1">{c.block_reason} · {c.reason_short}</p>
+                  <summary className="cursor-pointer">Entender o motivo</summary>
+                  <p className="mt-1">{simpleBlockedReason(c.block_reason)}</p>
                 </details>
               </li>
             ))}
@@ -240,40 +263,40 @@ function CandidateRow({
           <td colSpan={3} className="px-6 py-4">
             <dl className="grid gap-4 text-xs sm:grid-cols-4">
               <div>
-                <dt className="text-muted-foreground">Chance estimada</dt>
+                <dt className="text-muted-foreground">Chance calculada</dt>
                 <dd className="num mt-1">{pct(candidate.p_cal)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Chance usada na comparação</dt>
+                <dt className="text-muted-foreground">Chance usada para decidir</dt>
                 <dd className="num mt-1">{pct(candidate.p_cons)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Odd justa</dt>
+                <dt className="text-muted-foreground">Odd que consideramos justa</dt>
                 <dd className="num mt-1">
                   {candidate.fair_odd_info ? Number(candidate.fair_odd_info).toFixed(2) : "—"}
                 </dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Confiança nos dados</dt>
+                <dt className="text-muted-foreground">Segurança da estimativa</dt>
                 <dd className="num mt-1">{pct(candidate.confidence_score)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Qualidade dos dados</dt>
+                <dt className="text-muted-foreground">Qualidade das informações</dt>
                 <dd className="num mt-1">{pct(candidate.data_quality_score)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Incerteza</dt>
+                <dt className="text-muted-foreground">Quanto a estimativa pode variar</dt>
                 <dd className="num mt-1">{pct(candidate.uncertainty)}</dd>
               </div>
               <div className="sm:col-span-2">
-                <dt className="text-muted-foreground">Por que apareceu</dt>
+                <dt className="text-muted-foreground">Por que esta opção apareceu</dt>
                 <dd className="mt-1 text-muted-foreground">{candidate.reason_short}</dd>
               </div>
               <details className="sm:col-span-4 text-muted-foreground">
-                <summary className="cursor-pointer">Detalhes técnicos</summary>
-                <p className="num mt-2">{candidate.model_status} · {candidate.data_status}</p>
-                <p className="num mt-1">ID: {candidate.prediction_id}</p>
-                <p className="mt-1">{candidate.settlement_definition}</p>
+                <summary className="cursor-pointer">Informações avançadas</summary>
+                <p className="mt-2">Análise: {simpleStatus(candidate.model_status)}</p>
+                <p className="mt-1">Dados: {simpleStatus(candidate.data_status)}</p>
+                <p className="num mt-1">Referência: {candidate.prediction_id}</p>
               </details>
             </dl>
           </td>
