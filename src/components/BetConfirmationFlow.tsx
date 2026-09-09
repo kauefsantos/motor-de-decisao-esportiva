@@ -35,7 +35,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
       setCustom("");
       setShowCustom(false);
       await refetch();
-      toast.success(stakeBrl > 0 ? "Aposta confirmada. Recalculamos o saldo para a próxima." : "Sugestão recusada.");
+      toast.success(stakeBrl > 0 ? "Aposta confirmada. O saldo foi atualizado para a próxima sugestão." : "Sugestão recusada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível confirmar.");
     } finally {
@@ -46,7 +46,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
   if (isLoading) {
     return (
       <section className="panel mt-8 flex items-center gap-3 p-6 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Calculando o valor sugerido…
+        <Loader2 className="size-4 animate-spin" /> Calculando quanto apostar…
       </section>
     );
   }
@@ -61,7 +61,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         <h2 className="mt-1 text-lg font-semibold">Tudo revisado nesta rodada</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           {data.openCount > 0
-            ? `${data.openCount} aposta(s) confirmada(s) estão na tela de Apostas abertas.`
+            ? `${data.openCount} aposta(s) confirmada(s) estão na tela de Apostas em andamento.`
             : "Nenhuma sugestão ficou pendente de confirmação."}
         </p>
       </section>
@@ -92,15 +92,15 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
       <div className="p-6">
         <div className="grid gap-4 sm:grid-cols-5">
           <div>
-            <p className="text-xs text-muted-foreground">Odd informada</p>
+            <p className="text-xs text-muted-foreground">Odd</p>
             <p className="num mt-1 text-lg">{Number(proposal.entry_odd).toFixed(2)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Retorno esperado</p>
+            <p className="text-xs text-muted-foreground">Retorno estimado</p>
             <p className="num mt-1 text-lg">{(Number(proposal.expected_value ?? 0) * 100).toFixed(1)}%</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Valor sugerido</p>
+            <p className="text-xs text-muted-foreground">Valor sugerido para apostar</p>
             <p className="num mt-1 text-lg font-semibold text-primary">{money(suggested)}</p>
           </div>
           <div>
@@ -108,23 +108,23 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
             <p className="num mt-1 text-lg">{money(minimumStake)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Máximo nesta aposta</p>
+            <p className="text-xs text-muted-foreground">Maior valor permitido</p>
             <p className="num mt-1 text-lg">{money(maxAllowed)}</p>
           </div>
         </div>
 
         <p className="mt-4 text-sm text-muted-foreground">
-          A sugestão usa o saldo que ainda está disponível. Se o cálculo indicar menos que o mínimo aceito pela bet365, o sistema adapta para {money(minimumStake)}. Ao confirmar, esse valor fica reservado e a próxima sugestão é recalculada com o novo saldo.
+          O valor sugerido leva em conta o saldo disponível e os limites definidos para a banca. Se o cálculo ficar abaixo do mínimo aceito pela bet365, o sistema usa {money(minimumStake)}. Ao confirmar, esse valor fica separado e a próxima sugestão usa o saldo restante.
         </p>
 
         <div className="mt-5 flex flex-wrap gap-3">
           {suggested > 0 && (
             <Button disabled={saving} onClick={() => void submit(suggested)}>
-              <Check className="mr-2 size-4" /> Aceitar {money(suggested)}
+              <Check className="mr-2 size-4" /> Apostar {money(suggested)}
             </Button>
           )}
           <Button variant="outline" disabled={saving} onClick={() => setShowCustom((value) => !value)}>
-            Informar outro valor
+            Escolher outro valor
           </Button>
           <Button variant="ghost" disabled={saving} onClick={() => void submit(0)}>
             <X className="mr-2 size-4" /> Não apostar
@@ -134,7 +134,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         {showCustom && (
           <div className="mt-4 flex max-w-sm items-end gap-3 rounded-lg border border-border p-4">
             <label className="flex-1 text-sm">
-              <span className="text-muted-foreground">Valor: 0 para recusar ou entre {money(minimumStake)} e {money(maxAllowed)}</span>
+              <span className="text-muted-foreground">Digite 0 para recusar ou um valor entre {money(minimumStake)} e {money(maxAllowed)}</span>
               <Input
                 className="num mt-2"
                 inputMode="decimal"
@@ -159,7 +159,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          Digitar 0 equivale a recusar. Qualquer aposta aceita respeita o mínimo real da casa e o limite proporcional calculado sobre o saldo disponível.
+          Qualquer valor aceito respeita o mínimo da casa e o limite calculado para a banca disponível.
         </p>
       </div>
     </section>
