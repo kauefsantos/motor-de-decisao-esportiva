@@ -122,13 +122,9 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           }
           return next;
         });
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          toast.error(
-            error instanceof Error
-              ? `Não foi possível preencher as odds automaticamente: ${error.message}`
-              : "Não foi possível preencher as odds automaticamente.",
-          );
+          toast.error("Não foi possível buscar as odds automaticamente. Você ainda pode preenchê-las manualmente.");
         }
       } finally {
         if (!cancelled) setAutoOddsLoading(false);
@@ -232,8 +228,8 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         params: { runId },
         search: { mode: "experimental" },
       });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível comparar as odds.");
+    } catch {
+      toast.error("Não foi possível comparar as odds agora. Tente novamente.");
       setSubmitting(false);
     }
   }
@@ -247,7 +243,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         <p className="label-eyebrow text-warning">Modo de teste</p>
         <h2 className="mt-1 text-lg font-semibold">Opções que passaram pela análise</h2>
         <p className="mt-1 text-sm font-semibold text-warning">
-          Ainda estamos comparando as estimativas com resultados reais
+          Ainda estamos comparando as chances calculadas com resultados reais
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
           Primeiro o sistema calcula as chances sem olhar as odds. Só depois busca os preços da Bet365 e preenche automaticamente quando encontra a mesma opção disponível.
@@ -277,14 +273,9 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         <div className="p-6 text-sm text-muted-foreground">
           <p>Nenhuma opção atingiu a chance mínima exigida nesta rodada.</p>
           {(data?.issues ?? []).length > 0 && (
-            <details className="mt-4">
-              <summary className="cursor-pointer text-xs text-muted-foreground">Ver mais informações</summary>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
-                {data!.issues.slice(0, 16).map((issue) => (
-                  <li key={issue}>{issue}</li>
-                ))}
-              </ul>
-            </details>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Algumas informações não puderam ser usadas. Veja a seção “Conferência das informações” abaixo para saber se algum jogo ficou incompleto.
+            </p>
           )}
         </div>
       ) : (
