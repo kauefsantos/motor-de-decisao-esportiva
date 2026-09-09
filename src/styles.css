@@ -5,9 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Bet Value Engine — design system.
- * Terminal quantitativo: grafite profundo, âmbar de sinal, teal de dados.
- * Todas as cores em oklch e expostas como tokens semânticos.
+ * Bet Value Engine — interface system.
+ * Navy/charcoal, electric indigo and cyan, with quiet translucent surfaces.
  */
 
 @theme inline {
@@ -47,33 +46,33 @@
 }
 
 :root {
-  --radius: 0.5rem;
-  --background: oklch(0.19 0.014 250);
-  --foreground: oklch(0.95 0.006 250);
-  --surface: oklch(0.235 0.016 250);
-  --surface-foreground: oklch(0.95 0.006 250);
-  --card: oklch(0.235 0.016 250);
-  --card-foreground: oklch(0.95 0.006 250);
-  --popover: oklch(0.235 0.016 250);
-  --popover-foreground: oklch(0.95 0.006 250);
-  --primary: oklch(0.78 0.15 78);
-  --primary-foreground: oklch(0.19 0.014 250);
-  --secondary: oklch(0.3 0.018 250);
-  --secondary-foreground: oklch(0.93 0.006 250);
-  --muted: oklch(0.28 0.016 250);
-  --muted-foreground: oklch(0.7 0.014 250);
-  --accent: oklch(0.72 0.11 195);
-  --accent-foreground: oklch(0.19 0.014 250);
-  --destructive: oklch(0.6 0.19 25);
-  --destructive-foreground: oklch(0.97 0.006 250);
-  --success: oklch(0.72 0.14 155);
-  --success-foreground: oklch(0.19 0.014 250);
-  --warning: oklch(0.78 0.13 70);
-  --warning-foreground: oklch(0.19 0.014 250);
-  --border: oklch(0.32 0.018 250);
-  --input: oklch(0.3 0.018 250);
-  --ring: oklch(0.78 0.15 78);
-  --grid: oklch(0.27 0.016 250);
+  --radius: 0.75rem;
+  --background: oklch(0.165 0.022 272);
+  --foreground: oklch(0.955 0.008 265);
+  --surface: oklch(0.215 0.026 271);
+  --surface-foreground: oklch(0.955 0.008 265);
+  --card: oklch(0.215 0.026 271);
+  --card-foreground: oklch(0.955 0.008 265);
+  --popover: oklch(0.225 0.028 271);
+  --popover-foreground: oklch(0.955 0.008 265);
+  --primary: oklch(0.69 0.19 282);
+  --primary-foreground: oklch(0.98 0.006 265);
+  --secondary: oklch(0.27 0.032 273);
+  --secondary-foreground: oklch(0.94 0.009 265);
+  --muted: oklch(0.25 0.026 272);
+  --muted-foreground: oklch(0.72 0.025 268);
+  --accent: oklch(0.77 0.125 205);
+  --accent-foreground: oklch(0.17 0.022 272);
+  --destructive: oklch(0.66 0.18 27);
+  --destructive-foreground: oklch(0.98 0.006 265);
+  --success: oklch(0.76 0.13 166);
+  --success-foreground: oklch(0.17 0.022 272);
+  --warning: oklch(0.8 0.12 82);
+  --warning-foreground: oklch(0.18 0.02 272);
+  --border: oklch(0.31 0.035 273);
+  --input: oklch(0.275 0.034 273);
+  --ring: oklch(0.73 0.17 282);
+  --grid: oklch(0.225 0.023 272);
 }
 
 .dark {
@@ -90,28 +89,47 @@
   }
 
   body {
+    min-width: 320px;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     background-image:
-      linear-gradient(var(--color-grid) 1px, transparent 1px),
-      linear-gradient(90deg, var(--color-grid) 1px, transparent 1px);
+      linear-gradient(color-mix(in oklab, var(--color-grid) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in oklab, var(--color-grid) 60%, transparent) 1px, transparent 1px);
     background-size: 64px 64px;
     background-position: -1px -1px;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  summary {
+    outline-color: transparent;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
 
   h1,
   h2,
   h3 {
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
 }
 
 @utility panel {
-  background-color: color-mix(in oklab, var(--color-surface) 88%, transparent);
-  border: 1px solid var(--color-border);
+  background-color: color-mix(in oklab, var(--color-surface) 86%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-border) 86%, transparent);
   border-radius: var(--radius-lg);
-  backdrop-filter: blur(6px);
+  box-shadow: 0 12px 34px color-mix(in oklab, black 22%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 @utility num {
@@ -122,7 +140,19 @@
 @utility label-eyebrow {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-muted-foreground);
+}
+
+@utility page-heading {
+  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  line-height: 1.08;
+  font-weight: 700;
+}
+
+@utility metric-tile {
+  background-color: color-mix(in oklab, var(--color-secondary) 52%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-border) 74%, transparent);
+  border-radius: var(--radius-md);
 }
