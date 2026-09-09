@@ -5,6 +5,7 @@ import { UploadCloud, FileSpreadsheet, AlertTriangle, ArrowRight } from "lucide-
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Button } from "@/components/ui/button";
 import { parseCsv, type CsvParseResult } from "@/lib/csv";
 import { createRun } from "@/lib/analysis.functions";
@@ -16,11 +17,6 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content: "Envie os jogos da rodada e veja quais opções de aposta merecem ser conferidas antes de olhar as odds.",
-      },
-      { property: "og:title", content: "Analisar jogos · Bet Value Engine V2.1.1" },
-      {
-        property: "og:description",
-        content: "O sistema organiza as informações, calcula as chances e só depois compara com as odds.",
       },
     ],
   }),
@@ -81,140 +77,115 @@ function UploadScreen() {
 
   return (
     <AppShell stage="upload">
-      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="contents">
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <section>
-            <p className="label-eyebrow">Etapa 1</p>
-            <h1 className="mt-2 text-4xl font-bold">Analisar os jogos do dia</h1>
-            <p className="mt-3 max-w-2xl text-muted-foreground">
-              Envie o CSV da rodada. Primeiro calculamos as chances usando as informações disponíveis. As odds entram só depois.
-            </p>
+      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="mx-auto max-w-4xl">
+        <p className="label-eyebrow">Etapa 1</p>
+        <h1 className="page-heading mt-2">Analisar os jogos do dia</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+          Envie o CSV da rodada. Calculamos as chances primeiro e comparamos as odds depois.
+        </p>
 
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragging(false);
-                const file = e.dataTransfer.files?.[0];
-                if (file) void handleFile(file);
-              }}
-              className={`panel mt-8 flex flex-col items-center justify-center gap-4 px-8 py-16 text-center transition-colors ${
-                dragging ? "border-primary bg-primary/5" : ""
-              }`}
-            >
-              <UploadCloud className="size-10 text-primary" aria-hidden />
-              <div>
-                <p className="font-medium">Arraste o CSV aqui</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  O arquivo precisa ter Data, Partida, Horário e Campeonato. Use uma única data em cada arquivo.
-                </p>
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) void handleFile(file);
+          }}
+          className={`panel mt-6 flex min-h-60 flex-col items-center justify-center gap-4 px-5 py-10 text-center transition-all sm:min-h-72 sm:px-8 ${
+            dragging ? "border-primary bg-primary/10 ring-1 ring-primary/30" : ""
+          }`}
+        >
+          <UploadCloud className="size-9 text-primary" aria-hidden />
+          <div>
+            <p className="font-medium">Arraste o CSV aqui</p>
+            <p className="mt-1 text-sm text-muted-foreground">Data, Partida, Horário e Campeonato · uma data por arquivo</p>
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            data-testid="csv-input"
+            disabled={!ready}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleFile(file);
+            }}
+          />
+          <Button className="min-h-11" variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
+            Escolher CSV
+          </Button>
+        </div>
+
+        <CollapsiblePanel
+          className="mt-4"
+          title="Como funciona"
+          description="Enviar jogos → calcular chances → comparar odds → ver sugestões"
+        >
+          <ol className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+            <li><span className="font-medium text-foreground">1. Envie os jogos.</span> A data do CSV define quais partidas serão procuradas.</li>
+            <li><span className="font-medium text-foreground">2. Calculamos as chances.</span> Só usamos informações anteriores ao jogo.</li>
+            <li><span className="font-medium text-foreground">3. Comparamos as odds.</span> Quando possível, buscamos a bet365 automaticamente.</li>
+            <li><span className="font-medium text-foreground">4. Sugerimos pouco.</span> Se o preço não compensar, não há sugestão.</li>
+          </ol>
+        </CollapsiblePanel>
+
+        {parsed && (
+          <section className="panel mt-4 overflow-hidden">
+            <div className="flex flex-col gap-4 p-4 sm:p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <FileSpreadsheet className="size-5 shrink-0 text-accent" aria-hidden />
+                <span className="truncate font-medium">{filename}</span>
               </div>
-              <input
-                ref={inputRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                data-testid="csv-input"
-                disabled={!ready}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleFile(file);
-                }}
-              />
-              <Button variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
-                Escolher CSV
+
+              <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Data</dt><dd className="num mt-1 text-lg">{dateLabel(parsed.targetDate)}</dd></div>
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Partidas</dt><dd className="num mt-1 text-lg">{parsed.rows.length}</dd></div>
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Campeonatos</dt><dd className="num mt-1 text-lg">{parsed.leagues.length}</dd></div>
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Ignoradas</dt><dd className="num mt-1 text-lg">{parsed.invalid.length}</dd></div>
+              </dl>
+
+              {(parsed.leagues.length > 0 || parsed.invalid.length > 0) && (
+                <CollapsiblePanel
+                  title="Ver detalhes do arquivo"
+                  description="Campeonatos encontrados e linhas que não puderam ser usadas"
+                >
+                  {parsed.leagues.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {parsed.leagues.map((league) => (
+                        <span key={league} className="rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground">{league}</span>
+                      ))}
+                    </div>
+                  )}
+                  {parsed.invalid.length > 0 && (
+                    <div className="mt-4 rounded-lg border border-warning/30 bg-warning/10 p-3">
+                      <p className="flex items-center gap-2 text-sm font-medium text-warning"><AlertTriangle className="size-4" /> Algumas linhas foram ignoradas</p>
+                      <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        {parsed.invalid.slice(0, 8).map((item, index) => <li key={`${item.line}-${index}`}>linha {item.line}: {item.reason}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </CollapsiblePanel>
+              )}
+
+              <Button
+                className="min-h-12 w-full"
+                size="lg"
+                data-testid="processar-jogos"
+                disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || submitting}
+                onClick={() => void processar()}
+              >
+                {submitting ? "Começando…" : "COMEÇAR ANÁLISE"}
+                <ArrowRight className="ml-2 size-4" aria-hidden />
               </Button>
             </div>
-
-            {parsed && (
-              <div className="panel mt-6 p-6">
-                <div className="flex items-center gap-3">
-                  <FileSpreadsheet className="size-5 text-accent" aria-hidden />
-                  <span className="font-medium">{filename}</span>
-                </div>
-                <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <div>
-                    <dt className="label-eyebrow">Data dos jogos</dt>
-                    <dd className="num mt-1 text-2xl">{dateLabel(parsed.targetDate)}</dd>
-                  </div>
-                  <div>
-                    <dt className="label-eyebrow">Partidas encontradas</dt>
-                    <dd className="num mt-1 text-2xl">{parsed.rows.length}</dd>
-                  </div>
-                  <div>
-                    <dt className="label-eyebrow">Campeonatos</dt>
-                    <dd className="num mt-1 text-2xl">{parsed.leagues.length}</dd>
-                  </div>
-                  <div>
-                    <dt className="label-eyebrow">Linhas ignoradas</dt>
-                    <dd className="num mt-1 text-2xl">{parsed.invalid.length}</dd>
-                  </div>
-                </dl>
-
-                {parsed.leagues.length > 0 && (
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    {parsed.leagues.map((l) => (
-                      <span
-                        key={l}
-                        className="rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground"
-                      >
-                        {l}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {parsed.invalid.length > 0 && (
-                  <div className="mt-5 rounded-md border border-warning/40 bg-warning/10 p-4">
-                    <p className="flex items-center gap-2 text-sm font-medium text-warning">
-                      <AlertTriangle className="size-4" aria-hidden /> Algumas linhas foram ignoradas
-                    </p>
-                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      {parsed.invalid.slice(0, 8).map((i, index) => (
-                        <li key={`${i.line}-${index}`}>
-                          linha {i.line}: {i.reason}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <Button
-                  className="mt-6 w-full"
-                  size="lg"
-                  data-testid="processar-jogos"
-                  disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || submitting}
-                  onClick={() => void processar()}
-                >
-                  {submitting ? "Começando…" : "COMEÇAR ANÁLISE"}
-                  <ArrowRight className="ml-2 size-4" aria-hidden />
-                </Button>
-              </div>
-            )}
           </section>
-
-          <aside className="panel h-fit p-6">
-            <p className="label-eyebrow">Como funciona</p>
-            <ol className="mt-4 space-y-4 text-sm text-muted-foreground">
-              <li>
-                <span className="font-medium text-foreground">1. Você envia os jogos.</span> A data do CSV define quais partidas serão procuradas.
-              </li>
-              <li>
-                <span className="font-medium text-foreground">2. Calculamos as chances.</span> O sistema usa somente informações anteriores ao jogo e separa as opções que atendem aos critérios mínimos.
-              </li>
-              <li>
-                <span className="font-medium text-foreground">3. As odds são comparadas.</span> Quando possível, o sistema busca a odd da bet365 automaticamente; você também pode preencher manualmente.
-              </li>
-              <li>
-                <span className="font-medium text-foreground">4. O sistema sugere pouco.</span> Pode indicar duas, três ou nenhuma aposta. Se a odd não compensar, não sugere.
-              </li>
-            </ol>
-          </aside>
-        </div>
+        )}
       </div>
     </AppShell>
   );
