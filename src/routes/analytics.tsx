@@ -19,7 +19,7 @@ export const Route = createFileRoute("/analytics")({
       { title: "Desempenho · Bet Value Engine" },
       {
         name: "description",
-        content: "Acompanhe banca, resultados, retorno, preço de fechamento e desempenho por mercado.",
+        content: "Acompanhe a banca, os resultados, as odds e o desempenho das sugestões.",
       },
     ],
   }),
@@ -61,7 +61,7 @@ const FAMILY_LABELS: Record<string, string> = {
 function friendlyResult(result: string) {
   if (result === "WIN") return "Ganhou";
   if (result === "LOSS") return "Perdeu";
-  if (result === "PUSH") return "Devolvida";
+  if (result === "PUSH") return "Valor devolvido";
   if (result === "VOID") return "Anulada";
   return "Aguardando";
 }
@@ -99,7 +99,7 @@ function AnalyticsScreen() {
       return;
     }
     if (closingOdd !== null && (!Number.isFinite(closingOdd) || closingOdd <= 1)) {
-      toast.error("Confira a odd de fechamento.");
+      toast.error("Confira a odd perto do início do jogo.");
       return;
     }
 
@@ -131,15 +131,14 @@ function AnalyticsScreen() {
   return (
     <AppShell stage="analytics">
       <p className="label-eyebrow">Acompanhamento</p>
-      <h1 className="mt-2 text-3xl font-bold">Como o modelo está se saindo?</h1>
+      <h1 className="mt-2 text-3xl font-bold">Como as sugestões estão se saindo?</h1>
       <p className="mt-2 max-w-3xl text-muted-foreground">
-        Este painel acompanha o modo de teste a partir de 08/09/2026. A ideia é medir com calma se as
-        probabilidades, os preços encontrados e os resultados melhoram de forma consistente ao longo do tempo.
+        Este painel acompanha o modo de teste a partir de 08/09/2026. Ele ajuda a ver, com o passar do tempo, se as chances calculadas e as sugestões estão se confirmando na prática.
       </p>
 
       {isLoading && (
         <div className="panel mt-8 flex items-center gap-3 p-8 text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando acompanhamento…
+          <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando o desempenho…
         </div>
       )}
 
@@ -147,17 +146,17 @@ function AnalyticsScreen() {
         <>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard label="Banca inicial" value={money(data.summary.initialBankroll)} hint={`Desde ${date(data.config.startDate)}`} />
-            <MetricCard label="Banca atual" value={money(data.summary.currentBankroll)} hint={`Saldo: ${money(data.summary.totalProfit)}`} />
-            <MetricCard label="Retorno sobre o valor usado" value={pct(data.summary.roi)} hint={`${data.summary.settled} resultado(s) fechado(s)`} />
-            <MetricCard label="Preço de fechamento" value={pct(data.summary.avgClv)} hint={`${data.summary.withClosingOdd} registro(s) com odd final`} />
-            <MetricCard label="Acertos" value={pct(data.summary.hitRate)} hint={`${data.summary.wins} ganhos · ${data.summary.losses} perdas`} />
-            <MetricCard label="Probabilidade média" value={pct(data.summary.avgPredicted)} hint="Das seleções já encerradas" />
-            <MetricCard label="Maior queda da banca" value={pct(data.summary.maxDrawdown)} hint="Do melhor saldo até o pior ponto seguinte" />
-            <MetricCard label="Aguardando resultado" value={String(data.summary.pending)} hint={`${data.summary.selections} seleção(ões) acompanhada(s)`} />
+            <MetricCard label="Banca atual" value={money(data.summary.currentBankroll)} hint={`Resultado acumulado: ${money(data.summary.totalProfit)}`} />
+            <MetricCard label="Retorno sobre o valor apostado" value={pct(data.summary.roi)} hint={`${data.summary.settled} resultado(s) encerrado(s)`} />
+            <MetricCard label="Diferença para a odd perto do jogo" value={pct(data.summary.avgClv)} hint={`${data.summary.withClosingOdd} registro(s) com comparação`} />
+            <MetricCard label="Taxa de acerto" value={pct(data.summary.hitRate)} hint={`${data.summary.wins} ganhos · ${data.summary.losses} perdas`} />
+            <MetricCard label="Chance média calculada" value={pct(data.summary.avgPredicted)} hint="Das sugestões já encerradas" />
+            <MetricCard label="Maior queda da banca" value={pct(data.summary.maxDrawdown)} hint="Do maior saldo até o pior ponto seguinte" />
+            <MetricCard label="Aguardando resultado" value={String(data.summary.pending)} hint={`${data.summary.selections} sugestão(ões) acompanhada(s)`} />
           </div>
 
           <div className="panel mt-6 p-6">
-            <p className="label-eyebrow">Leitura do momento</p>
+            <p className="label-eyebrow">Resumo do momento</p>
             <p className="mt-2 text-sm text-muted-foreground">{data.summary.sampleMessage}</p>
           </div>
 
@@ -166,45 +165,45 @@ function AnalyticsScreen() {
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="label-eyebrow">Evolução da banca</p>
-                  <h2 className="mt-1 text-lg font-semibold">Saldo ao longo do piloto</h2>
+                  <h2 className="mt-1 text-lg font-semibold">Saldo ao longo do teste</h2>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  Limite de exposição configurado: {pct(data.config.maxStakePct, 0)} por seleção
+                  Máximo permitido por sugestão: {pct(data.config.maxStakePct, 0)} da banca disponível
                 </span>
               </div>
               <BankrollChart points={data.bankrollSeries} />
             </section>
 
             <aside className="panel p-6">
-              <p className="label-eyebrow">Protocolo</p>
-              <h2 className="mt-1 text-lg font-semibold">O que registrar em cada seleção</h2>
+              <p className="label-eyebrow">Como preencher</p>
+              <h2 className="mt-1 text-lg font-semibold">O que registrar em cada sugestão</h2>
               <ol className="mt-4 space-y-3 text-sm text-muted-foreground">
-                <li><span className="font-medium text-foreground">1. Entrada.</span> A odd escolhida já é salva automaticamente quando o sistema seleciona o mercado.</li>
-                <li><span className="font-medium text-foreground">2. Fechamento.</span> Perto do início do jogo, registre a última odd disponível para comparar preço.</li>
-                <li><span className="font-medium text-foreground">3. Resultado.</span> Depois do jogo, informe o valor realmente usado e marque o desfecho.</li>
-                <li><span className="font-medium text-foreground">4. Revisão.</span> Acompanhe retorno, calibração e mercados separadamente. Não tire conclusões com poucos casos.</li>
+                <li><span className="font-medium text-foreground">1. Odd escolhida.</span> Ela já é salva quando o sistema faz a sugestão.</li>
+                <li><span className="font-medium text-foreground">2. Odd perto do jogo.</span> Pouco antes do início, registre a última odd disponível para comparar se o preço mudou.</li>
+                <li><span className="font-medium text-foreground">3. Resultado.</span> Depois do jogo, informe o valor realmente apostado e marque o que aconteceu.</li>
+                <li><span className="font-medium text-foreground">4. Acompanhamento.</span> Observe os resultados ao longo do tempo. Poucos casos ainda não dizem se a estratégia está funcionando bem.</li>
               </ol>
             </aside>
           </div>
 
           <section className="panel mt-6 overflow-hidden">
             <div className="border-b border-border px-6 py-4">
-              <p className="label-eyebrow">Por tipo de mercado</p>
-              <h2 className="mt-1 text-lg font-semibold">Onde o desempenho está vindo</h2>
+              <p className="label-eyebrow">Por tipo de aposta</p>
+              <h2 className="mt-1 text-lg font-semibold">Quais tipos estão indo melhor</h2>
             </div>
             {data.byFamily.length === 0 ? (
-              <p className="p-6 text-sm text-muted-foreground">Ainda não há seleções registradas desde o início do acompanhamento.</p>
+              <p className="p-6 text-sm text-muted-foreground">Ainda não há sugestões registradas desde o início do acompanhamento.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border text-left">
-                      <th className="px-6 py-3">Mercado</th>
-                      <th className="px-6 py-3">Seleções</th>
+                      <th className="px-6 py-3">Tipo</th>
+                      <th className="px-6 py-3">Sugestões</th>
                       <th className="px-6 py-3">Encerradas</th>
                       <th className="px-6 py-3">Acertos</th>
                       <th className="px-6 py-3">Retorno</th>
-                      <th className="px-6 py-3">Preço de fechamento</th>
+                      <th className="px-6 py-3">Diferença da odd</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -226,16 +225,16 @@ function AnalyticsScreen() {
 
           <section className="panel mt-6 overflow-hidden">
             <div className="border-b border-border px-6 py-4">
-              <p className="label-eyebrow">Probabilidade x resultado</p>
-              <h2 className="mt-1 text-lg font-semibold">As chances estimadas estão batendo com a realidade?</h2>
+              <p className="label-eyebrow">Chances calculadas x resultados</p>
+              <h2 className="mt-1 text-lg font-semibold">As chances calculadas estão próximas do que acontece de verdade?</h2>
             </div>
             <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-4">
               {data.calibration.map((bucket) => (
                 <div key={bucket.bucket} className="rounded-lg border border-border p-4">
                   <p className="font-medium">{bucket.bucket}</p>
-                  <p className="mt-3 text-xs text-muted-foreground">Casos: {bucket.count}</p>
-                  <p className="mt-1 text-sm">Previsto: <span className="num">{pct(bucket.predicted)}</span></p>
-                  <p className="mt-1 text-sm">Aconteceu: <span className="num">{pct(bucket.observed)}</span></p>
+                  <p className="mt-3 text-xs text-muted-foreground">Quantidade: {bucket.count}</p>
+                  <p className="mt-1 text-sm">Chance calculada: <span className="num">{pct(bucket.predicted)}</span></p>
+                  <p className="mt-1 text-sm">Aconteceu em: <span className="num">{pct(bucket.observed)}</span></p>
                 </div>
               ))}
             </div>
@@ -244,24 +243,24 @@ function AnalyticsScreen() {
           <section className="panel mt-6 overflow-hidden">
             <div className="border-b border-border px-6 py-4">
               <p className="label-eyebrow">Histórico</p>
-              <h2 className="mt-1 text-lg font-semibold">Fechar e revisar seleções</h2>
+              <h2 className="mt-1 text-lg font-semibold">Atualizar e revisar sugestões</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                A odd de fechamento e o valor usado são preenchidos por você. O lucro ou prejuízo é calculado a partir do resultado marcado.
+                Você informa a odd perto do início do jogo e o valor realmente apostado. O resultado financeiro é calculado depois que você marca o desfecho.
               </p>
             </div>
             {recent.length === 0 ? (
-              <p className="p-6 text-sm text-muted-foreground">Nenhuma seleção registrada desde 08/09/2026.</p>
+              <p className="p-6 text-sm text-muted-foreground">Nenhuma sugestão registrada desde 08/09/2026.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-[1150px] w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border text-left">
                       <th className="px-4 py-3">Data</th>
-                      <th className="px-4 py-3">Jogo / mercado</th>
+                      <th className="px-4 py-3">Jogo / opção</th>
                       <th className="px-4 py-3">Chance</th>
-                      <th className="px-4 py-3">Odd entrada</th>
-                      <th className="px-4 py-3">Odd final</th>
-                      <th className="px-4 py-3">Valor usado</th>
+                      <th className="px-4 py-3">Odd usada</th>
+                      <th className="px-4 py-3">Odd perto do jogo</th>
+                      <th className="px-4 py-3">Valor apostado</th>
                       <th className="px-4 py-3">Resultado</th>
                       <th className="px-4 py-3"></th>
                     </tr>
@@ -275,7 +274,7 @@ function AnalyticsScreen() {
                           <td className="px-4 py-4">
                             <div className="font-medium">{row.match_label}</div>
                             <div className="mt-1 text-xs text-muted-foreground">{row.market_label}</div>
-                            <div className="mt-1 text-[11px] text-muted-foreground">{friendlyResult(row.result)} · {row.profit_brl === null ? "saldo pendente" : money(Number(row.profit_brl))}</div>
+                            <div className="mt-1 text-[11px] text-muted-foreground">{friendlyResult(row.result)} · {row.profit_brl === null ? "resultado financeiro pendente" : money(Number(row.profit_brl))}</div>
                           </td>
                           <td className="num px-4 py-4">{pct(Number(row.model_probability))}</td>
                           <td className="num px-4 py-4">{odd(row.entry_odd)}</td>
@@ -306,7 +305,7 @@ function AnalyticsScreen() {
                               <option value="PENDING">Aguardando</option>
                               <option value="WIN">Ganhou</option>
                               <option value="LOSS">Perdeu</option>
-                              <option value="PUSH">Devolvida</option>
+                              <option value="PUSH">Valor devolvido</option>
                               <option value="VOID">Anulada</option>
                             </select>
                           </td>
@@ -355,7 +354,7 @@ function BankrollChart({ points }: { points: Array<{ date: string; bankroll: num
   });
   return (
     <div className="mt-6">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-48 w-full overflow-visible text-primary" role="img" aria-label="Evolução da banca experimental">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-48 w-full overflow-visible text-primary" role="img" aria-label="Evolução da banca no modo de teste">
         <polyline points={coords.join(" ")} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
       </svg>
       <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
