@@ -245,40 +245,40 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     <section className="panel mt-8 overflow-hidden border-warning/50">
       <div className="border-b border-warning/30 bg-warning/10 px-6 py-4">
         <p className="label-eyebrow text-warning">Modo de teste</p>
-        <h2 className="mt-1 text-lg font-semibold">Mercados que passaram pelo filtro</h2>
+        <h2 className="mt-1 text-lg font-semibold">Opções que passaram pela análise</h2>
         <p className="mt-1 text-sm font-semibold text-warning">
-          Ainda estamos validando o modelo com resultados reais
+          Ainda estamos comparando as estimativas com resultados reais
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
-          As chances são calculadas primeiro, sem preço. Depois o sistema busca automaticamente as odds pré-jogo da Bet365 pela 5Dollar e preenche somente contratos compatíveis.
+          Primeiro o sistema calcula as chances sem olhar as odds. Só depois busca os preços da Bet365 e preenche automaticamente quando encontra a mesma opção disponível.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Mercados sem preço disponível ou com linha diferente continuam editáveis manualmente. Nesta rodada o sistema pode escolher até {selectionLimit} mercado(s).
+          Quando o preço não está disponível ou a linha oferecida é diferente, você ainda pode preencher a odd manualmente. Nesta rodada podem ser escolhidas até {selectionLimit} opção(ões).
         </p>
         {autoOddsLoading ? (
           <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Buscando preços atuais da Bet365…
+            <Loader2 className="size-3.5 animate-spin" /> Buscando odds da Bet365…
           </div>
         ) : autoSummary ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Bet365 automática: {autoSummary.matched} preço(s) compatível(is)
-            {autoSummary.lineMismatch > 0 ? ` · ${autoSummary.lineMismatch} linha(s) diferente(s)` : ""}
-            {autoSummary.unsupported > 0 ? ` · ${autoSummary.unsupported} mercado(s) sem cobertura direta` : ""}
-            {autoSummary.noPrice > 0 ? ` · ${autoSummary.noPrice} sem preço` : ""}.
+            Odds encontradas automaticamente: {autoSummary.matched}
+            {autoSummary.lineMismatch > 0 ? ` · ${autoSummary.lineMismatch} com linha diferente` : ""}
+            {autoSummary.unsupported > 0 ? ` · ${autoSummary.unsupported} precisam de preenchimento manual` : ""}
+            {autoSummary.noPrice > 0 ? ` · ${autoSummary.noPrice} sem preço disponível` : ""}.
           </p>
         ) : null}
       </div>
 
       {isLoading ? (
         <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Preparando os mercados…
+          <Loader2 className="size-4 animate-spin" /> Preparando as opções…
         </div>
       ) : eligible.length === 0 ? (
         <div className="p-6 text-sm text-muted-foreground">
-          <p>Nenhum mercado passou pelo filtro mínimo de chance nesta rodada.</p>
+          <p>Nenhuma opção atingiu a chance mínima exigida nesta rodada.</p>
           {(data?.issues ?? []).length > 0 && (
             <details className="mt-4">
-              <summary className="cursor-pointer text-xs text-muted-foreground">Ver diagnóstico técnico</summary>
+              <summary className="cursor-pointer text-xs text-muted-foreground">Ver mais informações</summary>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
                 {data!.issues.slice(0, 16).map((issue) => (
                   <li key={issue}>{issue}</li>
@@ -301,11 +301,11 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-border bg-secondary/20 text-left">
-                        <th className="px-4 py-3 text-xs text-muted-foreground">Mercado</th>
-                        <th className="px-4 py-3 text-xs text-muted-foreground">Categoria</th>
-                        <th className="px-4 py-3 text-xs text-muted-foreground">Chance estimada</th>
-                        <th className="px-4 py-3 text-xs text-muted-foreground">Odd justa</th>
-                        <th className="px-4 py-3 text-xs text-muted-foreground">Base usada</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Opção</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Tipo</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Chance calculada</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Odd considerada justa</th>
+                        <th className="px-4 py-3 text-xs text-muted-foreground">Jogos usados</th>
                         <th className="w-44 px-4 py-3 text-xs text-muted-foreground">Odd bet365</th>
                       </tr>
                     </thead>
@@ -328,7 +328,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                               {dec(candidate.fairOddExperimental)}
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground">
-                              {candidate.sampleSize} jogos do time · {candidate.trainingMatches} da liga
+                              {candidate.sampleSize} do time · {candidate.trainingMatches} da liga
                             </td>
                             <td className="px-4 py-3">
                               <Input
@@ -344,13 +344,13 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
                                 aria-label={`Odd bet365 para ${group.matchLabel} — ${candidate.marketLabel}`}
                               />
                               {quote?.status === "MATCHED" ? (
-                                <p className="mt-1 text-[10px] text-muted-foreground">Automática · preço pré-jogo atual</p>
+                                <p className="mt-1 text-[10px] text-muted-foreground">Preenchida automaticamente</p>
                               ) : quote?.status === "LINE_MISMATCH" ? (
                                 <p className="mt-1 max-w-40 text-[10px] text-muted-foreground">
-                                  Bet365 está na linha {quote.offeredLine ?? "—"}; este contrato permanece manual.
+                                  A Bet365 oferece a linha {quote.offeredLine ?? "—"}; confira e preencha manualmente se quiser.
                                 </p>
                               ) : quote?.status === "UNSUPPORTED" ? (
-                                <p className="mt-1 text-[10px] text-muted-foreground">Entrada manual</p>
+                                <p className="mt-1 text-[10px] text-muted-foreground">Preenchimento manual</p>
                               ) : null}
                             </td>
                           </tr>
