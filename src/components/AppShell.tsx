@@ -6,8 +6,8 @@ import { BetConfirmationFlow } from "@/components/BetConfirmationFlow";
 const STAGES = [
   { key: "upload", label: "1 · Enviar jogos" },
   { key: "processamento", label: "2 · Preparar análise" },
-  { key: "oportunidades", label: "3 · Conferir mercados" },
-  { key: "resultado", label: "4 · Ver seleções" },
+  { key: "oportunidades", label: "3 · Ver opções" },
+  { key: "resultado", label: "4 · Ver sugestões" },
 ] as const;
 
 type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics";
@@ -70,7 +70,7 @@ export function AppShell({
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
             >
-              Apostas abertas
+              Apostas em andamento
             </Link>
             <Link
               to="/analytics"

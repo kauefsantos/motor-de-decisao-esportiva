@@ -49,7 +49,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           Esta página não carregou
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Algo falhou no processamento. Tente novamente ou volte ao início.
+          Algo não carregou como esperado. Tente novamente ou volte ao início.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button

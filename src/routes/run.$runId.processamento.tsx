@@ -15,12 +15,12 @@ export const Route = createFileRoute("/run/$runId/processamento")({
       { title: "Preparando análise · Bet Value Engine" },
       {
         name: "description",
-        content: "Acompanhe a busca e preparação dos dados antes de conferir as oportunidades.",
+        content: "Acompanhe a preparação dos jogos e das informações antes de conferir as opções.",
       },
       { property: "og:title", content: "Preparando análise · Bet Value Engine" },
       {
         property: "og:description",
-        content: "O sistema busca os jogos, organiza os dados e calcula as chances antes de mostrar os mercados.",
+        content: "O sistema encontra os jogos, organiza as informações e calcula as chances antes de mostrar as opções.",
       },
     ],
   }),
@@ -32,6 +32,23 @@ type StepState = {
   message: string | null;
   level: string | null;
 };
+
+const DONE_MESSAGE: Record<PipelineStepKey, string> = {
+  RESOLVE: "Jogos identificados.",
+  COLLECT: "Informações recebidas.",
+  CLEAN: "Informações organizadas.",
+  FEATURES: "Resumo dos dados preparado.",
+  PROBABILITY: "Chances calculadas.",
+  GATES: "Opções filtradas.",
+  MARKETS: "Lista pronta para conferir.",
+};
+
+function friendlyStepMessage(step: PipelineStepKey, level: string | null | undefined) {
+  if (level === "WARN") {
+    return `${DONE_MESSAGE[step]} Algumas informações ficaram incompletas; você pode conferir isso abaixo.`;
+  }
+  return DONE_MESSAGE[step];
+}
 
 function ProcessingScreen() {
   const { runId } = Route.useParams();
@@ -62,17 +79,17 @@ function ProcessingScreen() {
             ...prev,
             [step.key]: {
               status: "DONE",
-              message: res.log?.message ?? null,
+              message: friendlyStepMessage(step.key, res.log?.level),
               level: res.log?.level ?? null,
             },
           }));
           setAuditKey((k) => k + 1);
-        } catch (error) {
+        } catch {
           setStates((prev) => ({
             ...prev,
             [step.key]: {
               status: "ERROR",
-              message: error instanceof Error ? error.message : "Não foi possível concluir esta etapa.",
+              message: "Não foi possível concluir esta parte da análise. Tente novamente.",
               level: "ERROR",
             },
           }));
@@ -89,7 +106,7 @@ function ProcessingScreen() {
       <p className="label-eyebrow">Etapa 2</p>
       <h1 className="mt-2 text-3xl font-bold">Preparando sua análise</h1>
       <p className="mt-2 text-muted-foreground">
-        Estamos conferindo os jogos, buscando os dados e calculando as chances. Se alguma fonte não responder, isso aparece aqui sem preencher nada no chute.
+        Estamos encontrando os jogos, reunindo as informações e calculando as chances. Se algo estiver faltando, isso será indicado de forma clara abaixo.
       </p>
 
       <ol className="panel mt-8 divide-y divide-border">

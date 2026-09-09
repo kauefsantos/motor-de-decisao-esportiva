@@ -16,15 +16,15 @@ export const Route = createFileRoute("/run/$runId/resultado")({
   }),
   head: () => ({
     meta: [
-      { title: "Seleções finais · Bet Value Engine" },
+      { title: "Sugestões finais · Bet Value Engine" },
       {
         name: "description",
-        content: "Veja quais mercados continuaram interessantes depois de comparar a nossa estimativa com as odds informadas.",
+        content: "Veja quais opções continuaram interessantes depois de comparar as chances calculadas com as odds informadas.",
       },
-      { property: "og:title", content: "Seleções finais · Bet Value Engine" },
+      { property: "og:title", content: "Sugestões finais · Bet Value Engine" },
       {
         property: "og:description",
-        content: "O sistema pode escolher poucos mercados ou nenhum quando o preço não compensa.",
+        content: "O sistema pode sugerir poucas opções ou nenhuma quando a odd não compensa.",
       },
     ],
   }),
@@ -36,18 +36,35 @@ const pct = (v: unknown, digits = 2) =>
 const dec = (v: unknown) => (v === null || v === undefined ? "—" : Number(v).toFixed(2));
 
 function friendlyReason(reason: string | null | undefined) {
-  if (!reason) return "Ficou fora da seleção final";
+  if (!reason) return "Ficou fora das sugestões finais";
   const labels: Record<string, string> = {
-    SEM_VALOR: "A odd não oferecia margem suficiente",
-    PRICE_MOVED_NO_BET: "O preço mudou e deixou de compensar",
+    SEM_VALOR: "A odd não oferecia vantagem suficiente",
+    PRICE_MOVED_NO_BET: "A odd mudou e deixou de compensar",
     REFORECAST_REQUIRED: "A linha mudou e precisa ser recalculada",
-    MODEL_NOT_PRODUCTION_VALIDATED: "O modelo ainda está em validação",
-    DATA_DEFINITION_MISMATCH: "Os dados disponíveis não combinam com esse mercado",
+    MODEL_NOT_PRODUCTION_VALIDATED: "Esta análise ainda está em fase de teste",
+    DATA_DEFINITION_MISMATCH: "Os dados disponíveis não combinam com esta opção",
     INSUFFICIENT_DATA: "Faltaram dados suficientes",
-    INVALID_ODD: "Odd inválida",
-    BOOKMAKER_MISMATCH: "Preço informado de outra casa",
+    INVALID_ODD: "A odd informada não é válida",
+    BOOKMAKER_MISMATCH: "A odd informada não corresponde à casa esperada",
   };
-  return labels[reason] ?? reason;
+  return labels[reason] ?? "Esta opção não atingiu todos os critérios necessários";
+}
+
+function friendlyStatus(status: string | null | undefined) {
+  if (!status) return "—";
+  const labels: Record<string, string> = {
+    OK: "Tudo certo",
+    READY: "Pronto",
+    VALID: "Dados suficientes",
+    TEM_VALOR: "Preço interessante",
+    SEM_VALOR: "Preço não compensa",
+    EXECUTAVEL: "Disponível para uso",
+    NAO_EXECUTAVEL: "Não disponível para uso",
+    MODEL_NOT_PRODUCTION_VALIDATED: "Ainda em fase de teste",
+    DATA_DEFINITION_MISMATCH: "Dados incompatíveis",
+    INSUFFICIENT_DATA: "Dados insuficientes",
+  };
+  return labels[status] ?? "Em verificação";
 }
 
 type ExperimentalStoredEvaluation = {
@@ -161,9 +178,9 @@ function ResultScreen() {
   return (
     <AppShell stage="resultado">
       <p className="label-eyebrow">Etapa 4</p>
-      <h1 className="mt-2 text-3xl font-bold">Seleções finais</h1>
+      <h1 className="mt-2 text-3xl font-bold">Sugestões finais</h1>
       <p className="mt-2 text-muted-foreground">
-        Aqui ficam apenas os mercados que continuaram interessantes depois de comparar chance e preço. Se nada compensar, a lista fica vazia.
+        Aqui ficam somente as opções em que a chance calculada e a odd informada continuam fazendo sentido juntas. Se nenhuma compensar, a lista fica vazia.
       </p>
 
       {isLoading && (
@@ -174,8 +191,8 @@ function ResultScreen() {
 
       {!isLoading && selected.length === 0 && (
         <div className="panel mt-8 p-8">
-          <p className="text-lg font-medium">Nenhuma odd ofereceu margem suficiente nesta rodada.</p>
-          <p className="mt-2 text-sm text-muted-foreground">Isso é um resultado válido: o sistema não força uma escolha.</p>
+          <p className="text-lg font-medium">Nenhuma odd compensou nesta rodada.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Isso também é um resultado válido: o sistema não força uma sugestão.</p>
         </div>
       )}
 
@@ -186,7 +203,7 @@ function ResultScreen() {
             <article key={selection.id} className="panel p-6">
               <div className="flex flex-wrap items-baseline justify-between gap-3">
                 <div>
-                  <p className="label-eyebrow">Seleção {selection.rank}</p>
+                  <p className="label-eyebrow">Sugestão {selection.rank}</p>
                   <h2 className="mt-1 text-xl font-semibold">{info.partida}</h2>
                   <p className="text-muted-foreground">{info.mercado}</p>
                 </div>
@@ -194,19 +211,20 @@ function ResultScreen() {
 
               <dl className="mt-6 grid gap-5 sm:grid-cols-3 lg:grid-cols-6">
                 <Metric label="Odd informada" value={dec(evaluation.odd)} />
-                <Metric label="Chance usada" value={pct(evaluation.w_eff ?? null, 1)} />
-                <Metric label="Odd justa" value={dec(evaluation.fair_odd)} />
-                <Metric label="Odd mínima" value={dec(evaluation.min_odd_target)} />
-                <Metric label="Margem" value={pct(evaluation.edge_cons)} />
-                <Metric label="Retorno esperado" value={pct(evaluation.ev_cons)} />
+                <Metric label="Chance considerada" value={pct(evaluation.w_eff ?? null, 1)} />
+                <Metric label="Odd de referência" value={dec(evaluation.fair_odd)} />
+                <Metric label="Odd mínima para compensar" value={dec(evaluation.min_odd_target)} />
+                <Metric label="Vantagem sobre o preço" value={pct(evaluation.edge_cons)} />
+                <Metric label="Retorno estimado" value={pct(evaluation.ev_cons)} />
               </dl>
 
               <p className="mt-4 text-sm text-muted-foreground">{selection.explanation}</p>
               <details className="mt-4 text-xs text-muted-foreground">
-                <summary className="cursor-pointer">Detalhes técnicos</summary>
-                <p className="num mt-2">ID: {info.predictionId}</p>
-                <p className="mt-1">{evaluation.probability_status} · {evaluation.value_status} · {evaluation.execution_status}</p>
-                <p className="mt-1">{info.c?.settlement_definition}</p>
+                <summary className="cursor-pointer">Mais informações</summary>
+                <p className="mt-2">Chance: {friendlyStatus(evaluation.probability_status)}</p>
+                <p className="mt-1">Preço: {friendlyStatus(evaluation.value_status)}</p>
+                <p className="mt-1">Disponibilidade: {friendlyStatus(evaluation.execution_status)}</p>
+                <p className="num mt-1">Referência: {info.predictionId}</p>
               </details>
             </article>
           );
@@ -219,7 +237,7 @@ function ResultScreen() {
           onClick={() => setShowRejected((s) => !s)}
           className="flex w-full items-center justify-between px-6 py-4 text-left"
         >
-          <span className="text-sm font-medium">Outras odds avaliadas ({rejected.length})</span>
+          <span className="text-sm font-medium">Outras odds conferidas ({rejected.length})</span>
           <ChevronDown
             className={`size-4 transition-transform ${showRejected ? "rotate-180" : ""}`}
             aria-hidden
@@ -285,9 +303,9 @@ function ExperimentalResultScreen({
       });
       setPromotedIds((current) => new Set(current).add(evaluation.predictionId));
       await queryClient.invalidateQueries({ queryKey: ["experimental-bet-plan", runId] });
-      toast.success("Oportunidade adicionada à fila de confirmação.");
+      toast.success("Opção adicionada à confirmação.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível selecionar esta oportunidade.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível escolher esta opção.");
     } finally {
       setPromotingId(null);
     }
@@ -307,7 +325,7 @@ function ExperimentalResultScreen({
     return (
       <AppShell stage="resultado">
         <p className="label-eyebrow">Etapa 4</p>
-        <h1 className="mt-2 text-3xl font-bold">Seleções do modo de teste</h1>
+        <h1 className="mt-2 text-3xl font-bold">Sugestões do modo de teste</h1>
         <div className="panel mt-8 p-8">
           <p className="text-lg font-medium">Não encontrei o resultado desta análise.</p>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -317,7 +335,7 @@ function ExperimentalResultScreen({
         <div className="mt-8 flex gap-3">
           <Button asChild variant="outline">
             <Link to="/run/$runId/oportunidades" params={{ runId }}>
-              Voltar aos mercados
+              Voltar às opções
             </Link>
           </Button>
           <Button asChild variant="outline">
@@ -348,17 +366,17 @@ function ExperimentalResultScreen({
   return (
     <AppShell stage="resultado">
       <p className="label-eyebrow text-warning">Etapa 4 · Modo de teste</p>
-      <h1 className="mt-2 text-3xl font-bold">Seleções do dia</h1>
+      <h1 className="mt-2 text-3xl font-bold">Sugestões do dia</h1>
       <p className="mt-2 text-muted-foreground">
-        O limite desta rodada é de {data.selectionLimit} seleção(ões). O sistema pode escolher menos — ou nenhuma — quando o preço não compensa.
+        Nesta rodada podem entrar até {data.selectionLimit} sugestão(ões). O sistema pode indicar menos — ou nenhuma — quando a odd não compensa.
       </p>
       <div className="mt-4 rounded-lg border border-warning/50 bg-warning/10 px-4 py-3 text-sm font-medium text-warning">
-        Ainda estamos validando o modelo com resultados reais. Estas seleções entram no painel de desempenho a partir de 08/09/2026.
+        Ainda estamos comparando as estimativas com resultados reais. Estas sugestões entram no painel de desempenho a partir de 08/09/2026.
       </div>
 
       {selected.length === 0 && (
         <div className="panel mt-8 p-8">
-          <p className="text-lg font-medium">Nenhuma odd ofereceu margem suficiente nesta rodada.</p>
+          <p className="text-lg font-medium">Nenhuma odd compensou nesta rodada.</p>
           <p className="mt-2 text-sm text-muted-foreground">Não escolher também faz parte do teste.</p>
         </div>
       )}
@@ -367,29 +385,30 @@ function ExperimentalResultScreen({
         {selected.map((evaluation, index) => (
           <article key={evaluation.predictionId} className="panel border-warning/30 p-6">
             <div>
-              <p className="label-eyebrow text-warning">Seleção {index + 1}</p>
+              <p className="label-eyebrow text-warning">Sugestão {index + 1}</p>
               <h2 className="mt-1 text-xl font-semibold">{evaluation.matchLabel}</h2>
               <p className="text-muted-foreground">{evaluation.marketLabel}</p>
             </div>
 
             <dl className="mt-6 grid gap-5 sm:grid-cols-3 lg:grid-cols-6">
               <Metric label="Odd informada" value={dec(evaluation.odd)} />
-              <Metric label="Chance estimada" value={pct(evaluation.probabilityExperimental, 1)} />
-              <Metric label="Odd justa" value={dec(evaluation.fairOdd)} />
-              <Metric label="Odd mínima" value={dec(evaluation.minOddTarget)} />
-              <Metric label="Margem" value={pct(evaluation.edgeCons)} />
-              <Metric label="Retorno esperado" value={pct(evaluation.evCons)} />
+              <Metric label="Chance calculada" value={pct(evaluation.probabilityExperimental, 1)} />
+              <Metric label="Odd de referência" value={dec(evaluation.fairOdd)} />
+              <Metric label="Odd mínima para compensar" value={dec(evaluation.minOddTarget)} />
+              <Metric label="Vantagem sobre o preço" value={pct(evaluation.edgeCons)} />
+              <Metric label="Retorno estimado" value={pct(evaluation.evCons)} />
             </dl>
 
             <div className="mt-5 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-              <span className="rounded-md bg-secondary px-2.5 py-1">Base do time: {evaluation.sampleSize} jogo(s)</span>
-              <span className="rounded-md bg-secondary px-2.5 py-1">Base da liga: {evaluation.trainingMatches} jogo(s)</span>
+              <span className="rounded-md bg-secondary px-2.5 py-1">Jogos do time usados: {evaluation.sampleSize}</span>
+              <span className="rounded-md bg-secondary px-2.5 py-1">Jogos da liga usados: {evaluation.trainingMatches}</span>
             </div>
 
             <details className="mt-4 text-xs text-muted-foreground">
-              <summary className="cursor-pointer">Detalhes técnicos</summary>
-              <p className="num mt-2">ID: {evaluation.predictionId}</p>
-              <p className="mt-1">{data.modelStatus} · {data.productionStatus}</p>
+              <summary className="cursor-pointer">Mais informações</summary>
+              <p className="mt-2">Situação da análise: {friendlyStatus(data.modelStatus)}</p>
+              <p className="mt-1">Situação do teste: {friendlyStatus(data.productionStatus)}</p>
+              <p className="num mt-1">Referência: {evaluation.predictionId}</p>
             </details>
           </article>
         ))}
@@ -397,18 +416,18 @@ function ExperimentalResultScreen({
 
       <section className="panel mt-8 overflow-hidden">
         <div className="border-b border-border px-6 py-4">
-          <p className="text-sm font-semibold">Outras odds avaliadas ({rejected.length})</p>
+          <p className="text-sm font-semibold">Outras odds conferidas ({rejected.length})</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            As qualificadas passaram pelos mesmos critérios de probabilidade, valor e execução, mas ficaram fora do corte final por limite/ranking.
+            Algumas opções também eram boas, mas ficaram fora porque existe um limite de sugestões por rodada e uma ordem de preferência.
           </p>
         </div>
 
         {qualifiedAlternates.length > 0 && (
           <div>
             <div className="bg-primary/5 px-6 py-3">
-              <p className="text-sm font-medium">Qualificadas fora da seleção final ({qualifiedAlternates.length})</p>
+              <p className="text-sm font-medium">Boas opções que ficaram fora ({qualifiedAlternates.length})</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Se você recusou uma sugestão, pode escolher uma destas. O sistema revalida a odd e respeita o limite da rodada antes de colocá-la na confirmação.
+                Se você recusou uma sugestão, pode escolher uma destas. Antes de confirmar, o sistema confere novamente a odd e o limite da rodada.
               </p>
             </div>
             <ul className="divide-y divide-border">
@@ -422,7 +441,7 @@ function ExperimentalResultScreen({
                     <span className="text-sm">{evaluation.matchLabel}</span>
                     <span className="text-sm text-muted-foreground">{evaluation.marketLabel}</span>
                     <span className="num text-xs">odd {dec(evaluation.odd)}</span>
-                    <span className="num text-xs text-primary">EV {pct(evaluation.evCons, 1)}</span>
+                    <span className="num text-xs text-primary">retorno est. {pct(evaluation.evCons, 1)}</span>
                     <Button
                       type="button"
                       size="sm"
@@ -431,10 +450,10 @@ function ExperimentalResultScreen({
                       onClick={() => void selectAlternate(evaluation)}
                     >
                       {promoted
-                        ? "Selecionada"
+                        ? "Escolhida"
                         : promotingId === evaluation.predictionId
-                          ? "Selecionando…"
-                          : "Selecionar"}
+                          ? "Escolhendo…"
+                          : "Escolher"}
                     </Button>
                   </li>
                 );
@@ -449,7 +468,7 @@ function ExperimentalResultScreen({
             onClick={() => setShowRejected((s) => !s)}
             className="flex w-full items-center justify-between px-6 py-4 text-left"
           >
-            <span className="text-sm font-medium">Sem margem ou não executáveis ({withoutValue.length})</span>
+            <span className="text-sm font-medium">Opções que não compensaram ({withoutValue.length})</span>
             <ChevronDown
               className={`size-4 transition-transform ${showRejected ? "rotate-180" : ""}`}
               aria-hidden
@@ -478,7 +497,7 @@ function ExperimentalResultScreen({
       <div className="mt-8 flex flex-wrap gap-3">
         <Button asChild variant="outline">
           <Link to="/run/$runId/oportunidades" params={{ runId }}>
-            Voltar aos mercados
+            Voltar às opções
           </Link>
         </Button>
         <Button asChild variant="outline">

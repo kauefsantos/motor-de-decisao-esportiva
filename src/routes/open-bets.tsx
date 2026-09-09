@@ -14,8 +14,8 @@ import {
 export const Route = createFileRoute("/open-bets")({
   head: () => ({
     meta: [
-      { title: "Apostas abertas · Bet Value Engine" },
-      { name: "description", content: "Veja as apostas confirmadas e marque rapidamente acerto ou erro." },
+      { title: "Apostas em andamento · Bet Value Engine" },
+      { name: "description", content: "Veja as apostas confirmadas e marque o resultado depois do jogo." },
     ],
   }),
   component: OpenBetsScreen,
@@ -37,31 +37,31 @@ function OpenBetsScreen() {
       await settle({ data: { id, outcome } });
       await refetch();
       toast.success(outcome === "WIN" ? "Acerto registrado." : "Erro registrado.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar a aposta.");
+    } catch {
+      toast.error("Não foi possível atualizar esta aposta. Tente novamente.");
     }
   }
 
   return (
     <AppShell stage="open-bets">
       <p className="label-eyebrow">Acompanhamento</p>
-      <h1 className="mt-2 text-3xl font-bold">Apostas abertas</h1>
+      <h1 className="mt-2 text-3xl font-bold">Apostas em andamento</h1>
       <p className="mt-2 max-w-3xl text-muted-foreground">
-        Aqui ficam apenas as sugestões que você confirmou com valor maior que zero. Depois do jogo, marque ✓ para acerto ou ✕ para erro.
+        Aqui ficam as sugestões que você decidiu apostar. Depois do jogo, marque se a aposta acertou ou errou.
       </p>
 
       {data && (
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           <div className="panel p-5">
-            <p className="text-xs text-muted-foreground">Banca</p>
+            <p className="text-xs text-muted-foreground">Banca total</p>
             <p className="num mt-1 text-2xl">{money(data.bankroll.equity)}</p>
           </div>
           <div className="panel p-5">
-            <p className="text-xs text-muted-foreground">Reservado em apostas abertas</p>
+            <p className="text-xs text-muted-foreground">Valor em apostas em andamento</p>
             <p className="num mt-1 text-2xl">{money(data.bankroll.locked)}</p>
           </div>
           <div className="panel p-5">
-            <p className="text-xs text-muted-foreground">Disponível</p>
+            <p className="text-xs text-muted-foreground">Saldo disponível</p>
             <p className="num mt-1 text-2xl">{money(data.bankroll.available)}</p>
           </div>
         </div>
@@ -69,15 +69,15 @@ function OpenBetsScreen() {
 
       {isLoading && (
         <div className="panel mt-8 flex items-center gap-3 p-8 text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Carregando apostas abertas…
+          <Loader2 className="size-4 animate-spin" /> Carregando apostas…
         </div>
       )}
 
       {!isLoading && data?.rows.length === 0 && (
         <div className="panel mt-8 p-8">
-          <p className="text-lg font-medium">Nenhuma aposta aberta agora.</p>
+          <p className="text-lg font-medium">Nenhuma aposta em andamento agora.</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Quando você confirmar uma sugestão na tela de seleções, ela aparecerá aqui até o resultado ser marcado.
+            Quando você confirmar uma sugestão, ela aparecerá aqui até o resultado ser informado.
           </p>
         </div>
       )}
@@ -92,7 +92,7 @@ function OpenBetsScreen() {
                 <p className="text-muted-foreground">{row.market_label}</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">Valor usado</p>
+                <p className="text-xs text-muted-foreground">Valor apostado</p>
                 <p className="num mt-1 text-xl font-semibold">{money(Number(row.stake_brl ?? 0))}</p>
                 <p className="num mt-1 text-sm text-muted-foreground">odd {Number(row.entry_odd).toFixed(2)}</p>
               </div>
