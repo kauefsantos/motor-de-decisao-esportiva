@@ -15,12 +15,12 @@ export const Route = createFileRoute("/")({
       { title: "Analisar jogos · Bet Value Engine V2.1.1" },
       {
         name: "description",
-        content: "Envie os jogos da rodada e veja quais mercados merecem ser conferidos antes de olhar as odds.",
+        content: "Envie os jogos da rodada e veja quais opções de aposta merecem ser conferidas antes de olhar as odds.",
       },
       { property: "og:title", content: "Analisar jogos · Bet Value Engine V2.1.1" },
       {
         property: "og:description",
-        content: "O sistema organiza os dados, calcula as chances e só depois compara com as odds que você informar.",
+        content: "O sistema organiza as informações, calcula as chances e só depois compara com as odds.",
       },
     ],
   }),
@@ -73,8 +73,8 @@ function UploadScreen() {
         },
       });
       navigate({ to: "/run/$runId/processamento", params: { runId: res.runId } });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível iniciar a análise.");
+    } catch {
+      toast.error("Não foi possível iniciar a análise. Tente novamente.");
       setSubmitting(false);
     }
   }
@@ -87,7 +87,7 @@ function UploadScreen() {
             <p className="label-eyebrow">Etapa 1</p>
             <h1 className="mt-2 text-4xl font-bold">Analisar os jogos do dia</h1>
             <p className="mt-3 max-w-2xl text-muted-foreground">
-              Envie o CSV da rodada. Primeiro calculamos as chances com os dados disponíveis; as odds entram só depois.
+              Envie o CSV da rodada. Primeiro calculamos as chances usando as informações disponíveis. As odds entram só depois.
             </p>
 
             <div
@@ -201,16 +201,16 @@ function UploadScreen() {
             <p className="label-eyebrow">Como funciona</p>
             <ol className="mt-4 space-y-4 text-sm text-muted-foreground">
               <li>
-                <span className="font-medium text-foreground">1. Você envia os jogos.</span> A data do CSV define qual rodada será pesquisada.
+                <span className="font-medium text-foreground">1. Você envia os jogos.</span> A data do CSV define quais partidas serão procuradas.
               </li>
               <li>
-                <span className="font-medium text-foreground">2. Calculamos as chances.</span> O sistema usa apenas dados anteriores ao jogo e só mostra mercados que passam pelo filtro mínimo.
+                <span className="font-medium text-foreground">2. Calculamos as chances.</span> O sistema usa somente informações anteriores ao jogo e separa as opções que atendem aos critérios mínimos.
               </li>
               <li>
-                <span className="font-medium text-foreground">3. Você informa as odds.</span> Assim conseguimos comparar a nossa estimativa com o preço da bet365.
+                <span className="font-medium text-foreground">3. As odds são comparadas.</span> Quando possível, o sistema busca a odd da bet365 automaticamente; você também pode preencher manualmente.
               </li>
               <li>
-                <span className="font-medium text-foreground">4. O sistema escolhe pouco.</span> Pode retornar duas, três ou nenhuma seleção; não força aposta quando o preço não compensa.
+                <span className="font-medium text-foreground">4. O sistema sugere pouco.</span> Pode indicar duas, três ou nenhuma aposta. Se a odd não compensar, não sugere.
               </li>
             </ol>
           </aside>
