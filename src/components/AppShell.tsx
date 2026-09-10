@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { LogOut } from "lucide-react";
 
 import { BetConfirmationFlow } from "@/components/BetConfirmationFlow";
+import { supabase } from "@/integrations/supabase/client";
 
 const STAGES = [
   { key: "upload", label: "1 · Enviar jogos" },
@@ -17,6 +19,11 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
   const resultMatch = pathname.match(/^\/run\/([0-9a-f-]+)\/resultado$/i);
   const resultRunId = resultMatch?.[1] ?? null;
 
+  async function signOut() {
+    await supabase.auth.signOut();
+    window.location.assign("/");
+  }
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur-xl">
@@ -26,6 +33,15 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
               <span className="num text-sm font-semibold tracking-tight text-primary">BET VALUE ENGINE</span>
               <span className="num hidden text-[10px] text-muted-foreground sm:inline">V2.1.1</span>
             </Link>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              aria-label="Sair da conta"
+            >
+              <LogOut className="size-4" aria-hidden />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
           </div>
 
           <nav className="-mx-1 mt-2 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mt-0 sm:justify-end">
