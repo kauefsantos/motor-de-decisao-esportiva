@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Loader2, LockKeyhole } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { lovable } from "@/integrations/lovable";
 import { supabase } from "@/integrations/supabase/client";
 
 const ALLOWED_EMAIL = "kauefsantos3@gmail.com";
@@ -69,12 +68,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setSigningIn(true);
     setMessage(null);
 
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: `${window.location.origin}/`,
-      extraParams: { prompt: "select_account" },
-    });
+    try {
+      // Lovable managed OAuth is browser-only. Import it lazily so SSR never
+      // evaluates createLovableAuth() while rendering the login screen.
+      const { lovable } = await import("@/integrations/lovable");
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: `${window.location.origin}/`,
+        extraParams: { prompt: "select_account" },
+      });
 
-    if (result.error) {
+      if (result.error) {
+        setSigningIn(false);
+        setMessage("Não foi possível abrir o login do Google. Tente novamente.");
+      }
+    } catch {
       setSigningIn(false);
       setMessage("Não foi possível abrir o login do Google. Tente novamente.");
     }
