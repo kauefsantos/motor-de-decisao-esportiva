@@ -24,6 +24,29 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Server secret boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_role_hits="$(grep -RIl --exclude='client.server.ts' 'SUPABASE_SERVICE_ROLE_KEY' src || true)"
+          if [ -n "$service_role_hits" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY must only appear in src/integrations/supabase/client.server.ts"
+            echo "$service_role_hits"
+            exit 1
+          fi
+
+          static_admin_imports="$(
+            find src -type f \( -name '*.ts' -o -name '*.tsx' \) ! -name '*.server.ts' -print0 \
+              | xargs -0 grep -IlE '^[[:space:]]*(import[[:space:]].*client\.server|.*from[[:space:]]+["'"'"']@/integrations/supabase/client\.server["'"'"'])' \
+              || true
+          )"
+          if [ -n "$static_admin_imports" ]; then
+            echo "Static imports of the service-role client are forbidden outside *.server.ts modules."
+            echo "$static_admin_imports"
+            exit 1
+          fi
+
       - name: Experimental engine E2E
         run: bunx vitest run src/lib/engine/experimental-pilot.e2e.test.ts
 
