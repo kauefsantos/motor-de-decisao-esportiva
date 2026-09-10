@@ -1,6 +1,6 @@
 begin;
 
-select plan(5);
+select plan(6);
 
 select ok(
   not exists (
@@ -72,6 +72,26 @@ select ok(
       and not has_function_privilege('service_role', p.oid, 'EXECUTE')
   ),
   'service_role retains execute permission on public SECURITY DEFINER functions'
+);
+
+select ok(
+  not exists (
+    select 1
+    from pg_default_acl d
+    join pg_namespace n on n.oid = d.defaclnamespace
+    cross join lateral aclexplode(d.defaclacl) a
+    where d.defaclrole = 'postgres'::regrole
+      and n.nspname = 'public'
+      and (
+        a.grantee in ('anon'::regrole, 'authenticated'::regrole)
+        or (
+          d.defaclobjtype = 'f'
+          and a.grantee = 0
+          and a.privilege_type = 'EXECUTE'
+        )
+      )
+  ),
+  'postgres defaults do not grant browser roles or PUBLIC function execution'
 );
 
 select * from finish();
