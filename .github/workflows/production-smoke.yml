@@ -1,8 +1,6 @@
 name: Production smoke
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,9 +9,9 @@ permissions:
 jobs:
   published-login-screen:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 4
     steps:
-      - name: Check published app after GitHub-to-Lovable sync
+      - name: Check published login screen
         shell: bash
         run: |
           set -euo pipefail
@@ -25,10 +23,10 @@ jobs:
             exit 1
           fi
 
-          # Lovable can take a short time to pull an external GitHub commit and
-          # refresh an already-published project. Retry the real public URL.
-          for attempt in $(seq 1 30); do
-            echo "Production smoke attempt ${attempt}/30"
+          # Publishing on Lovable deploys a snapshot, so run this manually after
+          # Publish -> Update to verify the real permanent URL, without Lovable AI credits.
+          for attempt in $(seq 1 6); do
+            echo "Production smoke attempt ${attempt}/6"
             DOM="$($BROWSER \
               --headless=new \
               --no-sandbox \
@@ -39,7 +37,7 @@ jobs:
               "$URL" 2>/dev/null || true)"
 
             if grep -q "Esta página não carregou" <<<"$DOM"; then
-              echo "Published app still rendered the root error boundary."
+              echo "Published app rendered the root error boundary."
             elif grep -q "Acesso privado" <<<"$DOM" && grep -q "Entrar com Google" <<<"$DOM"; then
               echo "Published app is healthy: private access screen rendered successfully."
               exit 0
@@ -47,7 +45,7 @@ jobs:
               echo "Published app has not reached the expected login screen yet."
             fi
 
-            sleep 20
+            sleep 15
           done
 
           echo "Production did not reach the expected login screen within the retry window."
