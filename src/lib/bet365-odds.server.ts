@@ -25,6 +25,11 @@ export type AutoOddsMatch = {
 };
 
 type Row = Record<string, unknown>;
+type TotalsApiMarket = "goal_line" | "corner_line" | "card_line";
+type SupportedListTotalMarket =
+  | "goals_match_total"
+  | "corners_match_total"
+  | "cards_match_total";
 
 function record(value: unknown): Row | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -61,7 +66,7 @@ function preMatchStage(market: Row | null): { stage: "closing" | "opening"; row:
 function linePrice(
   candidate: AutoOddsCandidate,
   odds: Row,
-  apiMarket: "goal_line" | "corner_line",
+  apiMarket: TotalsApiMarket,
 ): AutoOddsMatch {
   const stage = preMatchStage(record(odds[apiMarket]));
   if (!stage) {
@@ -171,6 +176,10 @@ export function matchBet365Price(candidate: AutoOddsCandidate, payload: unknown)
     return linePrice(candidate, odds, "corner_line");
   }
 
+  if (candidate.market === "cards_match_total") {
+    return linePrice(candidate, odds, "card_line");
+  }
+
   return {
     predictionId: candidate.predictionId,
     status: "UNSUPPORTED",
@@ -191,12 +200,18 @@ export function matchBet365List1x2(candidate: AutoOddsCandidate, embeddedOdds: u
   return matchBet365Price(candidate, payload);
 }
 
+function listApiMarket(market: SupportedListTotalMarket): TotalsApiMarket {
+  if (market === "goals_match_total") return "goal_line";
+  if (market === "corners_match_total") return "corner_line";
+  return "card_line";
+}
+
 export function bet365ListOfferedLine(
   embeddedOdds: unknown,
-  market: "goals_match_total" | "corners_match_total",
+  market: SupportedListTotalMarket,
 ): number | null {
   const odds = record(embeddedOdds);
-  const apiMarket = market === "goals_match_total" ? "goal_line" : "corner_line";
+  const apiMarket = listApiMarket(market);
   const row = record(odds?.[apiMarket]);
   if (!row) return null;
   // No feed diário Pro as linhas de totais são números, não os pares de preços.
