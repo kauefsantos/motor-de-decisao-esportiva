@@ -105,6 +105,10 @@ No application use of `dangerouslySetInnerHTML`, `eval` or `new Function` was id
 
 `@lovable.dev/cloud-auth-js` is officially described by its publisher as a legacy OAuth broker and the npm package is deprecated. The current integration is not treated as a confirmed exploitable vulnerability: server-side authorization still independently validates every `serverFn`. Migration away from this broker is maintenance debt and should be performed only as a separate OAuth change with preview and production login validation.
 
+## Repository governance
+
+At audit close, GitHub reports `main` as not protected and with no required status checks. This does not bypass the application's runtime authentication or expose a secret by itself, but it means a future direct push can land even if CI would fail. Treat this as a repository-governance residual risk. The available integration does not expose repository-administration controls to enable branch protection, and GitHub reported repository rulesets unavailable for this private repository/account combination. If the account plan later permits it, require pull requests and the CI security checks before merge.
+
 ## Final validation
 
 The hardened deployment was validated on 2026-09-10:
@@ -123,10 +127,11 @@ The hardened deployment was validated on 2026-09-10:
 2. **CSP compatibility:** nonce/hash-based CSP would be stronger than `unsafe-inline`, but is deferred because it can break framework hydration/OAuth without coordinated runtime changes.
 3. **Deprecated Lovable OAuth broker:** maintenance debt; migrate separately rather than altering authentication during unrelated work.
 4. **Global bankroll concurrency across different bets:** per-row duplicate transitions are protected; database-level serialization of the whole bankroll is left for the backend/integrity audit.
-5. **Published Lovable snapshots:** GitHub commits and Lovable production publishes are distinct states. The current hardened snapshot has been validated; rerun the production smoke after future security-sensitive publications.
+5. **Repository governance:** `main` is currently unprotected, so CI is a detection control rather than an enforced merge gate.
+6. **Published Lovable snapshots:** GitHub commits and Lovable production publishes are distinct states. The current hardened snapshot has been validated; rerun the production smoke after future security-sensitive publications.
 
 ## Verdict
 
 For the current private, single-user deployment, no confirmed critical or high-severity application-security vulnerability remains open in the audited paths after the hardening above.
 
-Application Security audit status: **CLOSED**. CI and production smoke are green for the hardened deployment.
+Application Security audit status: **CLOSED**. CI and production smoke are green for the hardened deployment; the later documentation-only governance note does not change runtime behavior.
