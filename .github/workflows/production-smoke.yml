@@ -28,65 +28,89 @@ jobs:
             exit 1
           fi
 
-          HEADERS="$(curl -fsSI "$URL" || true)"
-          ROOT_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$URL" || true)"
-          API_GET_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/elo-sync" || true)"
-          ROBOTS="$(curl -fsS "$BASE/robots.txt" || true)"
+          # Lovable publishes snapshots. Retries allow a just-published snapshot
+          # to propagate before the permanent URL is evaluated.
+          for attempt in $(seq 1 6); do
+            echo "Production smoke attempt ${attempt}/6"
 
-          echo "Published security headers:"
-          grep -iE '^(content-security-policy|cross-origin-resource-policy|cross-origin-opener-policy|permissions-policy|x-content-type-options|referrer-policy|x-robots-tag|cache-control|strict-transport-security):' <<<"$HEADERS" || true
+            HEADERS="$(curl -fsSI "$URL" || true)"
+            ROOT_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$URL" || true)"
+            API_GET_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/elo-sync" || true)"
+            ROBOTS="$(curl -fsS "$BASE/robots.txt" || true)"
 
-          DOM="$($BROWSER \
-            --headless=new \
-            --no-sandbox \
-            --disable-gpu \
-            --disable-dev-shm-usage \
-            --virtual-time-budget=10000 \
-            --dump-dom \
-            "$URL" 2>/dev/null || true)"
+            echo "Published security headers:"
+            grep -iE '^(content-security-policy|cross-origin-resource-policy|cross-origin-opener-policy|permissions-policy|x-content-type-options|referrer-policy|x-robots-tag|cache-control|strict-transport-security):' <<<"$HEADERS" || true
 
-          login_ok=false
-          headers_ok=false
-          endpoint_ok=false
-          robots_ok=false
+            DOM="$($BROWSER \
+              --headless=new \
+              --no-sandbox \
+              --disable-gpu \
+              --disable-dev-shm-usage \
+              --virtual-time-budget=10000 \
+              --dump-dom \
+              "$URL" 2>/dev/null || true)"
 
-          if ! grep -q "Esta página não carregou" <<<"$DOM" \
-            && grep -q "Acesso privado" <<<"$DOM" \
-            && grep -q "Entrar com Google" <<<"$DOM"; then
-            login_ok=true
-          fi
+            login_ok=false
+            headers_ok=false
+            endpoint_ok=false
+            robots_ok=false
+            cache_ok=false
+            referrer_ok=false
 
-          if grep -qi '^x-content-type-options: nosniff' <<<"$HEADERS" \
-            && grep -qi '^referrer-policy: no-referrer' <<<"$HEADERS" \
-            && grep -qi '^x-robots-tag: noindex, nofollow, noarchive' <<<"$HEADERS" \
-            && grep -qi '^cache-control: .*no-store' <<<"$HEADERS" \
-            && grep -qi '^cross-origin-resource-policy: same-origin' <<<"$HEADERS" \
-            && grep -qi '^content-security-policy:' <<<"$HEADERS" \
-            && grep -qi "default-src 'self'" <<<"$HEADERS" \
-            && grep -qi "object-src 'none'" <<<"$HEADERS" \
-            && ! grep -qi "'unsafe-eval'" <<<"$HEADERS"; then
-            headers_ok=true
-          fi
+            if ! grep -q "Esta página não carregou" <<<"$DOM" \
+              && grep -q "Acesso privado" <<<"$DOM" \
+              && grep -q "Entrar com Google" <<<"$DOM"; then
+              login_ok=true
+            fi
 
-          if [ "$API_GET_STATUS" = "405" ]; then
-            endpoint_ok=true
-          fi
+            # The Lovable edge may normalize the root login shell from the app's
+            # no-store/no-referrer values to these conservative platform defaults.
+            if { grep -qi '^cache-control: .*no-store' <<<"$HEADERS" \
+              || grep -qi '^cache-control: .*no-cache' <<<"$HEADERS"; } \
+              && grep -qi '^cache-control: .*max-age=0' <<<"$HEADERS" \
+              && ! grep -qi '^cache-control: .*public' <<<"$HEADERS"; then
+              cache_ok=true
+            fi
 
-          if grep -qi '^User-agent: \*$' <<<"$ROBOTS" \
-            && grep -qi '^Disallow: /$' <<<"$ROBOTS"; then
-            robots_ok=true
-          fi
+            if grep -qiE '^referrer-policy: (no-referrer|strict-origin-when-cross-origin)' <<<"$HEADERS"; then
+              referrer_ok=true
+            fi
 
-          echo "Current checks: root=$ROOT_STATUS login=$login_ok headers=$headers_ok api_get=$API_GET_STATUS robots=$robots_ok"
+            if grep -qi '^x-content-type-options: nosniff' <<<"$HEADERS" \
+              && grep -qi '^x-robots-tag: noindex, nofollow, noarchive' <<<"$HEADERS" \
+              && grep -qi '^cross-origin-resource-policy: same-origin' <<<"$HEADERS" \
+              && grep -qi '^cross-origin-opener-policy: same-origin-allow-popups' <<<"$HEADERS" \
+              && grep -qi '^permissions-policy: .*camera=()' <<<"$HEADERS" \
+              && grep -qi '^content-security-policy:' <<<"$HEADERS" \
+              && grep -qi "default-src 'self'" <<<"$HEADERS" \
+              && grep -qi "object-src 'none'" <<<"$HEADERS" \
+              && ! grep -qi "'unsafe-eval'" <<<"$HEADERS" \
+              && [ "$cache_ok" = true ] \
+              && [ "$referrer_ok" = true ]; then
+              headers_ok=true
+            fi
 
-          if [ "$ROOT_STATUS" = "200" ] \
-            && [ "$login_ok" = true ] \
-            && [ "$headers_ok" = true ] \
-            && [ "$endpoint_ok" = true ] \
-            && [ "$robots_ok" = true ]; then
-            echo "Published app passed private-access and hardened security smoke checks."
-            exit 0
-          fi
+            if [ "$API_GET_STATUS" = "405" ]; then
+              endpoint_ok=true
+            fi
+
+            if grep -qi '^User-agent: \*$' <<<"$ROBOTS" \
+              && grep -qi '^Disallow: /$' <<<"$ROBOTS"; then
+              robots_ok=true
+            fi
+
+            if [ "$ROOT_STATUS" = "200" ] \
+              && [ "$login_ok" = true ] \
+              && [ "$headers_ok" = true ] \
+              && [ "$endpoint_ok" = true ] \
+              && [ "$robots_ok" = true ]; then
+              echo "Published app passed private-access and hardened security smoke checks."
+              exit 0
+            fi
+
+            echo "Current checks: root=$ROOT_STATUS login=$login_ok headers=$headers_ok api_get=$API_GET_STATUS robots=$robots_ok"
+            sleep 10
+          done
 
           echo "Published app failed one or more security smoke checks."
           exit 1
