@@ -27,22 +27,27 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+// These are public client identifiers, not server secrets. Keeping a fallback here
+// makes the published browser bundle independent from Lovable/Vite env injection.
+// Never place SUPABASE_SERVICE_ROLE_KEY or any other private secret in this file.
+const PUBLIC_SUPABASE_URL = 'https://vsygkpwptoppbrlnrpcp.supabase.co';
+const PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_SJAlM-F6YxWqS0HyesLQYA_b58B3vZk';
+
+function serverEnv(name: 'SUPABASE_URL' | 'SUPABASE_PUBLISHABLE_KEY'): string | undefined {
+  if (typeof process === 'undefined') return undefined;
+  return process.env[name];
+}
 
 function createSupabaseClient() {
-  // Use import.meta.env for client-side (Vite build-time replacement)
-  // Fall back to process.env for SSR (server-side rendering)
-  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
-  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
-
-  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    const missing = [
-      ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
-    ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
-  }
+  // Prefer environment-provided values, but never read `process` unguarded in the
+  // browser. The public fallback prevents a production hydration crash when the
+  // published build does not receive VITE_SUPABASE_* variables.
+  const SUPABASE_URL =
+    import.meta.env['VITE_SUPABASE_URL'] || serverEnv('SUPABASE_URL') || PUBLIC_SUPABASE_URL;
+  const SUPABASE_PUBLISHABLE_KEY =
+    import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] ||
+    serverEnv('SUPABASE_PUBLISHABLE_KEY') ||
+    PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     global: {
@@ -66,4 +71,3 @@ export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>,
     return Reflect.get(_supabase, prop, receiver);
   },
 });
-
