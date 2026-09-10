@@ -18,8 +18,10 @@ export { FIVE_DOLLAR_DEFINITION_VERSION, FIVE_DOLLAR_SOURCE };
 
 const BASE = "https://api.5dollarfootballapi.com/v1";
 const TIMEOUT_MS = 15000;
-// Plano Pro: limite local de 9 requisições por minuto e SEM teto horário.
+// Plano Pro: teto coordenado globalmente de 9 requisições por minuto.
 const MAX_PER_MINUTE = 9;
+const RATE_WINDOW_MS = 60_000;
+const RATE_COORDINATOR_ATTEMPTS = 20;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const PAGE_SIZE = 100;
 
@@ -44,8 +46,15 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+type RpcResponse = { data: unknown; error: { message: string } | null };
+type RpcClient = {
+  rpc: (
+    name: string,
+    args?: Record<string, unknown>,
+  ) => PromiseLike<RpcResponse>;
+};
+
 const cache = new Map<string, CacheEntry>();
-const callTimestamps: number[] = [];
 let rateBlockedUntil = 0;
 let lastHeaders: { limit: number | null; remaining: number | null; reset: number | null } = {
   limit: null,
@@ -84,17 +93,62 @@ export function fiveDollarConfigured(): boolean {
   return apiKey() !== null;
 }
 
+/**
+ * Reserva um slot no PostgreSQL antes de qualquer chamada externa. Como o
+ * estado vive no banco e é protegido por advisory lock, todas as instâncias
+ * compartilham o mesmo teto. Falhas do coordenador são fail-closed: nenhuma
+ * chamada é disparada se não conseguirmos comprovar que há um slot disponível.
+ */
 async function throttle(): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const now = Date.now();
-  while (callTimestamps.length > 0 && now - callTimestamps[0]! > 60_000) callTimestamps.shift();
-  if (callTimestamps.length >= MAX_PER_MINUTE) {
-    const wait = 60_000 - (now - callTimestamps[0]!) + 350;
-    await new Promise((r) => setTimeout(r, Math.max(0, wait)));
-    const after = Date.now();
-    while (callTimestamps.length > 0 && after - callTimestamps[0]! > 60_000) callTimestamps.shift();
+  let client: RpcClient;
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    client = supabaseAdmin as unknown as RpcClient;
+  } catch {
+    return {
+      ok: false,
+      reason: "Coordenador global de rate limit indisponível; chamada externa bloqueada por segurança.",
+    };
   }
-  callTimestamps.push(Date.now());
-  return { ok: true };
+
+  for (let attempt = 0; attempt < RATE_COORDINATOR_ATTEMPTS; attempt += 1) {
+    let response: RpcResponse;
+    try {
+      response = await client.rpc("external_api_take_rate_slot", {
+        p_bucket: "five_dollar_football",
+        p_limit: MAX_PER_MINUTE,
+        p_window_ms: RATE_WINDOW_MS,
+      });
+    } catch {
+      return {
+        ok: false,
+        reason: "Coordenador global de rate limit indisponível; chamada externa bloqueada por segurança.",
+      };
+    }
+
+    if (response.error) {
+      return {
+        ok: false,
+        reason: `Coordenador global de rate limit indisponível; chamada externa bloqueada: ${response.error.message}`,
+      };
+    }
+
+    const waitMs = Number(response.data);
+    if (Number.isFinite(waitMs) && waitMs <= 0) return { ok: true };
+    if (!Number.isFinite(waitMs) || waitMs < 0 || waitMs > RATE_WINDOW_MS) {
+      return {
+        ok: false,
+        reason: "Coordenador global de rate limit retornou um estado inválido; chamada externa bloqueada.",
+      };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, waitMs + 100));
+  }
+
+  return {
+    ok: false,
+    reason: "Não foi possível obter um slot global da 5Dollar dentro da janela permitida.",
+  };
 }
 
 function readRateHeaders(res: Response) {
