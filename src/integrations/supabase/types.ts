@@ -89,27 +89,6 @@ export type Database = {
         }
         Relationships: []
       }
-      elo_cron_config: {
-        Row: {
-          bearer_token: string
-          created_at: string
-          id: string
-          rotated_at: string
-        }
-        Insert: {
-          bearer_token: string
-          created_at?: string
-          id?: string
-          rotated_at?: string
-        }
-        Update: {
-          bearer_token?: string
-          created_at?: string
-          id?: string
-          rotated_at?: string
-        }
-        Relationships: []
-      }
       elo_cross_competitions: {
         Row: {
           active: boolean
