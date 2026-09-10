@@ -62,6 +62,33 @@ export type Database = {
         }
         Relationships: []
       }
+      elo_audit_runs: {
+        Row: {
+          generated_at: string
+          id: string
+          issues: Json
+          model_version: string
+          status: string
+          summary: Json
+        }
+        Insert: {
+          generated_at?: string
+          id?: string
+          issues?: Json
+          model_version: string
+          status: string
+          summary: Json
+        }
+        Update: {
+          generated_at?: string
+          id?: string
+          issues?: Json
+          model_version?: string
+          status?: string
+          summary?: Json
+        }
+        Relationships: []
+      }
       elo_cron_config: {
         Row: {
           bearer_token: string
@@ -80,6 +107,84 @@ export type Database = {
           created_at?: string
           id?: string
           rotated_at?: string
+        }
+        Relationships: []
+      }
+      elo_cross_competitions: {
+        Row: {
+          active: boolean
+          competition_id: number
+          competition_name: string
+          last_sync_error: string | null
+          last_sync_status: string | null
+          last_synced_at: string | null
+          region: string
+        }
+        Insert: {
+          active?: boolean
+          competition_id: number
+          competition_name: string
+          last_sync_error?: string | null
+          last_sync_status?: string | null
+          last_synced_at?: string | null
+          region: string
+        }
+        Update: {
+          active?: boolean
+          competition_id?: number
+          competition_name?: string
+          last_sync_error?: string | null
+          last_sync_status?: string | null
+          last_synced_at?: string | null
+          region?: string
+        }
+        Relationships: []
+      }
+      elo_cross_fixtures: {
+        Row: {
+          away_goals: number
+          away_team_id: number
+          away_team_name: string
+          competition_id: number
+          competition_name: string
+          fetched_at: string
+          fixture_id: number
+          home_goals: number
+          home_team_id: number
+          home_team_name: string
+          kickoff_at: string
+          region: string
+          updated_at: string
+        }
+        Insert: {
+          away_goals: number
+          away_team_id: number
+          away_team_name: string
+          competition_id: number
+          competition_name: string
+          fetched_at?: string
+          fixture_id: number
+          home_goals: number
+          home_team_id: number
+          home_team_name: string
+          kickoff_at: string
+          region: string
+          updated_at?: string
+        }
+        Update: {
+          away_goals?: number
+          away_team_id?: number
+          away_team_name?: string
+          competition_id?: number
+          competition_name?: string
+          fetched_at?: string
+          fixture_id?: number
+          home_goals?: number
+          home_team_id?: number
+          home_team_name?: string
+          kickoff_at?: string
+          region?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -209,16 +314,152 @@ export type Database = {
         }
         Relationships: []
       }
+      elo_league_fixture_history: {
+        Row: {
+          actual_home_score: number
+          away_global_rating_before: number
+          away_league_id: number
+          away_league_key: string
+          away_league_rating_after: number
+          away_league_rating_before: number
+          away_local_rating: number
+          away_team_id: number
+          competition_id: number
+          competition_name: string
+          created_at: string
+          expected_home_score: number
+          fixture_id: number
+          home_global_rating_before: number
+          home_league_id: number
+          home_league_key: string
+          home_league_rating_after: number
+          home_league_rating_before: number
+          home_local_rating: number
+          home_team_id: number
+          kickoff_at: string
+          league_delta: number
+          model_version: string
+        }
+        Insert: {
+          actual_home_score: number
+          away_global_rating_before: number
+          away_league_id: number
+          away_league_key: string
+          away_league_rating_after: number
+          away_league_rating_before: number
+          away_local_rating: number
+          away_team_id: number
+          competition_id: number
+          competition_name: string
+          created_at?: string
+          expected_home_score: number
+          fixture_id: number
+          home_global_rating_before: number
+          home_league_id: number
+          home_league_key: string
+          home_league_rating_after: number
+          home_league_rating_before: number
+          home_local_rating: number
+          home_team_id: number
+          kickoff_at: string
+          league_delta: number
+          model_version: string
+        }
+        Update: {
+          actual_home_score?: number
+          away_global_rating_before?: number
+          away_league_id?: number
+          away_league_key?: string
+          away_league_rating_after?: number
+          away_league_rating_before?: number
+          away_local_rating?: number
+          away_team_id?: number
+          competition_id?: number
+          competition_name?: string
+          created_at?: string
+          expected_home_score?: number
+          fixture_id?: number
+          home_global_rating_before?: number
+          home_league_id?: number
+          home_league_key?: string
+          home_league_rating_after?: number
+          home_league_rating_before?: number
+          home_local_rating?: number
+          home_team_id?: number
+          kickoff_at?: string
+          league_delta?: number
+          model_version?: string
+        }
+        Relationships: []
+      }
+      elo_league_ratings: {
+        Row: {
+          country_code: string
+          division_level: number
+          evidence_adjustment: number
+          evidence_matches: number
+          focus_role: string
+          hierarchy_constrained: boolean
+          league_id: number
+          league_key: string
+          league_name: string
+          model_version: string
+          prior_rating: number
+          rating: number
+          region: string
+          updated_at: string
+        }
+        Insert: {
+          country_code: string
+          division_level: number
+          evidence_adjustment?: number
+          evidence_matches?: number
+          focus_role: string
+          hierarchy_constrained?: boolean
+          league_id: number
+          league_key: string
+          league_name: string
+          model_version: string
+          prior_rating: number
+          rating: number
+          region: string
+          updated_at?: string
+        }
+        Update: {
+          country_code?: string
+          division_level?: number
+          evidence_adjustment?: number
+          evidence_matches?: number
+          focus_role?: string
+          hierarchy_constrained?: boolean
+          league_id?: number
+          league_key?: string
+          league_name?: string
+          model_version?: string
+          prior_rating?: number
+          rating?: number
+          region?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       elo_prediction_context: {
         Row: {
           adjusted_lambda_away: number
           adjusted_lambda_home: number
+          away_global_rating: number | null
+          away_league_id: number | null
+          away_league_rating: number | null
           away_rating: number
           away_team_id: number
           base_lambda_away: number
           base_lambda_home: number
           created_at: string
           elo_delta: number
+          elo_scope: string | null
+          home_global_rating: number | null
+          home_league_id: number | null
+          home_league_rating: number | null
           home_rating: number
           home_team_id: number
           league_id: number
@@ -230,12 +471,19 @@ export type Database = {
         Insert: {
           adjusted_lambda_away: number
           adjusted_lambda_home: number
+          away_global_rating?: number | null
+          away_league_id?: number | null
+          away_league_rating?: number | null
           away_rating: number
           away_team_id: number
           base_lambda_away: number
           base_lambda_home: number
           created_at?: string
           elo_delta: number
+          elo_scope?: string | null
+          home_global_rating?: number | null
+          home_league_id?: number | null
+          home_league_rating?: number | null
           home_rating: number
           home_team_id: number
           league_id: number
@@ -247,12 +495,19 @@ export type Database = {
         Update: {
           adjusted_lambda_away?: number
           adjusted_lambda_home?: number
+          away_global_rating?: number | null
+          away_league_id?: number | null
+          away_league_rating?: number | null
           away_rating?: number
           away_team_id?: number
           base_lambda_away?: number
           base_lambda_home?: number
           created_at?: string
           elo_delta?: number
+          elo_scope?: string | null
+          home_global_rating?: number | null
+          home_league_id?: number | null
+          home_league_rating?: number | null
           home_rating?: number
           home_team_id?: number
           league_id?: number
@@ -277,6 +532,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      elo_seed_rebuild_queue: {
+        Row: {
+          league_id: number
+          pass1_done: boolean
+          pass2_done: boolean
+          updated_at: string
+        }
+        Insert: {
+          league_id: number
+          pass1_done?: boolean
+          pass2_done?: boolean
+          updated_at?: string
+        }
+        Update: {
+          league_id?: number
+          pass1_done?: boolean
+          pass2_done?: boolean
+          updated_at?: string
+        }
+        Relationships: []
       }
       elo_sync_state: {
         Row: {
@@ -319,6 +595,60 @@ export type Database = {
           leagues_processed?: number
           model_version?: string
           source?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      elo_target_leagues: {
+        Row: {
+          active: boolean
+          country_code: string
+          created_at: string
+          division_level: number
+          focus_role: string
+          last_sync_error: string | null
+          last_sync_status: string | null
+          last_synced_at: string | null
+          league_id: number
+          league_key: string
+          league_name: string
+          parent_league_key: string | null
+          prior_rating: number
+          region: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          country_code: string
+          created_at?: string
+          division_level?: number
+          focus_role: string
+          last_sync_error?: string | null
+          last_sync_status?: string | null
+          last_synced_at?: string | null
+          league_id: number
+          league_key: string
+          league_name: string
+          parent_league_key?: string | null
+          prior_rating: number
+          region: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          country_code?: string
+          created_at?: string
+          division_level?: number
+          focus_role?: string
+          last_sync_error?: string | null
+          last_sync_status?: string | null
+          last_synced_at?: string | null
+          league_id?: number
+          league_key?: string
+          league_name?: string
+          parent_league_key?: string | null
+          prior_rating?: number
+          region?: string
           updated_at?: string
         }
         Relationships: []
@@ -517,6 +847,81 @@ export type Database = {
           },
           {
             foreignKeyName: "experimental_bet_tracking_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "analysis_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      experimental_odds_snapshots: {
+        Row: {
+          api_market: string | null
+          bookmaker: string
+          created_at: string
+          fetched_at: string
+          fixture_id: number
+          market: string
+          match_id: string
+          model_line: number | null
+          odd: number | null
+          offered_line: number | null
+          prediction_id: string
+          reason: string
+          run_id: string
+          side: string | null
+          stage: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          api_market?: string | null
+          bookmaker?: string
+          created_at?: string
+          fetched_at: string
+          fixture_id: number
+          market: string
+          match_id: string
+          model_line?: number | null
+          odd?: number | null
+          offered_line?: number | null
+          prediction_id: string
+          reason: string
+          run_id: string
+          side?: string | null
+          stage?: string | null
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          api_market?: string | null
+          bookmaker?: string
+          created_at?: string
+          fetched_at?: string
+          fixture_id?: number
+          market?: string
+          match_id?: string
+          model_line?: number | null
+          odd?: number | null
+          offered_line?: number | null
+          prediction_id?: string
+          reason?: string
+          run_id?: string
+          side?: string | null
+          stage?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "experimental_odds_snapshots_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "experimental_odds_snapshots_run_id_fkey"
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "analysis_runs"
@@ -1269,9 +1674,76 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      elo_audit_leagues: {
+        Row: {
+          audit_status: string | null
+          country_code: string | null
+          division_level: number | null
+          evidence_adjustment: number | null
+          evidence_matches: number | null
+          focus_role: string | null
+          hierarchy_constrained: boolean | null
+          hierarchy_ok: boolean | null
+          last_fixture_at: string | null
+          last_sync_error: string | null
+          last_sync_status: string | null
+          last_synced_at: string | null
+          league_id: number | null
+          league_key: string | null
+          league_name: string | null
+          league_rating: number | null
+          local_avg_rating: number | null
+          local_max_rating: number | null
+          local_mean_drift: number | null
+          local_min_rating: number | null
+          parent_league_key: string | null
+          parent_league_rating: number | null
+          prior_rating: number | null
+          region: string | null
+          teams: number | null
+        }
+        Relationships: []
+      }
+      elo_global_team_ratings: {
+        Row: {
+          first_fixture_at: string | null
+          global_rating: number | null
+          last_fixture_at: string | null
+          league_id: number | null
+          league_key: string | null
+          league_name: string | null
+          league_rating: number | null
+          local_rating: number | null
+          matches_processed: number | null
+          team_id: number | null
+          team_model_version: string | null
+          team_name: string | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
+      elo_team_integrity_audit: {
+        Row: {
+          first_fixture_mismatch_rows: number | null
+          last_fixture_mismatch_rows: number | null
+          match_count_mismatch_rows: number | null
+          max_matches_processed: number | null
+          max_rating: number | null
+          metadata_mismatch_rows: number | null
+          min_matches_processed: number | null
+          min_rating: number | null
+          missing_history_rows: number | null
+          orphan_target_rows: number | null
+          rating_mismatch_rows: number | null
+          team_rows: number | null
+          zero_match_rows: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      elo_bootstrap_runner: { Args: never; Returns: Json }
+      elo_finalize_daily: { Args: never; Returns: Json }
       elo_is_target_league: {
         Args: { p_country: string; p_name: string }
         Returns: boolean
@@ -1281,8 +1753,22 @@ export type Database = {
         Returns: string
       }
       elo_rebuild_league: { Args: { p_league_id: number }; Returns: Json }
+      elo_rebuild_league_ratings: { Args: never; Returns: Json }
+      elo_refresh_cross_fixtures_from_raw: { Args: never; Returns: Json }
+      elo_run_audit: { Args: never; Returns: Json }
+      elo_seed_rating: {
+        Args: { p_before: string; p_new_league_id: number; p_team_id: number }
+        Returns: number
+      }
+      elo_seed_rebuild_runner: { Args: never; Returns: Json }
       elo_store_5dollar_key: { Args: { p_key: string }; Returns: undefined }
+      elo_sync_cross_competition: {
+        Args: { p_competition_id: number }
+        Returns: Json
+      }
+      elo_sync_domestic_league: { Args: { p_league_id: number }; Returns: Json }
       elo_sync_from_5dollar: { Args: never; Returns: Json }
+      elo_sync_next_target: { Args: never; Returns: Json }
     }
     Enums: {
       [_ in never]: never
