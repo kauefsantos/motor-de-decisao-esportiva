@@ -36,7 +36,7 @@ const oddsSchema = z.object({
 
 async function db() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin as any;
+  return supabaseAdmin;
 }
 
 export const createRun = createServerFn({ method: "POST" })
@@ -83,15 +83,16 @@ export const analyzeOdds = createServerFn({ method: "POST" })
     if (candidateError) throw new Error(`Falha ao carregar mercados: ${candidateError.message}`);
     if (predictionError) throw new Error(`Falha ao carregar distribuições: ${predictionError.message}`);
 
-    const byId = new Map((candidates ?? []).map((candidate: any) => [candidate.id, candidate]));
+    type CandidateRow = NonNullable<typeof candidates>[number];
+    const byId = new Map((candidates ?? []).map((candidate) => [candidate.id, candidate]));
     const distByPrediction = new Map(
-      (predictions ?? []).map((prediction: any) => [
+      (predictions ?? []).map((prediction) => [
         prediction.prediction_id,
-        (prediction.outcome_distribution ?? null) as AsianOutcomeProbabilities | null,
+        (prediction.outcome_distribution ?? null) as unknown as AsianOutcomeProbabilities | null,
       ]),
     );
 
-    const evaluations: Array<{ result: ReturnType<typeof evaluateValue>; candidate: any }> = [];
+    const evaluations: Array<{ result: ReturnType<typeof evaluateValue>; candidate: CandidateRow }> = [];
     const userOddsRows: Array<Record<string, unknown>> = [];
 
     for (const entry of data.entries) {
