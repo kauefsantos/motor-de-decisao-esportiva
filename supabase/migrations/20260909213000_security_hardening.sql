@@ -15,37 +15,39 @@ grant select on table public.elo_audit_leagues to service_role;
 grant select on table public.elo_global_team_ratings to service_role;
 grant select on table public.elo_team_integrity_audit to service_role;
 
--- 3) Privileged SECURITY DEFINER functions are internal-only. pg_cron jobs run
--- as postgres and are unaffected by revoking browser-role EXECUTE.
-revoke execute on function public.elo_after_sync_rebuild() from public, anon, authenticated;
-revoke execute on function public.elo_bootstrap_runner() from public, anon, authenticated;
-revoke execute on function public.elo_finalize_daily() from public, anon, authenticated;
-revoke execute on function public.elo_rebuild_league(bigint) from public, anon, authenticated;
-revoke execute on function public.elo_rebuild_league_ratings() from public, anon, authenticated;
-revoke execute on function public.elo_refresh_cross_fixtures_from_raw() from public, anon, authenticated;
-revoke execute on function public.elo_run_audit() from public, anon, authenticated;
-revoke execute on function public.elo_seed_rating(bigint,bigint,timestamptz) from public, anon, authenticated;
-revoke execute on function public.elo_seed_rebuild_runner() from public, anon, authenticated;
-revoke execute on function public.elo_store_5dollar_key(text) from public, anon, authenticated;
-revoke execute on function public.elo_sync_cross_competition(bigint) from public, anon, authenticated;
-revoke execute on function public.elo_sync_domestic_league(bigint) from public, anon, authenticated;
-revoke execute on function public.elo_sync_from_5dollar() from public, anon, authenticated;
-revoke execute on function public.elo_sync_next_target() from public, anon, authenticated;
+-- 3) Every privileged SECURITY DEFINER function that exists at this stage is
+-- internal-only. Iterate over the catalog instead of naming runtime-only
+-- functions so the versioned migration chain remains reproducible on a fresh DB.
+do $$
+declare
+  fn record;
+begin
+  for fn in
+    select
+      n.nspname as schema_name,
+      p.proname as function_name,
+      pg_get_function_identity_arguments(p.oid) as identity_args
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prosecdef
+  loop
+    execute format(
+      'revoke execute on function %I.%I(%s) from public, anon, authenticated',
+      fn.schema_name,
+      fn.function_name,
+      fn.identity_args
+    );
 
-grant execute on function public.elo_after_sync_rebuild() to service_role;
-grant execute on function public.elo_bootstrap_runner() to service_role;
-grant execute on function public.elo_finalize_daily() to service_role;
-grant execute on function public.elo_rebuild_league(bigint) to service_role;
-grant execute on function public.elo_rebuild_league_ratings() to service_role;
-grant execute on function public.elo_refresh_cross_fixtures_from_raw() to service_role;
-grant execute on function public.elo_run_audit() to service_role;
-grant execute on function public.elo_seed_rating(bigint,bigint,timestamptz) to service_role;
-grant execute on function public.elo_seed_rebuild_runner() to service_role;
-grant execute on function public.elo_store_5dollar_key(text) to service_role;
-grant execute on function public.elo_sync_cross_competition(bigint) to service_role;
-grant execute on function public.elo_sync_domestic_league(bigint) to service_role;
-grant execute on function public.elo_sync_from_5dollar() to service_role;
-grant execute on function public.elo_sync_next_target() to service_role;
+    execute format(
+      'grant execute on function %I.%I(%s) to service_role',
+      fn.schema_name,
+      fn.function_name,
+      fn.identity_args
+    );
+  end loop;
+end
+$$;
 
 -- 4) The old HTTP cron bearer table is obsolete: jobs now execute database
 -- functions directly through pg_cron. Remove stored bearer material entirely.
