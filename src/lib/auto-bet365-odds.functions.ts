@@ -14,7 +14,12 @@ import { filterQuoteAnchorPredictions } from "./engine/market-policy";
 
 const inputSchema = z.object({ runId: z.string().uuid() });
 const EXPERIMENTAL_STATUS = "EXPERIMENTAL_CURRENT_SEASON";
-const DIRECT_MARKETS = new Set(["1x2", "goals_match_total", "corners_match_total"]);
+const DIRECT_MARKETS = new Set([
+  "1x2",
+  "goals_match_total",
+  "corners_match_total",
+  "cards_match_total",
+]);
 
 type PredictionRow = {
   prediction_id: string;
@@ -55,6 +60,14 @@ function candidateFromRow(row: PredictionRow): AutoOddsCandidate {
   };
 }
 
+function apiMarketFor(row: PredictionRow): string | null {
+  if (row.market === "goals_match_total") return "goal_line";
+  if (row.market === "corners_match_total") return "corner_line";
+  if (row.market === "cards_match_total") return "card_line";
+  if (row.market === "1x2") return "1x2";
+  return null;
+}
+
 function unsupported(row: PredictionRow): AutoOddsMatch {
   return {
     predictionId: row.prediction_id,
@@ -68,14 +81,13 @@ function unsupported(row: PredictionRow): AutoOddsMatch {
 }
 
 function lineMismatch(row: PredictionRow, offeredLine: number): AutoOddsMatch {
-  const apiMarket = row.market === "goals_match_total" ? "goal_line" : "corner_line";
   return {
     predictionId: row.prediction_id,
     status: "LINE_MISMATCH",
     odd: null,
     offeredLine,
     stage: "closing",
-    apiMarket,
+    apiMarket: apiMarketFor(row),
     reason: `A linha atual da Bet365 (${offeredLine}) difere da linha modelada (${row.line_canonical ?? "—"}); preço não foi injetado.`,
   };
 }
@@ -198,7 +210,12 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
           continue;
         }
 
-        if ((row.market === "goals_match_total" || row.market === "corners_match_total") && embeddedOdds) {
+        if (
+          (row.market === "goals_match_total" ||
+            row.market === "corners_match_total" ||
+            row.market === "cards_match_total") &&
+          embeddedOdds
+        ) {
           const offeredLine = bet365ListOfferedLine(embeddedOdds, row.market);
           const modelLine = candidate.lineCanonical;
           if (offeredLine !== null && modelLine !== null && Math.abs(offeredLine - modelLine) > 1e-9) {
@@ -291,6 +308,6 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       sourceUnavailable: count("SOURCE_UNAVAILABLE"),
       fixturesRequested,
       dayPagesRequested: day.fetches.length,
-      message: "Odds pré-jogo da Bet365 consultadas somente para as linhas-âncora, sem usar preço na geração das probabilidades.",
+      message: "Odds pré-jogo da Bet365 consultadas somente para as linhas-âncora, incluindo cartões da partida quando a linha coincide, sem usar preço na geração das probabilidades.",
     };
   });

@@ -30,6 +30,11 @@ const payload = {
             closing: { line: 9.5, over: 2, under: 1.8 },
             inplay: null,
           },
+          card_line: {
+            opening: { line: 4.5, over: 1.95, under: 1.75 },
+            closing: { line: 4.5, over: 1.9, under: 1.8 },
+            inplay: null,
+          },
           btts: {
             opening: { yes: 1.95, no: 1.8 },
             closing: { yes: 1.8, no: 1.95 },
@@ -49,6 +54,7 @@ const listOdds = {
   },
   goal_line: { opening: 3.75, closing: 4.25, inplay: null },
   corner_line: { opening: 9.5, closing: 9.5, inplay: null },
+  card_line: { opening: 4.5, closing: 4.5, inplay: null },
 };
 
 describe("matchBet365Price", () => {
@@ -88,6 +94,22 @@ describe("matchBet365Price", () => {
     expect(mismatch.odd).toBeNull();
   });
 
+  it("uses Bet365 match card-line price when the 4.5 anchor matches", () => {
+    const over = matchBet365Price(
+      { predictionId: "p-card-over", market: "cards_match_total", side: "OVER", lineCanonical: 4.5 },
+      payload,
+    );
+    const under = matchBet365Price(
+      { predictionId: "p-card-under", market: "cards_match_total", side: "UNDER", lineCanonical: 4.5 },
+      payload,
+    );
+    expect(over.status).toBe("MATCHED");
+    expect(over.odd).toBe(1.9);
+    expect(over.apiMarket).toBe("card_line");
+    expect(under.status).toBe("MATCHED");
+    expect(under.odd).toBe(1.8);
+  });
+
   it("does not synthesize unsupported bookmaker contracts", () => {
     const quote = matchBet365Price(
       { predictionId: "p5", market: "double_chance", side: "1X", lineCanonical: null },
@@ -111,5 +133,6 @@ describe("Pro day odds preflight", () => {
   it("reads current total lines without pretending the list feed contains prices", () => {
     expect(bet365ListOfferedLine(listOdds, "goals_match_total")).toBe(4.25);
     expect(bet365ListOfferedLine(listOdds, "corners_match_total")).toBe(9.5);
+    expect(bet365ListOfferedLine(listOdds, "cards_match_total")).toBe(4.5);
   });
 });
