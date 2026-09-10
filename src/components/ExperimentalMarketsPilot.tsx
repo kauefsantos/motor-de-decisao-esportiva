@@ -23,7 +23,7 @@ const dec = (value: number | null | undefined) =>
 const FAMILY_ORDER = ["CORNERS", "CARDS", "GOALS", "TEAM_GOALS", "1X2", "DOUBLE_CHANCE", "BTTS"] as const;
 const FAMILY_LABELS: Record<string, string> = {
   CORNERS: "Escanteios",
-  CARDS: "Cartões amarelos",
+  CARDS: "Cartões",
   GOALS: "Gols",
   TEAM_GOALS: "Gols por time",
   "1X2": "Resultado",

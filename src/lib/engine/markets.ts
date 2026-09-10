@@ -25,7 +25,7 @@ function absoluteCountContract(
   side: "OVER" | "UNDER",
 ): MarketContract {
   const isCorners = family === "CORNERS";
-  const noun = isCorners ? "Escanteios" : "Cartões amarelos";
+  const noun = isCorners ? "Escanteios" : "Cartões";
   const base = scope === "MATCH" ? `${noun} da partida` : `${noun} ${participant}`;
   return {
     family,
@@ -43,7 +43,7 @@ function absoluteCountContract(
       ? scope === "MATCH"
         ? ["corners_taken_for", "corners_taken_against"]
         : ["corners_taken_for"]
-      : ["cards_yellow_raw"],
+      : ["cards_yellow_raw", "cards_red_raw"],
   };
 }
 

@@ -6,7 +6,7 @@ import {
   type CornersPrediction,
 } from "./corners";
 
-export const CARDS_MODEL_VERSION = "cards-yellow-baseline-v1";
+export const CARDS_MODEL_VERSION = "cards-total-baseline-v1";
 
 export interface CardMatchRow {
   date: string;

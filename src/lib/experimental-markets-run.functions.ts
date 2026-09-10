@@ -140,7 +140,7 @@ function mostFrequentLeague(
 function buildDatasets(observations: RawValue[]) {
   const corners = new Map<string, CornerMatchRow>();
   const goals = new Map<string, GoalMatchRow>();
-  const cardParts = new Map<string, Partial<CardMatchRow>>();
+  const cardParts = new Map<string, Partial<CardMatchRow> & { homeYellow?: number; homeRed?: number; awayYellow?: number; awayRed?: number }>();
   const conflicts = new Set<string>();
 
   for (const rv of observations) {
@@ -159,14 +159,22 @@ function buildDatasets(observations: RawValue[]) {
 
     const metric = String(rv["metricLabelRaw"] ?? rv["sourceLabel"] ?? "");
     const cardValue = finiteNumber(rv["value"]);
-    if (cardValue !== null && (metric === "cards.home.yellow" || metric === "cards.away.yellow")) {
+    if (
+      cardValue !== null &&
+      (metric === "cards.home.yellow" ||
+        metric === "cards.home.red" ||
+        metric === "cards.away.yellow" ||
+        metric === "cards.away.red")
+    ) {
       const part = cardParts.get(externalMatchId) ?? { date, league, homeTeam, awayTeam };
       part.date = date;
       part.league = league;
       part.homeTeam = homeTeam;
       part.awayTeam = awayTeam;
-      if (metric === "cards.home.yellow") part.homeCards = cardValue;
-      if (metric === "cards.away.yellow") part.awayCards = cardValue;
+      if (metric === "cards.home.yellow") part.homeYellow = cardValue;
+      if (metric === "cards.home.red") part.homeRed = cardValue;
+      if (metric === "cards.away.yellow") part.awayYellow = cardValue;
+      if (metric === "cards.away.red") part.awayRed = cardValue;
       cardParts.set(externalMatchId, part);
     }
 
@@ -195,8 +203,20 @@ function buildDatasets(observations: RawValue[]) {
   for (const [id, part] of cardParts) {
     if (conflicts.has(id)) continue;
     if (!part.date || !part.league || !part.homeTeam || !part.awayTeam) continue;
-    if (part.homeCards === undefined || part.awayCards === undefined) continue;
-    cards.push(part as CardMatchRow);
+    if (
+      part.homeYellow === undefined ||
+      part.homeRed === undefined ||
+      part.awayYellow === undefined ||
+      part.awayRed === undefined
+    ) continue;
+    cards.push({
+      date: part.date,
+      league: part.league,
+      homeTeam: part.homeTeam,
+      awayTeam: part.awayTeam,
+      homeCards: part.homeYellow + part.homeRed,
+      awayCards: part.awayYellow + part.awayRed,
+    });
   }
 
   for (const id of conflicts) {
@@ -219,10 +239,10 @@ function labelFor(
     return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
   }
   if (market === "cards_match_total") {
-    return `Cartões amarelos da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Cartões da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
   }
   if (market === "cards_team_total") {
-    return `Cartões amarelos ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Cartões ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
   }
   if (market === "goals_match_total") {
     return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
@@ -387,7 +407,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
 
       const rollingCards = datasets.cards.filter((r) => r.date < predictionDate && r.date >= rollingStartDate);
       if (crossLeague) {
-        issues.push(`${label}: cartões amarelos continentais aguardam normalização entre ligas; mercado não publicado nesta partida.`);
+        issues.push(`${label}: cartões continentais aguardam normalização entre ligas; mercado não publicado nesta partida.`);
       } else {
         const cardTraining = rollingCards.filter((r) => r.league === league);
         if (cardTraining.length >= MIN_EXPERIMENTAL_MATCHES) {

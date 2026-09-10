@@ -13,6 +13,7 @@ describe("yellow-card count model", () => {
     const params = fitCardsBaseline(rows);
     const forecast = predictCards(params, { league: "L1", homeTeam: "A", awayTeam: "B" });
     expect(params.modelVersion).toBe(CARDS_MODEL_VERSION);
+    expect(CARDS_MODEL_VERSION).toBe("cards-total-baseline-v1");
     expect(forecast.lambdaTotal).toBeGreaterThan(0);
     expect(forecast.sampleSize).toBeGreaterThan(0);
   });
