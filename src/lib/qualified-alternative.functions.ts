@@ -2,8 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { familyForMarket } from "./engine/experimental-goal-markets";
-import { BASE_GATE } from "./engine/opportunity";
-import type { AsianOutcomeProbabilities, ContractType } from "./engine/types";
+import { formatBookmakerLine, isQuoteAnchorPrediction } from "./engine/market-policy";
+import type { ContractType } from "./engine/types";
 import { evaluateValue, type ValueInput } from "./engine/value";
 
 const EXPERIMENTAL_STATUS = "EXPERIMENTAL_CURRENT_SEASON";
@@ -23,13 +23,9 @@ const schema = z.object({
 });
 
 /**
- * Promove uma oportunidade que passou todos os critérios de valor, mas ficou
- * fora da seleção automática por causa do limite diário.
- *
- * A oportunidade é reavaliada no servidor antes de entrar no ledger. Assim a
- * UI não consegue transformar uma odd sem valor em PROPOSED apenas alterando
- * o localStorage. O limite diário continua valendo para PROPOSED + OPEN; uma
- * sugestão DECLINED libera a vaga para uma alternativa qualificada.
+ * Compatibilidade com o seletor legado de alternativas qualificadas.
+ * A oportunidade é revalidada integralmente no servidor segundo a política
+ * experimental atual antes de entrar no ledger.
  */
 export const selectQualifiedExperimentalAlternative = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => schema.parse(input))
@@ -56,8 +52,24 @@ export const selectQualifiedExperimentalAlternative = createServerFn({ method: "
     }
     if (runError || !run) throw new Error("Não foi possível localizar a rodada desta análise.");
 
+    const lineCanonical = prediction.line_canonical === null ? null : Number(prediction.line_canonical);
+    if (!isQuoteAnchorPrediction({
+      market: prediction.market,
+      side: prediction.side,
+      lineCanonical,
+    })) {
+      throw new Error("Esta oportunidade pertence a um catálogo experimental anterior e precisa ser recalculada.");
+    }
+
     const modelProbability = Number(prediction.model_probability ?? 0);
-    const contractType: ContractType = prediction.line_canonical === null ? "BINARY" : "ASIAN";
+    if (!Number.isFinite(modelProbability) || modelProbability <= 0 || modelProbability >= 1) {
+      throw new Error("A probabilidade experimental desta oportunidade não é válida.");
+    }
+    if (prediction.data_status !== "OK") {
+      throw new Error("Os dados desta oportunidade não estão aptos para avaliação de valor.");
+    }
+
+    const contractType: ContractType = "BINARY";
     const valueInput: ValueInput = {
       candidateId: prediction.prediction_id,
       predictionId: prediction.prediction_id,
@@ -65,14 +77,10 @@ export const selectQualifiedExperimentalAlternative = createServerFn({ method: "
       bookmaker: "bet365_br",
       odd: data.odd,
       lineAtEntry: data.lineAtEntry,
-      lineCanonical:
-        prediction.line_canonical === null ? null : Number(prediction.line_canonical),
-      pCons: contractType === "BINARY" ? modelProbability : null,
-      outcomeDistribution:
-        contractType === "ASIAN"
-          ? (prediction.outcome_distribution as AsianOutcomeProbabilities | null)
-          : null,
-      published: modelProbability >= BASE_GATE,
+      lineCanonical,
+      pCons: modelProbability,
+      outcomeDistribution: null,
+      published: true,
       modelStatus: EXPERIMENTAL_STATUS,
       dataStatus: prediction.data_status,
     };
@@ -104,9 +112,19 @@ export const selectQualifiedExperimentalAlternative = createServerFn({ method: "
     if (same?.bet_status === "OPEN" || same?.bet_status === "PROPOSED") {
       return { status: "ALREADY_SELECTED" as const, selectionLimit: limit };
     }
+    if (same?.bet_status === "DECLINED" || same?.bet_status === "SETTLED") {
+      throw new Error(
+        same.bet_status === "DECLINED"
+          ? "Esta oportunidade já foi recusada nesta rodada."
+          : "Esta oportunidade já foi encerrada nesta rodada.",
+      );
+    }
 
     const activeCount = current.filter(
-      (row) => row.bet_status === "OPEN" || row.bet_status === "PROPOSED",
+      (row) =>
+        row.bet_status === "OPEN" ||
+        row.bet_status === "PROPOSED" ||
+        row.bet_status === "SETTLED",
     ).length;
     if (activeCount >= limit) {
       throw new Error(
@@ -124,21 +142,23 @@ export const selectQualifiedExperimentalAlternative = createServerFn({ method: "
     const matchLabel = match.home_team && match.away_team
       ? `${match.home_team} x ${match.away_team}`
       : match.raw_partida;
+    const numericLine = prediction.line_raw === null ? null : Number(prediction.line_raw);
+    const lineLabel = Number.isFinite(numericLine) ? formatBookmakerLine(numericLine) : "";
     const marketLabel = (() => {
-      const line = prediction.line_raw ?? "";
       if (prediction.market === "corners_match_total")
-        return `Escanteios da partida ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${line}`.trim();
+        return `Escanteios da partida ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
       if (prediction.market === "corners_team_total")
-        return `Escanteios ${prediction.participant ?? "time"} ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${line}`.trim();
+        return `Escanteios ${prediction.participant ?? "time"} ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+      if (prediction.market === "cards_match_total")
+        return `Cartões da partida ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+      if (prediction.market === "cards_team_total")
+        return `Cartões ${prediction.participant ?? "time"} ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
       if (prediction.market === "goals_match_total")
-        return `Gols da partida ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${line}`.trim();
-      if (prediction.market === "team_goals_total")
-        return `Gols ${prediction.participant ?? "time"} ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${line}`.trim();
+        return `Gols da partida ${prediction.side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
       if (prediction.market === "1x2")
         return prediction.side === "HOME" ? "Vitória mandante" : prediction.side === "AWAY" ? "Vitória visitante" : "Empate";
       if (prediction.market === "double_chance")
         return prediction.side === "1X" ? "Dupla chance: 1X" : prediction.side === "X2" ? "Dupla chance: X2" : "Dupla chance: 12";
-      if (prediction.market === "btts") return prediction.side === "YES" ? "Ambas marcam: Sim" : "Ambas marcam: Não";
       return prediction.market;
     })();
 
@@ -154,8 +174,7 @@ export const selectQualifiedExperimentalAlternative = createServerFn({ method: "
       market_label: marketLabel,
       participant: prediction.participant,
       side: prediction.side,
-      line_canonical:
-        prediction.line_canonical === null ? null : Number(prediction.line_canonical),
+      line_canonical: lineCanonical,
       model_version: prediction.model_version ?? "unknown",
       model_status: EXPERIMENTAL_STATUS,
       model_probability: modelProbability,
