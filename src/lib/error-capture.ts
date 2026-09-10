@@ -1,6 +1,8 @@
 // Captures the original Error out-of-band so server.ts can recover the stack
 // when h3 has already swallowed the throw into a generic 500 Response.
 
+import { redactSensitiveText, redactTelemetryValue } from "./redaction";
+
 let lastCapturedError: { error: unknown; at: number } | undefined;
 const TTL_MS = 5_000;
 
@@ -11,7 +13,7 @@ function record(error: unknown) {
 // h3's HTTPError serializes to {"status":500,"unhandled":true,"message":"HTTPError"} —
 // no stack, no cause — so a plain console.error(error) reaches the log pipeline with
 // the failure detail stripped. Expand Error-like args into a string that keeps the
-// message, stack, and the full cause chain.
+// message, stack, and the full cause chain, but redact credentials first.
 const CAUSE_DEPTH_LIMIT = 5;
 const DESCRIPTION_LENGTH_LIMIT = 8_000;
 
@@ -28,7 +30,7 @@ export function describeError(error: unknown): string {
     parts.push(`${label}${current.stack ?? `${current.name}: ${current.message}`}${status}`);
     current = current.cause;
   }
-  return parts.join("\n").slice(0, DESCRIPTION_LENGTH_LIMIT);
+  return redactSensitiveText(parts.join("\n")).slice(0, DESCRIPTION_LENGTH_LIMIT);
 }
 
 function describeStatus(error: Error): string {
@@ -50,12 +52,12 @@ function isErrorLike(value: unknown): value is Error {
 }
 
 // Wrap console.error so errors logged by any layer — including h3's internal
-// unhandled-error logging, which this file cannot hook directly — are both
-// recorded for consumeLastCapturedError and expanded before serialization.
+// unhandled-error logging — are recorded for consumeLastCapturedError and every
+// emitted argument passes through credential redaction.
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
   const expanded = args.map((arg) => {
-    if (!isErrorLike(arg)) return arg;
+    if (!isErrorLike(arg)) return redactTelemetryValue(arg);
     record(arg);
     return describeError(arg);
   });
