@@ -1,0 +1,54 @@
+name: Production smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  published-login-screen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Check published app after GitHub-to-Lovable sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://quant-football-insights.lovable.app/"
+          BROWSER="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+
+          if [ -z "$BROWSER" ]; then
+            echo "No headless Chromium/Chrome binary is available on this runner."
+            exit 1
+          fi
+
+          # Lovable can take a short time to pull an external GitHub commit and
+          # refresh an already-published project. Retry the real public URL.
+          for attempt in $(seq 1 30); do
+            echo "Production smoke attempt ${attempt}/30"
+            DOM="$($BROWSER \
+              --headless=new \
+              --no-sandbox \
+              --disable-gpu \
+              --disable-dev-shm-usage \
+              --virtual-time-budget=10000 \
+              --dump-dom \
+              "$URL" 2>/dev/null || true)"
+
+            if grep -q "Esta página não carregou" <<<"$DOM"; then
+              echo "Published app still rendered the root error boundary."
+            elif grep -q "Acesso privado" <<<"$DOM" && grep -q "Entrar com Google" <<<"$DOM"; then
+              echo "Published app is healthy: private access screen rendered successfully."
+              exit 0
+            else
+              echo "Published app has not reached the expected login screen yet."
+            fi
+
+            sleep 20
+          done
+
+          echo "Production did not reach the expected login screen within the retry window."
+          exit 1
