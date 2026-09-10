@@ -52,15 +52,17 @@ TanStack server functions use the global Supabase bearer-token middleware and Ta
 
 - `Content-Security-Policy`
 - `X-Content-Type-Options: nosniff`
-- `Referrer-Policy: no-referrer`
+- `Referrer-Policy: no-referrer` at the application layer
 - `Permissions-Policy` disabling camera, microphone, geolocation, payment, USB and browsing topics
 - `Cross-Origin-Opener-Policy: same-origin-allow-popups`
 - `Cross-Origin-Resource-Policy: same-origin`
 - `X-Robots-Tag: noindex, nofollow, noarchive`
-- `Cache-Control: private, no-store` for HTML/JSON
+- `Cache-Control: private, no-store` for HTML/JSON at the application layer
 - HSTS on HTTPS
 
-The CSP now defines `default-src`, script/style/image/font/connect/form/frame sources, blocks objects and restricts embedding. `unsafe-eval` is not allowed. `unsafe-inline` remains enabled for scripts/styles for compatibility with the current TanStack/Lovable rendering path; moving to nonce/hash-based CSP is future hardening and requires separate runtime validation.
+The CSP defines `default-src`, script/style/image/font/connect/form/frame sources, blocks objects and restricts embedding. `unsafe-eval` is not allowed. `unsafe-inline` remains enabled for scripts/styles for compatibility with the current TanStack/Lovable rendering path; moving to nonce/hash-based CSP is future hardening and requires separate runtime validation.
+
+Production validation confirmed that the Lovable edge preserves the CSP, `Cross-Origin-Resource-Policy`, `Cross-Origin-Opener-Policy`, `Permissions-Policy`, HSTS, `X-Content-Type-Options` and `X-Robots-Tag`. On the public root login shell, the edge normalizes two application-layer values: `Cache-Control` is served as `no-cache, must-revalidate, max-age=0`, and `Referrer-Policy` is served as `strict-origin-when-cross-origin`. The production smoke accepts only these conservative platform variants (or the application values), requires `max-age=0`, rejects public caching, and continues to require the complete hardened CSP without `unsafe-eval`. The root page is the unauthenticated login shell; authenticated operations remain behind bearer-authenticated server functions.
 
 ## Sensitive state integrity
 
@@ -97,10 +99,23 @@ No application use of `dangerouslySetInnerHTML`, `eval` or `new Function` was id
 - Critical actions are pinned to immutable commit SHAs.
 - Dependency and GitHub Actions updates are monitored by Dependabot weekly.
 - CI runs tests and a production build on pushes and pull requests to `main`.
-- CI now includes the privileged-client/secret boundary check described above.
+- CI includes the privileged-client/secret boundary check described above.
 - Database/RLS regression tests remain in the separate database security workflow.
+- The production smoke can be triggered manually and also validates itself when its workflow definition changes.
 
 `@lovable.dev/cloud-auth-js` is officially described by its publisher as a legacy OAuth broker and the npm package is deprecated. The current integration is not treated as a confirmed exploitable vulnerability: server-side authorization still independently validates every `serverFn`. Migration away from this broker is maintenance debt and should be performed only as a separate OAuth change with preview and production login validation.
+
+## Final validation
+
+The hardened deployment was validated on 2026-09-10:
+
+- GitHub CI run `34539301810`: passed.
+- Server-secret boundary check: passed.
+- Experimental engine E2E: passed.
+- Unit tests: passed.
+- Production build: passed.
+- Published-security smoke run `34539301782`: passed.
+- Permanent Lovable URL: root returned `200`, private login shell rendered successfully, `/api/elo-sync` GET returned `405`, `robots.txt` blocked indexing, and hardened response headers/CSP were present.
 
 ## Residual limitations / accepted risks
 
@@ -108,10 +123,10 @@ No application use of `dangerouslySetInnerHTML`, `eval` or `new Function` was id
 2. **CSP compatibility:** nonce/hash-based CSP would be stronger than `unsafe-inline`, but is deferred because it can break framework hydration/OAuth without coordinated runtime changes.
 3. **Deprecated Lovable OAuth broker:** maintenance debt; migrate separately rather than altering authentication during unrelated work.
 4. **Global bankroll concurrency across different bets:** per-row duplicate transitions are protected; database-level serialization of the whole bankroll is left for the backend/integrity audit.
-5. **Published Lovable snapshots:** a GitHub commit and a Lovable production publish are distinct states. Production smoke must be rerun after publication.
+5. **Published Lovable snapshots:** GitHub commits and Lovable production publishes are distinct states. The current hardened snapshot has been validated; rerun the production smoke after future security-sensitive publications.
 
 ## Verdict
 
 For the current private, single-user deployment, no confirmed critical or high-severity application-security vulnerability remains open in the audited paths after the hardening above.
 
-Application Security audit status: **CLOSED**, subject to the explicit residual limitations above and successful CI/production smoke validation for the hardened commit.
+Application Security audit status: **CLOSED**. CI and production smoke are green for the hardened deployment.
