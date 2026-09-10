@@ -1,0 +1,35 @@
+name: Database Security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/database-security.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/database-security.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rls-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1
+        with:
+          version: 2.100.0
+
+      - name: Start local database and apply migrations
+        run: supabase db start
+
+      - name: RLS regression tests
+        run: supabase test db
