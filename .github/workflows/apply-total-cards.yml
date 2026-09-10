@@ -1,0 +1,156 @@
+name: Apply total cards adjustment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-total-cards.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Add one-shot total cards adjustment'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Apply total-card rule
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          # Market catalogue: cards = yellow + red, keep absolute binary thresholds.
+          p = Path('src/lib/engine/markets.ts')
+          t = p.read_text()
+          t = t.replace('const noun = isCorners ? "Escanteios" : "Cartões amarelos";', 'const noun = isCorners ? "Escanteios" : "Cartões";')
+          t = t.replace(': ["cards_yellow_raw"],', ': ["cards_yellow_raw", "cards_red_raw"],')
+          p.write_text(t)
+
+          # Model version now reflects total cards rather than yellow-only cards.
+          p = Path('src/lib/engine/cards.ts')
+          t = p.read_text().replace('cards-yellow-baseline-v1', 'cards-total-baseline-v1')
+          p.write_text(t)
+
+          # UI family label.
+          p = Path('src/components/ExperimentalMarketsPilot.tsx')
+          t = p.read_text().replace('CARDS: "Cartões amarelos"', 'CARDS: "Cartões"')
+          p.write_text(t)
+
+          # Dataset aggregation and labels in the active experimental run.
+          p = Path('src/lib/experimental-markets-run.functions.ts')
+          t = p.read_text()
+          old_decl = 'const cardParts = new Map<string, Partial<CardMatchRow>>();'
+          new_decl = 'const cardParts = new Map<string, Partial<CardMatchRow> & { homeYellow?: number; homeRed?: number; awayYellow?: number; awayRed?: number }>();'
+          assert old_decl in t
+          t = t.replace(old_decl, new_decl, 1)
+
+          old_block = '''    const metric = String(rv["metricLabelRaw"] ?? rv["sourceLabel"] ?? "");
+    const cardValue = finiteNumber(rv["value"]);
+    if (cardValue !== null && (metric === "cards.home.yellow" || metric === "cards.away.yellow")) {
+      const part = cardParts.get(externalMatchId) ?? { date, league, homeTeam, awayTeam };
+      part.date = date;
+      part.league = league;
+      part.homeTeam = homeTeam;
+      part.awayTeam = awayTeam;
+      if (metric === "cards.home.yellow") part.homeCards = cardValue;
+      if (metric === "cards.away.yellow") part.awayCards = cardValue;
+      cardParts.set(externalMatchId, part);
+    }
+'''
+          new_block = '''    const metric = String(rv["metricLabelRaw"] ?? rv["sourceLabel"] ?? "");
+    const cardValue = finiteNumber(rv["value"]);
+    if (
+      cardValue !== null &&
+      (metric === "cards.home.yellow" ||
+        metric === "cards.home.red" ||
+        metric === "cards.away.yellow" ||
+        metric === "cards.away.red")
+    ) {
+      const part = cardParts.get(externalMatchId) ?? { date, league, homeTeam, awayTeam };
+      part.date = date;
+      part.league = league;
+      part.homeTeam = homeTeam;
+      part.awayTeam = awayTeam;
+      if (metric === "cards.home.yellow") part.homeYellow = cardValue;
+      if (metric === "cards.home.red") part.homeRed = cardValue;
+      if (metric === "cards.away.yellow") part.awayYellow = cardValue;
+      if (metric === "cards.away.red") part.awayRed = cardValue;
+      cardParts.set(externalMatchId, part);
+    }
+'''
+          assert old_block in t
+          t = t.replace(old_block, new_block, 1)
+
+          old_final = '''  const cards: CardMatchRow[] = [];
+  for (const [id, part] of cardParts) {
+    if (conflicts.has(id)) continue;
+    if (!part.date || !part.league || !part.homeTeam || !part.awayTeam) continue;
+    if (part.homeCards === undefined || part.awayCards === undefined) continue;
+    cards.push(part as CardMatchRow);
+  }
+'''
+          new_final = '''  const cards: CardMatchRow[] = [];
+  for (const [id, part] of cardParts) {
+    if (conflicts.has(id)) continue;
+    if (!part.date || !part.league || !part.homeTeam || !part.awayTeam) continue;
+    if (
+      part.homeYellow === undefined ||
+      part.homeRed === undefined ||
+      part.awayYellow === undefined ||
+      part.awayRed === undefined
+    ) continue;
+    cards.push({
+      date: part.date,
+      league: part.league,
+      homeTeam: part.homeTeam,
+      awayTeam: part.awayTeam,
+      homeCards: part.homeYellow + part.homeRed,
+      awayCards: part.awayYellow + part.awayRed,
+    });
+  }
+'''
+          assert old_final in t
+          t = t.replace(old_final, new_final, 1)
+          t = t.replace('Cartões amarelos da partida', 'Cartões da partida')
+          t = t.replace('Cartões amarelos ${participant ?? "time"}', 'Cartões ${participant ?? "time"}')
+          t = t.replace('cartões amarelos continentais', 'cartões continentais')
+          p.write_text(t)
+
+          # Keep a concrete regression assertion in the cards unit test.
+          p = Path('src/lib/engine/cards.test.ts')
+          t = p.read_text()
+          marker = 'expect(params.modelVersion).toBe(CARDS_MODEL_VERSION);'
+          assert marker in t
+          t = t.replace(marker, marker + '\n    expect(CARDS_MODEL_VERSION).toBe("cards-total-baseline-v1");', 1)
+          p.write_text(t)
+          PY
+
+          git diff --check
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Tests and build
+        run: |
+          bunx vitest run src/lib/engine/cards.test.ts src/lib/engine/experimental-goal-markets.test.ts src/lib/engine/markets.test.ts src/lib/engine/experimental-pilot.e2e.test.ts
+          bun run build
+
+      - name: Commit requested changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/engine/markets.ts src/lib/engine/cards.ts src/components/ExperimentalMarketsPilot.tsx src/lib/experimental-markets-run.functions.ts src/lib/engine/cards.test.ts
+          git commit -m "Model Bet365 cards as yellow plus red"
+          git push origin HEAD:main
