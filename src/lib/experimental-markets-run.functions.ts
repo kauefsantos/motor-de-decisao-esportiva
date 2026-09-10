@@ -26,6 +26,7 @@ import {
   pProfit,
 } from "./engine/settlement";
 import { BASE_GATE } from "./engine/opportunity";
+import { CORNER_OVER_LINES, CORNER_UNDER_LINES } from "./engine/markets";
 import { evaluateValue, finalSelection, type ValueInput, type ValueResult } from "./engine/value";
 import type { AsianOutcomeProbabilities, ContractType } from "./engine/types";
 import { eloAdjustGoalForecast } from "./elo-feature.server";
@@ -359,40 +360,37 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       }
 
       if (cornerForecast && cornerForecast.sampleSize > 0) {
-        const specs = [
-          {
-            market: "corners_match_total",
-            participant: null,
-            line: "9.5",
-            dist: poissonDistribution(cornerForecast.lambdaTotal),
-          },
-          {
-            market: "corners_match_total",
-            participant: null,
-            line: "10.5",
-            dist: poissonDistribution(cornerForecast.lambdaTotal),
-          },
-          {
-            market: "corners_team_total",
-            participant: match.home_team ?? "Mandante",
-            line: "4.5",
-            dist: poissonDistribution(cornerForecast.lambdaHome),
-          },
-          {
-            market: "corners_team_total",
-            participant: match.away_team ?? "Visitante",
-            line: "4.5",
-            dist: poissonDistribution(cornerForecast.lambdaAway),
-          },
-        ];
-        let ordinal = 0;
-        for (const spec of specs) {
-          for (const side of ["OVER", "UNDER"] as const) {
-            ordinal += 1;
-            const line = canonicalLine(spec.line);
-            const outcomes = asianOutcomes(spec.dist, line, side);
-            const p = pProfit(outcomes);
-            const id = predictionId(data.runId, match.id, "CORNERS", ordinal);
+        const scopes = [
+  {
+    market: "corners_match_total",
+    participant: null,
+    dist: poissonDistribution(cornerForecast.lambdaTotal),
+  },
+  {
+    market: "corners_team_total",
+    participant: match.home_team ?? "Mandante",
+    dist: poissonDistribution(cornerForecast.lambdaHome),
+  },
+  {
+    market: "corners_team_total",
+    participant: match.away_team ?? "Visitante",
+    dist: poissonDistribution(cornerForecast.lambdaAway),
+  },
+];
+const lineSpecs = [
+  ...CORNER_OVER_LINES.map((line) => ({ side: "OVER" as const, line })),
+  ...CORNER_UNDER_LINES.map((line) => ({ side: "UNDER" as const, line })),
+];
+let ordinal = 0;
+for (const spec of scopes) {
+  for (const lineSpec of lineSpecs) {
+    ordinal += 1;
+    const side = lineSpec.side;
+    const lineRaw = lineSpec.line;
+    const line = canonicalLine(lineRaw);
+    const outcomes = asianOutcomes(spec.dist, line, side);
+    const p = pProfit(outcomes);
+    const id = predictionId(data.runId, match.id, "CORNERS", ordinal);
             predictionRows.push({
               run_id: data.runId,
               match_id: match.id,
@@ -400,7 +398,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
               market: spec.market,
               participant: spec.participant,
               side,
-              line_raw: spec.line,
+              line_raw: lineRaw,
               line_canonical: line,
               model_probability: p,
               p_cal: null,
@@ -419,10 +417,10 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
               competition: match.competition ?? "",
               family: "CORNERS",
               market: spec.market,
-              marketLabel: labelFor(spec.market, spec.participant, side, spec.line),
+              marketLabel: labelFor(spec.market, spec.participant, side, lineRaw),
               participant: spec.participant,
               side,
-              lineRaw: spec.line,
+              lineRaw,
               lineCanonical: line,
               contractType: "ASIAN",
               probabilityExperimental: p,
@@ -597,7 +595,7 @@ const oddsSchema = z.object({
       }),
     )
     .min(1)
-    .max(300),
+    .max(1500),
 });
 
 type EnrichedValueResult = ValueResult & {

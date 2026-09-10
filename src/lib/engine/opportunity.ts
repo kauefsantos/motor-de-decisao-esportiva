@@ -10,7 +10,7 @@ import type {
   OpportunityOutput,
 } from "./types";
 
-export const BASE_GATE = 0.65;
+export const BASE_GATE = 0.75;
 
 export interface NormalizedFeature {
   metric: string;
@@ -142,7 +142,7 @@ export function evaluateContract(
       blockReason: published ? null : "BASE_GATE_NOT_MET",
       reasonShort: published
         ? "Suporte quantitativo suficiente no gate-base asiático."
-        : `p_profit_cal ${(pProfitCal * 100).toFixed(1)}% abaixo do gate de 65%.`,
+        : `p_profit_cal ${(pProfitCal * 100).toFixed(1)}% abaixo do gate de 75%.`,
     };
   }
 
@@ -170,7 +170,7 @@ export function evaluateContract(
     blockReason: published ? null : "BASE_GATE_NOT_MET",
     reasonShort: published
       ? "Suporte quantitativo suficiente no gate-base binário."
-      : `p_cal ${(pCal * 100).toFixed(1)}% abaixo do gate de 65%.`,
+      : `p_cal ${(pCal * 100).toFixed(1)}% abaixo do gate de 75%.`,
   };
 }
 

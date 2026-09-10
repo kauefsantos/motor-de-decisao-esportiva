@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { fitGoalsBaseline, predictGoals, type GoalMatchRow } from "./goals";
 import { buildGoalMarketProjections } from "./experimental-goal-markets";
 import { evaluateValue, finalSelection } from "./value";
+import { BASE_GATE } from "./opportunity";
 import type { AsianOutcomeProbabilities } from "./types";
 
 const LEAGUE = "Brazil Serie A";
@@ -22,7 +23,7 @@ const training: GoalMatchRow[] = [
 ];
 
 describe("experimental pilot E2E", () => {
-  it("runs history -> model -> markets -> 65% gate -> Motor 2 -> final selections", () => {
+  it("runs history -> model -> markets -> 75% gate -> Motor 2 -> final selections", () => {
     const model = fitGoalsBaseline(training);
     const forecast = predictGoals(model, { league: LEAGUE, homeTeam: "A", awayTeam: "B" });
 
@@ -44,7 +45,8 @@ describe("experimental pilot E2E", () => {
       ),
     ).toBe(true);
 
-    const eligible = projections.filter((p) => p.probability >= 0.65);
+    expect(BASE_GATE).toBe(0.75);
+    const eligible = projections.filter((p) => p.probability >= BASE_GATE);
     expect(eligible.length).toBeGreaterThan(0);
 
     const evaluated = eligible.map((p, index) =>

@@ -5,17 +5,25 @@ import type { MarketContract } from "./types";
 
 export const SETTLEMENT_HORIZON = "90min + acréscimos (tempo regulamentar)";
 
+export const CORNER_OVER_LINES = Array.from({ length: 11 }, (_, line) => String(line));
+export const CORNER_UNDER_LINES = Array.from({ length: 11 }, (_, index) => String(index + 1));
+
 interface TeamNames {
   home: string;
   away: string;
 }
 
-function corners(scope: "MATCH" | "TEAM", participant: string | null, line: string): MarketContract[] {
+function corners(
+  scope: "MATCH" | "TEAM",
+  participant: string | null,
+  line: string,
+  side: "OVER" | "UNDER",
+): MarketContract {
   const base = scope === "MATCH" ? "Escanteios da partida" : `Escanteios ${participant}`;
-  return (["OVER", "UNDER"] as const).map((side) => ({
-    family: "CORNERS" as const,
+  return {
+    family: "CORNERS",
     scope,
-    contractType: "ASIAN" as const,
+    contractType: "ASIAN",
     market: scope === "MATCH" ? "corners_match_total" : "corners_team_total",
     label: `${base} ${side === "OVER" ? "Mais de" : "Menos de"} ${line}`,
     side,
@@ -26,7 +34,7 @@ function corners(scope: "MATCH" | "TEAM", participant: string | null, line: stri
       scope === "MATCH"
         ? ["corners_taken_for", "corners_taken_against"]
         : ["corners_taken_for"],
-  }));
+  };
 }
 
 function cards(scope: "MATCH" | "TEAM", participant: string | null, line: string): MarketContract[] {
@@ -115,10 +123,16 @@ export function buildContracts(teams: TeamNames): MarketContract[] {
     });
   });
 
-  out.push(...corners("MATCH", null, "9.5"));
-  out.push(...corners("MATCH", null, "10.5"));
-  out.push(...corners("TEAM", home, "4.5"));
-  out.push(...corners("TEAM", away, "4.5"));
+  for (const line of CORNER_OVER_LINES) {
+  out.push(corners("MATCH", null, line, "OVER"));
+  out.push(corners("TEAM", home, line, "OVER"));
+  out.push(corners("TEAM", away, line, "OVER"));
+}
+for (const line of CORNER_UNDER_LINES) {
+  out.push(corners("MATCH", null, line, "UNDER"));
+  out.push(corners("TEAM", home, line, "UNDER"));
+  out.push(corners("TEAM", away, line, "UNDER"));
+}
 
   out.push(...cards("MATCH", null, "4.5"));
   out.push(...cards("TEAM", home, "2.5"));
