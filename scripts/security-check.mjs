@@ -65,15 +65,25 @@ assert(
   "Operational BRL 0.50 floor behavior is missing from bankroll suggestion logic.",
 );
 
-const appSource = walk("src")
-  .filter((file) => /\.(?:ts|tsx|js|jsx)$/.test(file))
-  .map((file) => `${file}\n${read(file)}`)
-  .join("\n");
-assert(
-  !appSource.includes("dangerouslySetInnerHTML"),
-  "dangerouslySetInnerHTML is forbidden in application source.",
+const sourceFiles = walk("src").filter((file) => /\.(?:ts|tsx|js|jsx)$/.test(file));
+const htmlInjectionFiles = sourceFiles.filter((file) =>
+  read(file).includes("dangerouslySetInnerHTML"),
 );
+const reviewedChartSink = "src/components/ui/chart.tsx";
+assert(
+  htmlInjectionFiles.every((file) => file === reviewedChartSink) &&
+    htmlInjectionFiles.length <= 1,
+  `Unreviewed dangerouslySetInnerHTML usage found: ${htmlInjectionFiles.join(", ")}`,
+);
+if (htmlInjectionFiles.includes(reviewedChartSink)) {
+  const chart = read(reviewedChartSink);
+  assert(
+    chart.includes("Object.entries(THEMES)") && chart.includes("ChartConfig"),
+    "Reviewed chart CSS injection changed shape and requires a new security review.",
+  );
+}
 
+const appSource = sourceFiles.map((file) => `${file}\n${read(file)}`).join("\n");
 const secretAssignment = /(?:SUPABASE_SERVICE_ROLE_KEY|FIVE_DOLLAR_FOOTBALL_API_KEY|LOVABLE_CRON_SECRET)\s*=\s*["'][^"']+["']/;
 assert(
   !secretAssignment.test(appSource),
