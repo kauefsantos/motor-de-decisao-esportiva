@@ -2,6 +2,10 @@ name: Production smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-smoke.yml"
 
 permissions:
   contents: read
@@ -24,8 +28,8 @@ jobs:
             exit 1
           fi
 
-          # Lovable publishes snapshots. This workflow is intentionally manual so
-          # it validates the actual permanent URL after a Publish/Update action.
+          # Lovable publishes snapshots. Retries allow a just-published snapshot
+          # to propagate before the permanent URL is evaluated.
           for attempt in $(seq 1 6); do
             echo "Production smoke attempt ${attempt}/6"
 
@@ -57,7 +61,12 @@ jobs:
             if grep -qi '^x-content-type-options: nosniff' <<<"$HEADERS" \
               && grep -qi '^referrer-policy: no-referrer' <<<"$HEADERS" \
               && grep -qi '^x-robots-tag: noindex, nofollow, noarchive' <<<"$HEADERS" \
-              && grep -qi '^cache-control: .*no-store' <<<"$HEADERS"; then
+              && grep -qi '^cache-control: .*no-store' <<<"$HEADERS" \
+              && grep -qi '^cross-origin-resource-policy: same-origin' <<<"$HEADERS" \
+              && grep -qi '^content-security-policy:' <<<"$HEADERS" \
+              && grep -qi "default-src 'self'" <<<"$HEADERS" \
+              && grep -qi "object-src 'none'" <<<"$HEADERS" \
+              && ! grep -qi "'unsafe-eval'" <<<"$HEADERS"; then
               headers_ok=true
             fi
 
@@ -75,7 +84,7 @@ jobs:
               && [ "$headers_ok" = true ] \
               && [ "$endpoint_ok" = true ] \
               && [ "$robots_ok" = true ]; then
-              echo "Published app passed private-access and security smoke checks."
+              echo "Published app passed private-access and hardened security smoke checks."
               exit 0
             fi
 
