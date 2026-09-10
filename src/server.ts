@@ -18,18 +18,34 @@ async function getServerEntry(): Promise<ServerEntry> {
   return serverEntryPromise;
 }
 
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self' https://*.lovable.dev https://*.gptengineer.app",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",
+  "form-action 'self' https://accounts.google.com",
+  "frame-src 'self' https://accounts.google.com https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",
+].join("; ");
+
 function applySecurityHeaders(request: Request, response: Response): Response {
   const headers = new Headers(response.headers);
   const contentType = headers.get("content-type") ?? "";
 
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
-  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   headers.set(
-    "Content-Security-Policy",
-    "base-uri 'self'; object-src 'none'; frame-ancestors 'self' https://*.lovable.dev https://*.gptengineer.app",
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()",
   );
+  // OAuth flows may use a popup/redirect, so keep popups isolated but functional.
+  headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
 
   if (contentType.includes("text/html") || contentType.includes("application/json")) {
