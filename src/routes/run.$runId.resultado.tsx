@@ -22,6 +22,7 @@ export const Route = createFileRoute("/run/$runId/resultado")({
 const pct = (v: unknown, digits = 2) =>
   v === null || v === undefined ? "—" : `${(Number(v) * 100).toFixed(digits)}%`;
 const dec = (v: unknown) => (v === null || v === undefined ? "—" : Number(v).toFixed(2));
+const line = (v: number) => v.toFixed(1).replace(".", ",");
 
 function friendlyReason(reason: string | null | undefined) {
   if (!reason) return "Ficou fora das sugestões finais";
@@ -55,6 +56,27 @@ function friendlyStatus(status: string | null | undefined) {
   return labels[status] ?? "Em verificação";
 }
 
+function directionLabel(direction: ExperimentalDirectionAssessment["direction"]) {
+  const labels: Record<ExperimentalDirectionAssessment["direction"], string> = {
+    VALUE_OVER: "Mais tem value confirmado",
+    VALUE_UNDER: "Menos tem value confirmado",
+    MODEL_LEAN_OVER: "Modelo pende para Mais — sem value confirmado",
+    MODEL_LEAN_UNDER: "Modelo pende para Menos — sem value confirmado",
+    NEUTRAL: "Sem direção clara",
+  };
+  return labels[direction];
+}
+
+function directionMarketLabel(assessment: ExperimentalDirectionAssessment) {
+  const scope = assessment.participant ? ` · ${assessment.participant}` : "";
+  if (assessment.market === "corners_match_total") return "Escanteios da partida";
+  if (assessment.market === "corners_team_total") return `Escanteios${scope}`;
+  if (assessment.market === "cards_match_total") return "Cartões da partida";
+  if (assessment.market === "cards_team_total") return `Cartões${scope}`;
+  if (assessment.market === "goals_match_total") return "Gols da partida";
+  return assessment.market;
+}
+
 type ExperimentalStoredEvaluation = {
   predictionId: string;
   matchId: string | null;
@@ -79,6 +101,38 @@ type ExperimentalStoredEvaluation = {
   productionStatus: string;
 };
 
+type ExperimentalReferenceAlternative = {
+  matchId: string;
+  market: string;
+  participant: string | null;
+  side: "OVER" | "UNDER";
+  lineCanonical: number;
+  marketLabel: string;
+  probabilityExperimental: number;
+  fairOdd: number | null;
+  minOddTarget: number | null;
+  requiresRealOdd: true;
+  valueStatus: "NAO_AVALIADO";
+};
+
+type ExperimentalDirectionAssessment = {
+  matchId: string;
+  market: string;
+  participant: string | null;
+  anchorLine: number;
+  direction:
+    | "VALUE_OVER"
+    | "VALUE_UNDER"
+    | "MODEL_LEAN_OVER"
+    | "MODEL_LEAN_UNDER"
+    | "NEUTRAL";
+  basis: "VALUE" | "MODEL_ONLY" | "NEUTRAL";
+  overProbability: number;
+  underProbability: number;
+  bestValuePredictionId: string | null;
+  referenceAlternatives: ExperimentalReferenceAlternative[];
+};
+
 type ExperimentalStoredResult = {
   runId: string;
   analyzedAt: string;
@@ -89,6 +143,8 @@ type ExperimentalStoredResult = {
   productionStatus: string;
   evaluations: ExperimentalStoredEvaluation[];
   selectionOrder: string[];
+  directionAssessments?: ExperimentalDirectionAssessment[];
+  referenceAlternatives?: ExperimentalReferenceAlternative[];
 };
 
 function ResultScreen() {
@@ -268,6 +324,7 @@ function ExperimentalResultScreen({ runId, data, loaded }: {
     .filter((evaluation) => evaluation.valueStatus === "TEM_VALOR" && evaluation.executionStatus === "EXECUTAVEL")
     .sort((a, b) => (b.evCons ?? 0) - (a.evCons ?? 0) || (b.edgeCons ?? 0) - (a.edgeCons ?? 0));
   const withoutValue = rejected.filter((evaluation) => evaluation.valueStatus !== "TEM_VALOR" || evaluation.executionStatus !== "EXECUTAVEL");
+  const directionAssessments = data.directionAssessments ?? [];
 
   return (
     <AppShell stage="resultado">
@@ -303,6 +360,41 @@ function ExperimentalResultScreen({ runId, data, loaded }: {
             </article>
           ))}
         </div>
+
+        {directionAssessments.length > 0 && (
+          <CollapsiblePanel className="mt-4" title="Direção e linhas de referência" description="Compara Mais x Menos nas linhas cotadas e mostra até onde vale pesquisar preço" meta={directionAssessments.length}>
+            <div className="divide-y divide-border">
+              {directionAssessments.map((assessment) => {
+                const matchLabel = data.evaluations.find((evaluation) => evaluation.matchId === assessment.matchId)?.matchLabel ?? "—";
+                return (
+                  <div key={`${assessment.matchId}-${assessment.market}-${assessment.participant ?? "MATCH"}`} className="py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div><p className="text-sm font-medium">{matchLabel}</p><p className="text-xs text-muted-foreground">{directionMarketLabel(assessment)} · linha {line(assessment.anchorLine)}</p></div>
+                      <span className="text-xs font-medium text-accent">{directionLabel(assessment.direction)}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">Chance do modelo: Mais {pct(assessment.overProbability, 1)} · Menos {pct(assessment.underProbability, 1)}</p>
+                    {assessment.referenceAlternatives.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-border p-3">
+                        <p className="text-xs font-medium">Linhas que ainda merecem cotação</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">São referências estatísticas. Só existe value depois de informar uma odd real da casa.</p>
+                        <ul className="mt-2 divide-y divide-border/70">
+                          {assessment.referenceAlternatives.map((alternative) => (
+                            <li key={`${alternative.side}-${alternative.lineCanonical}`} className="py-2 text-xs sm:grid sm:grid-cols-[1fr_auto_auto_auto] sm:gap-3">
+                              <span>{alternative.side === "OVER" ? "Mais de" : "Menos de"} {line(alternative.lineCanonical)}</span>
+                              <span className="text-muted-foreground">chance {pct(alternative.probabilityExperimental, 1)}</span>
+                              <span className="text-muted-foreground">odd justa {dec(alternative.fairOdd)}</span>
+                              <span className="text-muted-foreground">cotaria a partir de {dec(alternative.minOddTarget)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CollapsiblePanel>
+        )}
 
         <CollapsiblePanel className="mt-4" title="Outras odds conferidas" description="Boas alternativas e opções que não compensaram" meta={rejected.length}>
           {qualifiedAlternates.length > 0 && (
