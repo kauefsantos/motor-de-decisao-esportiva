@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 const ALLOWED_EMAIL = "kauefsantos3@gmail.com";
 
-type AuthState = "loading" | "signed-out" | "authorized" | "denied";
+type AuthState = "loading" | "signed-out" | "authorized";
 
 function normalizedEmail(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
@@ -27,12 +27,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (normalizedEmail(session.user.email) !== ALLOWED_EMAIL) {
-        setState("denied");
+      const provider = String(session.user.app_metadata?.provider ?? "");
+      const authorized =
+        normalizedEmail(session.user.email) === ALLOWED_EMAIL && provider === "google";
+
+      if (!authorized) {
+        setMessage("Esta conta Google não tem acesso ao painel.");
         await supabase.auth.signOut();
+        if (active) setState("signed-out");
         return;
       }
 
+      setMessage(null);
       setState("authorized");
     }
 
@@ -107,11 +113,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
           Este painel é restrito. Entre com a conta Google autorizada para continuar.
         </p>
 
-        {state === "denied" && (
-          <div className="mt-5 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            Esta conta Google não tem acesso ao painel.
-          </div>
-        )}
         {message && (
           <div className="mt-5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             {message}
