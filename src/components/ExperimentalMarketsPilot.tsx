@@ -20,9 +20,10 @@ const pct = (value: number | null | undefined, digits = 1) =>
 const dec = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : Number(value).toFixed(2);
 
-const FAMILY_ORDER = ["CORNERS", "GOALS", "TEAM_GOALS", "1X2", "DOUBLE_CHANCE", "BTTS"] as const;
+const FAMILY_ORDER = ["CORNERS", "CARDS", "GOALS", "TEAM_GOALS", "1X2", "DOUBLE_CHANCE", "BTTS"] as const;
 const FAMILY_LABELS: Record<string, string> = {
   CORNERS: "Escanteios",
+  CARDS: "Cartões amarelos",
   GOALS: "Gols",
   TEAM_GOALS: "Gols por time",
   "1X2": "Resultado",

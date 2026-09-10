@@ -5,52 +5,46 @@ import type { MarketContract } from "./types";
 
 export const SETTLEMENT_HORIZON = "90min + acréscimos (tempo regulamentar)";
 
-export const CORNER_OVER_LINES = Array.from({ length: 11 }, (_, line) => String(line));
-export const CORNER_UNDER_LINES = Array.from({ length: 11 }, (_, index) => String(index + 1));
+export const CORNER_OVER_LINES = ["4", "5", "6", "7", "8", "9", "10"] as const;
+export const CORNER_UNDER_LINES = ["10", "9", "8", "7", "6", "5"] as const;
+export const CARD_MATCH_OVER_LINES = ["2", "3", "4", "5", "6"] as const;
+export const CARD_MATCH_UNDER_LINES = ["7", "6", "5", "4", "3"] as const;
+export const CARD_TEAM_OVER_LINES = ["0", "1", "2", "3"] as const;
+export const CARD_TEAM_UNDER_LINES = ["4", "3", "2", "1"] as const;
 
 interface TeamNames {
   home: string;
   away: string;
 }
 
-function corners(
+function absoluteCountContract(
+  family: "CORNERS" | "CARDS",
   scope: "MATCH" | "TEAM",
   participant: string | null,
   line: string,
   side: "OVER" | "UNDER",
 ): MarketContract {
-  const base = scope === "MATCH" ? "Escanteios da partida" : `Escanteios ${participant}`;
+  const isCorners = family === "CORNERS";
+  const noun = isCorners ? "Escanteios" : "Cartões amarelos";
+  const base = scope === "MATCH" ? `${noun} da partida` : `${noun} ${participant}`;
   return {
-    family: "CORNERS",
+    family,
     scope,
-    contractType: "ASIAN",
-    market: scope === "MATCH" ? "corners_match_total" : "corners_team_total",
+    contractType: "BINARY",
+    market: isCorners
+      ? scope === "MATCH" ? "corners_match_total" : "corners_team_total"
+      : scope === "MATCH" ? "cards_match_total" : "cards_team_total",
     label: `${base} ${side === "OVER" ? "Mais de" : "Menos de"} ${line}`,
     side,
     participant,
     lineRaw: line,
-    settlementDefinition: `corners_taken, ${SETTLEMENT_HORIZON}`,
-    requiredMetrics:
-      scope === "MATCH"
+    settlementDefinition: `${noun.toLowerCase()} em contagem inteira; Mais de N = N+1 ou mais; Menos de N = N-1 ou menos; ${SETTLEMENT_HORIZON}`,
+    requiredMetrics: isCorners
+      ? scope === "MATCH"
         ? ["corners_taken_for", "corners_taken_against"]
-        : ["corners_taken_for"],
+        : ["corners_taken_for"]
+      : ["cards_yellow_raw"],
   };
-}
-
-function cards(scope: "MATCH" | "TEAM", participant: string | null, line: string): MarketContract[] {
-  const base = scope === "MATCH" ? "Cartões da partida" : `Cartões ${participant}`;
-  return (["OVER", "UNDER"] as const).map((side) => ({
-    family: "CARDS" as const,
-    scope,
-    contractType: "ASIAN" as const,
-    market: scope === "MATCH" ? "cards_match_points" : "cards_team_points",
-    label: `${base} ${side === "OVER" ? "Mais de" : "Menos de"} ${line}`,
-    side,
-    participant,
-    lineRaw: line,
-    settlementDefinition: `pontos de cartão (amarelo=1, vermelho=2; segundo amarelo não conta como amarelo adicional; apenas jogadores em campo), ${SETTLEMENT_HORIZON}`,
-    requiredMetrics: ["card_points_for", "card_points_against", "referee_card_profile"],
-  }));
 }
 
 function shots(
@@ -80,14 +74,11 @@ export function buildContracts(teams: TeamNames): MarketContract[] {
   const { home, away } = teams;
   const out: MarketContract[] = [];
 
-  // 1X2
-  (
-    [
-      ["HOME", `Vitória ${home}`],
-      ["DRAW", "Empate"],
-      ["AWAY", `Vitória ${away}`],
-    ] as const
-  ).forEach(([side, label]) => {
+  ([
+    ["HOME", `Vitória ${home}`],
+    ["DRAW", "Empate"],
+    ["AWAY", `Vitória ${away}`],
+  ] as const).forEach(([side, label]) => {
     out.push({
       family: "1X2",
       scope: "MATCH",
@@ -102,13 +93,10 @@ export function buildContracts(teams: TeamNames): MarketContract[] {
     });
   });
 
-  // BTTS — derivado da distribuição conjunta de gols
-  (
-    [
-      ["YES", "Ambas marcam: Sim"],
-      ["NO", "Ambas marcam: Não"],
-    ] as const
-  ).forEach(([side, label]) => {
+  ([
+    ["YES", "Ambas marcam: Sim"],
+    ["NO", "Ambas marcam: Não"],
+  ] as const).forEach(([side, label]) => {
     out.push({
       family: "BTTS",
       scope: "MATCH",
@@ -124,19 +112,26 @@ export function buildContracts(teams: TeamNames): MarketContract[] {
   });
 
   for (const line of CORNER_OVER_LINES) {
-  out.push(corners("MATCH", null, line, "OVER"));
-  out.push(corners("TEAM", home, line, "OVER"));
-  out.push(corners("TEAM", away, line, "OVER"));
-}
-for (const line of CORNER_UNDER_LINES) {
-  out.push(corners("MATCH", null, line, "UNDER"));
-  out.push(corners("TEAM", home, line, "UNDER"));
-  out.push(corners("TEAM", away, line, "UNDER"));
-}
+    out.push(absoluteCountContract("CORNERS", "MATCH", null, line, "OVER"));
+    out.push(absoluteCountContract("CORNERS", "TEAM", home, line, "OVER"));
+    out.push(absoluteCountContract("CORNERS", "TEAM", away, line, "OVER"));
+  }
+  for (const line of CORNER_UNDER_LINES) {
+    out.push(absoluteCountContract("CORNERS", "MATCH", null, line, "UNDER"));
+    out.push(absoluteCountContract("CORNERS", "TEAM", home, line, "UNDER"));
+    out.push(absoluteCountContract("CORNERS", "TEAM", away, line, "UNDER"));
+  }
 
-  out.push(...cards("MATCH", null, "4.5"));
-  out.push(...cards("TEAM", home, "2.5"));
-  out.push(...cards("TEAM", away, "2.5"));
+  for (const line of CARD_MATCH_OVER_LINES) out.push(absoluteCountContract("CARDS", "MATCH", null, line, "OVER"));
+  for (const line of CARD_MATCH_UNDER_LINES) out.push(absoluteCountContract("CARDS", "MATCH", null, line, "UNDER"));
+  for (const line of CARD_TEAM_OVER_LINES) {
+    out.push(absoluteCountContract("CARDS", "TEAM", home, line, "OVER"));
+    out.push(absoluteCountContract("CARDS", "TEAM", away, line, "OVER"));
+  }
+  for (const line of CARD_TEAM_UNDER_LINES) {
+    out.push(absoluteCountContract("CARDS", "TEAM", home, line, "UNDER"));
+    out.push(absoluteCountContract("CARDS", "TEAM", away, line, "UNDER"));
+  }
 
   out.push(...shots("SHOTS", "MATCH", null, "24.5"));
   out.push(...shots("SHOTS", "TEAM", home, "12.5"));

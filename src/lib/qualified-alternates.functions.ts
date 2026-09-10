@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { BASE_GATE } from "./engine/opportunity";
 import { evaluateValue, type ValueInput } from "./engine/value";
-import type { AsianOutcomeProbabilities, ContractType } from "./engine/types";
+import type { ContractType } from "./engine/types";
 import { familyForMarket } from "./engine/experimental-goal-markets";
 import { EXPERIMENTAL_MARKETS_STATUS } from "./experimental-markets-run.functions";
 
@@ -104,7 +104,7 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       throw new Error("Esta oportunidade não passou pelo gate mínimo do Motor 1.");
     }
 
-    const contractType: ContractType = prediction.line_canonical === null ? "BINARY" : "ASIAN";
+    const contractType: ContractType = "BINARY";
     const valueInput: ValueInput = {
       candidateId: prediction.prediction_id,
       predictionId: prediction.prediction_id,
@@ -113,11 +113,8 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       odd: data.odd,
       lineAtEntry: data.lineAtEntry,
       lineCanonical: prediction.line_canonical === null ? null : Number(prediction.line_canonical),
-      pCons: contractType === "BINARY" ? modelProbability : null,
-      outcomeDistribution:
-        contractType === "ASIAN"
-          ? (prediction.outcome_distribution as AsianOutcomeProbabilities | null)
-          : null,
+      pCons: modelProbability,
+      outcomeDistribution: null,
       published: modelProbability >= BASE_GATE,
       modelStatus: prediction.model_status,
       dataStatus: prediction.data_status,

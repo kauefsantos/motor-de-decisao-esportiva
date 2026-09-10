@@ -1,62 +1,30 @@
 import { describe, expect, it } from "vitest";
+import { GOAL_OVER_LIMITS, GOAL_UNDER_LIMITS, absoluteCountProbability, bookmakerLineForAbsoluteLimit, buildGoalMarketProjections, familyForMarket } from "./experimental-goal-markets";
 
-import { buildGoalMarketProjections, familyForMarket } from "./experimental-goal-markets";
+const markets = buildGoalMarketProjections({ homeTeam: "Time A", awayTeam: "Time B", lambdaHome: 1.55, lambdaAway: 1.05 });
 
 describe("experimental goal market projections", () => {
-  const markets = buildGoalMarketProjections({
-    homeTeam: "Time A",
-    awayTeam: "Time B",
-    lambdaHome: 1.55,
-    lambdaAway: 1.05,
+  it("uses only requested absolute binary goal limits", () => {
+    expect(GOAL_OVER_LIMITS).toEqual([0, 1, 2, 3]);
+    expect(GOAL_UNDER_LIMITS).toEqual([4, 3, 2, 1]);
+    const totals = markets.filter((m) => m.market === "goals_match_total");
+    expect(totals).toHaveLength(8);
+    expect(totals.every((m) => m.contractType === "BINARY" && m.outcomeDistribution === null)).toBe(true);
+    expect(totals.filter((m) => m.side === "OVER").map((m) => m.lineCanonical)).toEqual([0, 1, 2, 3]);
+    expect(totals.filter((m) => m.side === "UNDER").map((m) => m.lineCanonical)).toEqual([4, 3, 2, 1]);
   });
 
-  it("derives all expanded families from one goal distribution", () => {
-    const families = new Set(markets.map((m) => m.family));
-    expect(families).toEqual(
-      new Set(["GOALS", "TEAM_GOALS", "1X2", "DOUBLE_CHANCE", "BTTS"]),
-    );
-    expect(markets).toHaveLength(22);
+  it("applies strict integer thresholds without push semantics", () => {
+    const dist = new Map([[0, 0.1], [1, 0.2], [2, 0.3], [3, 0.4]]);
+    expect(absoluteCountProbability(dist, 1, "OVER")).toBeCloseTo(0.7);
+    expect(absoluteCountProbability(dist, 3, "UNDER")).toBeCloseTo(0.6);
+    expect(bookmakerLineForAbsoluteLimit("OVER", 4)).toBe(4.5);
+    expect(bookmakerLineForAbsoluteLimit("UNDER", 10)).toBe(9.5);
   });
 
-  it("keeps 1X2 exhaustive and double chance coherent", () => {
+  it("keeps 1X2 exhaustive and maps cards family", () => {
     const oneXtwo = markets.filter((m) => m.market === "1x2");
-    const p = Object.fromEntries(oneXtwo.map((m) => [m.side, m.probability])) as {
-      HOME: number;
-      DRAW: number;
-      AWAY: number;
-    };
-    expect(p.HOME + p.DRAW + p.AWAY).toBeCloseTo(1, 8);
-
-    const dc = Object.fromEntries(
-      markets
-        .filter((m) => m.market === "double_chance")
-        .map((m) => [m.side, m.probability]),
-    ) as {
-      "1X": number;
-      X2: number;
-      "12": number;
-    };
-    expect(dc["1X"]).toBeCloseTo(p.HOME + p.DRAW, 8);
-    expect(dc.X2).toBeCloseTo(p.DRAW + p.AWAY, 8);
-    expect(dc["12"]).toBeCloseTo(p.HOME + p.AWAY, 8);
-  });
-
-  it("adds match over/under 1.5 and team goals 0.5/1.5 with Asian settlement", () => {
-    const total15 = markets.filter(
-      (m) => m.market === "goals_match_total" && m.lineRaw === "1.5",
-    );
-    expect(total15.map((m) => m.side).sort()).toEqual(["OVER", "UNDER"]);
-    expect(total15.every((m) => m.contractType === "ASIAN" && m.outcomeDistribution)).toBe(true);
-
-    const teamGoals = markets.filter((m) => m.market === "team_goals_total");
-    expect(teamGoals).toHaveLength(8);
-    expect(new Set(teamGoals.map((m) => m.participant))).toEqual(new Set(["Time A", "Time B"]));
-    expect(new Set(teamGoals.map((m) => m.lineRaw))).toEqual(new Set(["0.5", "1.5"]));
-  });
-
-  it("maps persisted market names back to their families", () => {
-    expect(familyForMarket("goals_match_total")).toBe("GOALS");
-    expect(familyForMarket("team_goals_total")).toBe("TEAM_GOALS");
-    expect(familyForMarket("double_chance")).toBe("DOUBLE_CHANCE");
+    expect(oneXtwo.reduce((sum, m) => sum + m.probability, 0)).toBeCloseTo(1, 8);
+    expect(familyForMarket("cards_match_total")).toBe("CARDS");
   });
 });

@@ -47,12 +47,16 @@ function label(match: MatchRow | undefined) {
 }
 
 function candidateFromRow(row: PredictionRow): AutoOddsCandidate {
-  return {
-    predictionId: row.prediction_id,
-    market: row.market,
-    side: row.side,
-    lineCanonical: row.line_canonical === null ? null : Number(row.line_canonical),
-  };
+  const absoluteLimit = row.line_canonical === null ? null : Number(row.line_canonical);
+  const translatedLine =
+    absoluteLimit !== null && (row.market === "goals_match_total" || row.market === "corners_match_total")
+      ? row.side === "OVER"
+        ? absoluteLimit + 0.5
+        : row.side === "UNDER"
+          ? absoluteLimit - 0.5
+          : absoluteLimit
+      : absoluteLimit;
+  return { predictionId: row.prediction_id, market: row.market, side: row.side, lineCanonical: translatedLine };
 }
 
 function unsupported(row: PredictionRow): AutoOddsMatch {

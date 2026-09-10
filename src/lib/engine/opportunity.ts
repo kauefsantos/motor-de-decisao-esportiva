@@ -146,8 +146,22 @@ export function evaluateContract(
     };
   }
 
-  const key = `${contract.market}:${contract.side}`;
-  const pCal = ctx.binaryProbabilities.get(key);
+  let pCal: number | undefined;
+  if (lineCanonical !== null && (contract.side === "OVER" || contract.side === "UNDER")) {
+    const countKey = `${contract.market}:${contract.participant ?? "MATCH"}`;
+    const dist = ctx.countDistributions.get(countKey);
+    if (dist) {
+      let probability = 0;
+      for (const [count, p] of dist) {
+        if (contract.side === "OVER" ? count > lineCanonical : count < lineCanonical) probability += p;
+      }
+      pCal = Math.min(1, Math.max(0, probability));
+    }
+  }
+  if (pCal === undefined) {
+    const keyWithLine = lineCanonical === null ? `${contract.market}:${contract.side}` : `${contract.market}:${contract.side}:${lineCanonical}`;
+    pCal = ctx.binaryProbabilities.get(keyWithLine) ?? ctx.binaryProbabilities.get(`${contract.market}:${contract.side}`);
+  }
   if (pCal === undefined) {
     return blocked(ctx, contract, predictionId, lineCanonical, "OK", "INSUFFICIENT_DATA",
       "INSUFFICIENT_DATA", "Probabilidade calibrada indisponível para o contrato.");

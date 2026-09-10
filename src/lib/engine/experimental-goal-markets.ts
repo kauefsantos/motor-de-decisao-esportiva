@@ -1,18 +1,21 @@
 import { poissonDistribution } from "./corners";
 import { goalOutcomeProbabilities } from "./goals";
-import { asianFairOdd, asianOutcomes, canonicalLine, pProfit } from "./settlement";
-import type { AsianOutcomeProbabilities, ContractType } from "./types";
+import type { ContractType } from "./types";
 
 export type ExperimentalMarketFamily =
   | "CORNERS"
+  | "CARDS"
   | "GOALS"
   | "TEAM_GOALS"
   | "1X2"
   | "DOUBLE_CHANCE"
   | "BTTS";
 
+export const GOAL_OVER_LIMITS = [0, 1, 2, 3] as const;
+export const GOAL_UNDER_LIMITS = [4, 3, 2, 1] as const;
+
 export interface GoalMarketProjection {
-  family: Exclude<ExperimentalMarketFamily, "CORNERS">;
+  family: Exclude<ExperimentalMarketFamily, "CORNERS" | "CARDS">;
   market: "goals_match_total" | "team_goals_total" | "1x2" | "double_chance" | "btts";
   marketLabel: string;
   participant: string | null;
@@ -22,7 +25,26 @@ export interface GoalMarketProjection {
   contractType: ContractType;
   probability: number;
   fairOdd: number | null;
-  outcomeDistribution: AsianOutcomeProbabilities | null;
+  outcomeDistribution: null;
+}
+
+export function absoluteCountProbability(
+  distribution: Map<number, number>,
+  limit: number,
+  side: "OVER" | "UNDER",
+): number {
+  let probability = 0;
+  for (const [count, p] of distribution) {
+    if (side === "OVER" ? count > limit : count < limit) probability += p;
+  }
+  return Math.min(1, Math.max(0, probability));
+}
+
+export function bookmakerLineForAbsoluteLimit(side: string | null, limit: number | null): number | null {
+  if (limit === null) return null;
+  if (side === "OVER") return limit + 0.5;
+  if (side === "UNDER") return limit - 0.5;
+  return limit;
 }
 
 function binary(
@@ -31,15 +53,17 @@ function binary(
   marketLabel: string,
   side: string,
   probability: number,
+  participant: string | null = null,
+  limit: number | null = null,
 ): GoalMarketProjection {
   return {
     family,
     market,
     marketLabel,
-    participant: null,
+    participant,
     side,
-    lineRaw: null,
-    lineCanonical: null,
+    lineRaw: limit === null ? null : String(limit),
+    lineCanonical: limit,
     contractType: "BINARY",
     probability,
     fairOdd: probability > 0 ? 1 / probability : null,
@@ -47,36 +71,6 @@ function binary(
   };
 }
 
-function asian(
-  family: "GOALS" | "TEAM_GOALS",
-  market: "goals_match_total" | "team_goals_total",
-  marketLabel: string,
-  participant: string | null,
-  side: "OVER" | "UNDER",
-  lineRaw: string,
-  distribution: Map<number, number>,
-): GoalMarketProjection {
-  const lineCanonical = canonicalLine(lineRaw);
-  const outcomeDistribution = asianOutcomes(distribution, lineCanonical, side);
-  return {
-    family,
-    market,
-    marketLabel,
-    participant,
-    side,
-    lineRaw,
-    lineCanonical,
-    contractType: "ASIAN",
-    probability: pProfit(outcomeDistribution),
-    fairOdd: asianFairOdd(outcomeDistribution),
-    outcomeDistribution,
-  };
-}
-
-/**
- * Mercado derivado unicamente da distribuição de gols do goals-baseline-v1.
- * Não usa odds como feature e não cria uma segunda estimativa probabilística.
- */
 export function buildGoalMarketProjections(input: {
   homeTeam: string;
   awayTeam: string;
@@ -100,40 +94,23 @@ export function buildGoalMarketProjections(input: {
     binary("DOUBLE_CHANCE", "double_chance", `${input.homeTeam} ou ${input.awayTeam} (12)`, "12", outcomes.home + outcomes.away),
   );
 
-  for (const lineRaw of ["1.5", "2.5", "3.5"]) {
-    for (const side of ["OVER", "UNDER"] as const) {
-      projections.push(
-        asian(
-          "GOALS",
-          "goals_match_total",
-          `Gols da partida ${side === "OVER" ? "Mais de" : "Menos de"} ${lineRaw}`,
-          null,
-          side,
-          lineRaw,
-          totalDist,
-        ),
-      );
-    }
+  for (const limit of GOAL_OVER_LIMITS) {
+    const probability = absoluteCountProbability(totalDist, limit, "OVER");
+    projections.push(binary("GOALS", "goals_match_total", `Gols da partida Mais de ${limit}`, "OVER", probability, null, limit));
+  }
+  for (const limit of GOAL_UNDER_LIMITS) {
+    const probability = absoluteCountProbability(totalDist, limit, "UNDER");
+    projections.push(binary("GOALS", "goals_match_total", `Gols da partida Menos de ${limit}`, "UNDER", probability, null, limit));
   }
 
-  for (const [participant, dist] of [
-    [input.homeTeam, homeDist],
-    [input.awayTeam, awayDist],
-  ] as const) {
-    for (const lineRaw of ["0.5", "1.5"]) {
-      for (const side of ["OVER", "UNDER"] as const) {
-        projections.push(
-          asian(
-            "TEAM_GOALS",
-            "team_goals_total",
-            `Gols ${participant} ${side === "OVER" ? "Mais de" : "Menos de"} ${lineRaw}`,
-            participant,
-            side,
-            lineRaw,
-            dist,
-          ),
-        );
-      }
+  for (const [participant, dist] of [[input.homeTeam, homeDist], [input.awayTeam, awayDist]] as const) {
+    for (const limit of GOAL_OVER_LIMITS) {
+      const probability = absoluteCountProbability(dist, limit, "OVER");
+      projections.push(binary("TEAM_GOALS", "team_goals_total", `Gols ${participant} Mais de ${limit}`, "OVER", probability, participant, limit));
+    }
+    for (const limit of GOAL_UNDER_LIMITS) {
+      const probability = absoluteCountProbability(dist, limit, "UNDER");
+      projections.push(binary("TEAM_GOALS", "team_goals_total", `Gols ${participant} Menos de ${limit}`, "UNDER", probability, participant, limit));
     }
   }
 
@@ -142,6 +119,7 @@ export function buildGoalMarketProjections(input: {
 
 export function familyForMarket(market: string): ExperimentalMarketFamily {
   if (market.startsWith("corners_")) return "CORNERS";
+  if (market.startsWith("cards_")) return "CARDS";
   if (market === "goals_match_total") return "GOALS";
   if (market === "team_goals_total") return "TEAM_GOALS";
   if (market === "1x2") return "1X2";

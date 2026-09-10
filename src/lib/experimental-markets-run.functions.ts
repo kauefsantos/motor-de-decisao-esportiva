@@ -15,20 +15,23 @@ import {
   type GoalMatchRow,
 } from "./engine/goals";
 import {
+  absoluteCountProbability,
   buildGoalMarketProjections,
   familyForMarket,
   type ExperimentalMarketFamily,
 } from "./engine/experimental-goal-markets";
-import {
-  asianFairOdd,
-  asianOutcomes,
-  canonicalLine,
-  pProfit,
-} from "./engine/settlement";
 import { BASE_GATE } from "./engine/opportunity";
-import { CORNER_OVER_LINES, CORNER_UNDER_LINES } from "./engine/markets";
+import {
+  CARD_MATCH_OVER_LINES,
+  CARD_MATCH_UNDER_LINES,
+  CARD_TEAM_OVER_LINES,
+  CARD_TEAM_UNDER_LINES,
+  CORNER_OVER_LINES,
+  CORNER_UNDER_LINES,
+} from "./engine/markets";
+import { CARDS_MODEL_VERSION, fitCardsBaseline, predictCards, type CardMatchRow } from "./engine/cards";
 import { evaluateValue, finalSelection, type ValueInput, type ValueResult } from "./engine/value";
-import type { AsianOutcomeProbabilities, ContractType } from "./engine/types";
+import type { ContractType } from "./engine/types";
 import { eloAdjustGoalForecast } from "./elo-feature.server";
 import { isCrossLeagueCompetitionName, isCrossLeagueLeagueKey } from "./competition-kind";
 import { CROSS_LEAGUE_MODEL_SUFFIX, crossLeagueCornersForecast, crossLeagueGoalForecast } from "./engine/cross-league";
@@ -137,6 +140,7 @@ function mostFrequentLeague(
 function buildDatasets(observations: RawValue[]) {
   const corners = new Map<string, CornerMatchRow>();
   const goals = new Map<string, GoalMatchRow>();
+  const cardParts = new Map<string, Partial<CardMatchRow>>();
   const conflicts = new Set<string>();
 
   for (const rv of observations) {
@@ -147,68 +151,59 @@ function buildDatasets(observations: RawValue[]) {
     const teamId = String(rv["teamId"] ?? rv["teamExternalId"] ?? "");
     const opponentId = String(rv["opponentId"] ?? "");
     const side = String(rv["teamSideInFixture"] ?? "");
-    if (!externalMatchId || !date || !league || !raw || !teamId || !opponentId) continue;
+    if (!externalMatchId || !date || !league || !teamId || !opponentId) continue;
     if (side !== "HOME" && side !== "AWAY") continue;
 
     const homeTeam = side === "HOME" ? teamId : opponentId;
     const awayTeam = side === "HOME" ? opponentId : teamId;
+
+    const metric = String(rv["metricLabelRaw"] ?? rv["sourceLabel"] ?? "");
+    const cardValue = finiteNumber(rv["value"]);
+    if (cardValue !== null && (metric === "cards.home.yellow" || metric === "cards.away.yellow")) {
+      const part = cardParts.get(externalMatchId) ?? { date, league, homeTeam, awayTeam };
+      part.date = date;
+      part.league = league;
+      part.homeTeam = homeTeam;
+      part.awayTeam = awayTeam;
+      if (metric === "cards.home.yellow") part.homeCards = cardValue;
+      if (metric === "cards.away.yellow") part.awayCards = cardValue;
+      cardParts.set(externalMatchId, part);
+    }
+
+    if (!raw) continue;
     const homeCorners = finiteNumber(raw["cornersHome"]);
     const awayCorners = finiteNumber(raw["cornersAway"]);
     const homeGoals = finiteNumber(raw["goalsHome"]);
     const awayGoals = finiteNumber(raw["goalsAway"]);
 
     if (homeCorners !== null && awayCorners !== null) {
-      const next: CornerMatchRow = {
-        date,
-        league,
-        homeTeam,
-        awayTeam,
-        homeCorners,
-        awayCorners,
-      };
+      const next: CornerMatchRow = { date, league, homeTeam, awayTeam, homeCorners, awayCorners };
       const prev = corners.get(externalMatchId);
-      if (
-        prev &&
-        (prev.homeTeam !== next.homeTeam ||
-          prev.awayTeam !== next.awayTeam ||
-          prev.homeCorners !== next.homeCorners ||
-          prev.awayCorners !== next.awayCorners)
-      ) {
-        conflicts.add(externalMatchId);
-      } else {
-        corners.set(externalMatchId, next);
-      }
+      if (prev && (prev.homeTeam !== next.homeTeam || prev.awayTeam !== next.awayTeam || prev.homeCorners !== next.homeCorners || prev.awayCorners !== next.awayCorners)) conflicts.add(externalMatchId);
+      else corners.set(externalMatchId, next);
     }
 
     if (homeGoals !== null && awayGoals !== null) {
-      const next: GoalMatchRow = {
-        date,
-        league,
-        homeTeam,
-        awayTeam,
-        homeGoals,
-        awayGoals,
-      };
+      const next: GoalMatchRow = { date, league, homeTeam, awayTeam, homeGoals, awayGoals };
       const prev = goals.get(externalMatchId);
-      if (
-        prev &&
-        (prev.homeTeam !== next.homeTeam ||
-          prev.awayTeam !== next.awayTeam ||
-          prev.homeGoals !== next.homeGoals ||
-          prev.awayGoals !== next.awayGoals)
-      ) {
-        conflicts.add(externalMatchId);
-      } else {
-        goals.set(externalMatchId, next);
-      }
+      if (prev && (prev.homeTeam !== next.homeTeam || prev.awayTeam !== next.awayTeam || prev.homeGoals !== next.homeGoals || prev.awayGoals !== next.awayGoals)) conflicts.add(externalMatchId);
+      else goals.set(externalMatchId, next);
     }
+  }
+
+  const cards: CardMatchRow[] = [];
+  for (const [id, part] of cardParts) {
+    if (conflicts.has(id)) continue;
+    if (!part.date || !part.league || !part.homeTeam || !part.awayTeam) continue;
+    if (part.homeCards === undefined || part.awayCards === undefined) continue;
+    cards.push(part as CardMatchRow);
   }
 
   for (const id of conflicts) {
     corners.delete(id);
     goals.delete(id);
   }
-  return { corners: [...corners.values()], goals: [...goals.values()] };
+  return { corners: [...corners.values()], goals: [...goals.values()], cards };
 }
 
 function labelFor(
@@ -222,6 +217,12 @@ function labelFor(
   }
   if (market === "corners_team_total") {
     return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+  }
+  if (market === "cards_match_total") {
+    return `Cartões amarelos da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+  }
+  if (market === "cards_team_total") {
+    return `Cartões amarelos ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
   }
   if (market === "goals_match_total") {
     return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
@@ -361,79 +362,55 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
 
       if (cornerForecast && cornerForecast.sampleSize > 0) {
         const scopes = [
-  {
-    market: "corners_match_total",
-    participant: null,
-    dist: poissonDistribution(cornerForecast.lambdaTotal),
-  },
-  {
-    market: "corners_team_total",
-    participant: match.home_team ?? "Mandante",
-    dist: poissonDistribution(cornerForecast.lambdaHome),
-  },
-  {
-    market: "corners_team_total",
-    participant: match.away_team ?? "Visitante",
-    dist: poissonDistribution(cornerForecast.lambdaAway),
-  },
-];
-const lineSpecs = [
-  ...CORNER_OVER_LINES.map((line) => ({ side: "OVER" as const, line })),
-  ...CORNER_UNDER_LINES.map((line) => ({ side: "UNDER" as const, line })),
-];
-let ordinal = 0;
-for (const spec of scopes) {
-  for (const lineSpec of lineSpecs) {
-    ordinal += 1;
-    const side = lineSpec.side;
-    const lineRaw = lineSpec.line;
-    const line = canonicalLine(lineRaw);
-    const outcomes = asianOutcomes(spec.dist, line, side);
-    const p = pProfit(outcomes);
-    const id = predictionId(data.runId, match.id, "CORNERS", ordinal);
-            predictionRows.push({
-              run_id: data.runId,
-              match_id: match.id,
-              prediction_id: id,
-              market: spec.market,
-              participant: spec.participant,
-              side,
-              line_raw: lineRaw,
-              line_canonical: line,
-              model_probability: p,
-              p_cal: null,
-              conservative_probability: null,
-              outcome_distribution: outcomes,
-              model_version: cornerModelVersion,
-              calibration_version: null,
-              model_status: EXPERIMENTAL_MARKETS_STATUS,
-              data_status: "OK",
-              prediction_at: predictionAt,
-            });
-            candidates.push({
-              predictionId: id,
-              matchId: match.id,
-              matchLabel: label,
-              competition: match.competition ?? "",
-              family: "CORNERS",
-              market: spec.market,
-              marketLabel: labelFor(spec.market, spec.participant, side, lineRaw),
-              participant: spec.participant,
-              side,
-              lineRaw,
-              lineCanonical: line,
-              contractType: "ASIAN",
-              probabilityExperimental: p,
-              fairOddExperimental: asianFairOdd(outcomes),
-              sampleSize: cornerForecast.sampleSize,
-              trainingMatches: cornerTrainingMatches,
-              gate: BASE_GATE,
-              gateMet: p >= BASE_GATE,
-              modelVersion: cornerModelVersion,
-              modelStatus: EXPERIMENTAL_MARKETS_STATUS,
-              productionStatus: PRODUCTION_STATUS,
-              dataStatus: "OK",
-            });
+          { market: "corners_match_total", participant: null, dist: poissonDistribution(cornerForecast.lambdaTotal) },
+          { market: "corners_team_total", participant: match.home_team ?? "Mandante", dist: poissonDistribution(cornerForecast.lambdaHome) },
+          { market: "corners_team_total", participant: match.away_team ?? "Visitante", dist: poissonDistribution(cornerForecast.lambdaAway) },
+        ];
+        const lineSpecs = [
+          ...CORNER_OVER_LINES.map((line) => ({ side: "OVER" as const, line })),
+          ...CORNER_UNDER_LINES.map((line) => ({ side: "UNDER" as const, line })),
+        ];
+        let ordinal = 0;
+        for (const spec of scopes) {
+          for (const lineSpec of lineSpecs) {
+            ordinal += 1;
+            const side = lineSpec.side;
+            const lineRaw = lineSpec.line;
+            const line = Number(lineRaw);
+            const p = absoluteCountProbability(spec.dist, line, side);
+            const id = predictionId(data.runId, match.id, "CORNERS", ordinal);
+            predictionRows.push({ run_id: data.runId, match_id: match.id, prediction_id: id, market: spec.market, participant: spec.participant, side, line_raw: lineRaw, line_canonical: line, model_probability: p, p_cal: null, conservative_probability: null, outcome_distribution: {}, model_version: cornerModelVersion, calibration_version: null, model_status: EXPERIMENTAL_MARKETS_STATUS, data_status: "OK", prediction_at: predictionAt });
+            candidates.push({ predictionId: id, matchId: match.id, matchLabel: label, competition: match.competition ?? "", family: "CORNERS", market: spec.market, marketLabel: labelFor(spec.market, spec.participant, side, lineRaw), participant: spec.participant, side, lineRaw, lineCanonical: line, contractType: "BINARY", probabilityExperimental: p, fairOddExperimental: p > 0 ? 1 / p : null, sampleSize: cornerForecast.sampleSize, trainingMatches: cornerTrainingMatches, gate: BASE_GATE, gateMet: p >= BASE_GATE, modelVersion: cornerModelVersion, modelStatus: EXPERIMENTAL_MARKETS_STATUS, productionStatus: PRODUCTION_STATUS, dataStatus: "OK" });
+          }
+        }
+      }
+
+      const rollingCards = datasets.cards.filter((r) => r.date < predictionDate && r.date >= rollingStartDate);
+      if (crossLeague) {
+        issues.push(`${label}: cartões amarelos continentais aguardam normalização entre ligas; mercado não publicado nesta partida.`);
+      } else {
+        const cardTraining = rollingCards.filter((r) => r.league === league);
+        if (cardTraining.length >= MIN_EXPERIMENTAL_MATCHES) {
+          const params = fitCardsBaseline(cardTraining);
+          const forecast = predictCards(params, { league, homeTeam: String(homeId), awayTeam: String(awayId) });
+          if (forecast.sampleSize > 0) {
+            const cardScopes = [
+              { market: "cards_match_total", participant: null, dist: poissonDistribution(forecast.lambdaTotal), overs: CARD_MATCH_OVER_LINES, unders: CARD_MATCH_UNDER_LINES },
+              { market: "cards_team_total", participant: match.home_team ?? "Mandante", dist: poissonDistribution(forecast.lambdaHome), overs: CARD_TEAM_OVER_LINES, unders: CARD_TEAM_UNDER_LINES },
+              { market: "cards_team_total", participant: match.away_team ?? "Visitante", dist: poissonDistribution(forecast.lambdaAway), overs: CARD_TEAM_OVER_LINES, unders: CARD_TEAM_UNDER_LINES },
+            ];
+            let cardOrdinal = 0;
+            for (const spec of cardScopes) {
+              const specs = [...spec.overs.map((line) => ({ side: "OVER" as const, line })), ...spec.unders.map((line) => ({ side: "UNDER" as const, line }))];
+              for (const lineSpec of specs) {
+                cardOrdinal += 1;
+                const line = Number(lineSpec.line);
+                const p = absoluteCountProbability(spec.dist, line, lineSpec.side);
+                const id = predictionId(data.runId, match.id, "CARDS", cardOrdinal);
+                predictionRows.push({ run_id: data.runId, match_id: match.id, prediction_id: id, market: spec.market, participant: spec.participant, side: lineSpec.side, line_raw: lineSpec.line, line_canonical: line, model_probability: p, p_cal: null, conservative_probability: null, outcome_distribution: {}, model_version: CARDS_MODEL_VERSION, calibration_version: null, model_status: EXPERIMENTAL_MARKETS_STATUS, data_status: "OK", prediction_at: predictionAt });
+                candidates.push({ predictionId: id, matchId: match.id, matchLabel: label, competition: match.competition ?? "", family: "CARDS", market: spec.market, marketLabel: labelFor(spec.market, spec.participant, lineSpec.side, lineSpec.line), participant: spec.participant, side: lineSpec.side, lineRaw: lineSpec.line, lineCanonical: line, contractType: "BINARY", probabilityExperimental: p, fairOddExperimental: p > 0 ? 1 / p : null, sampleSize: forecast.sampleSize, trainingMatches: cardTraining.length, gate: BASE_GATE, gateMet: p >= BASE_GATE, modelVersion: CARDS_MODEL_VERSION, modelStatus: EXPERIMENTAL_MARKETS_STATUS, productionStatus: PRODUCTION_STATUS, dataStatus: "OK" });
+              }
+            }
           }
         }
       }
@@ -595,7 +572,7 @@ const oddsSchema = z.object({
       }),
     )
     .min(1)
-    .max(1500),
+    .max(3000),
 });
 
 type EnrichedValueResult = ValueResult & {
@@ -635,7 +612,7 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
       const p = byId.get(entry.predictionId);
       if (!p) continue;
       const modelProbability = p.model_probability === null ? 0 : Number(p.model_probability);
-      const contractType: ContractType = p.line_canonical === null ? "BINARY" : "ASIAN";
+      const contractType: ContractType = "BINARY";
       const input: ValueInput = {
         candidateId: p.prediction_id,
         predictionId: p.prediction_id,
@@ -644,11 +621,8 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
         odd: entry.odd,
         lineAtEntry: entry.lineAtEntry,
         lineCanonical: p.line_canonical === null ? null : Number(p.line_canonical),
-        pCons: contractType === "BINARY" ? modelProbability : null,
-        outcomeDistribution:
-          contractType === "ASIAN"
-            ? (p.outcome_distribution as unknown as AsianOutcomeProbabilities | null)
-            : null,
+        pCons: modelProbability,
+        outcomeDistribution: null,
         published: modelProbability >= BASE_GATE,
         modelStatus: EXPERIMENTAL_MARKETS_STATUS,
         dataStatus: p.data_status,

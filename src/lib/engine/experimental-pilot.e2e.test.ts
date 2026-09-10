@@ -41,7 +41,7 @@ describe("experimental pilot E2E", () => {
     expect(projections.some((p) => p.family === "DOUBLE_CHANCE")).toBe(true);
     expect(
       projections.some(
-        (p) => p.family === "GOALS" && p.lineRaw === "1.5" && p.side === "OVER",
+        (p) => p.family === "GOALS" && p.lineRaw === "0" && p.side === "OVER" && p.contractType === "BINARY",
       ),
     ).toBe(true);
 
