@@ -183,7 +183,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
     const snapshot = await bankrollSnapshot(rawDb);
     const stake = floorCents(data.stakeBrl);
     if (stake <= 0) {
-      const { error } = await rawDb
+      const { data: updated, error } = await rawDb
         .from("experimental_bet_tracking")
         .update({
           bet_status: "DECLINED",
@@ -191,8 +191,14 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
           declined_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq("id", data.id);
+        .eq("id", data.id)
+        .eq("bet_status", "PROPOSED")
+        .select("id")
+        .maybeSingle();
       if (error) throw new Error(`Não foi possível recusar a sugestão: ${error.message}`);
+      if (!updated) {
+        throw new Error("Esta sugestão mudou de estado antes da recusa. Atualize a tela e tente novamente.");
+      }
       return { status: "DECLINED" as const, stakeBrl: 0, availableAfter: snapshot.available };
     }
 
@@ -213,7 +219,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       );
     }
 
-    const { error } = await rawDb
+    const { data: updated, error } = await rawDb
       .from("experimental_bet_tracking")
       .update({
         bet_status: "OPEN",
@@ -222,8 +228,14 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
         declined_at: null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", data.id);
+      .eq("id", data.id)
+      .eq("bet_status", "PROPOSED")
+      .select("id")
+      .maybeSingle();
     if (error) throw new Error(`Não foi possível confirmar a aposta: ${error.message}`);
+    if (!updated) {
+      throw new Error("Esta sugestão mudou de estado antes da confirmação. Atualize a tela e tente novamente.");
+    }
 
     return {
       status: "OPEN" as const,
@@ -272,7 +284,7 @@ export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
     const profitUnits = data.outcome === "WIN" ? odd - 1 : -1;
     const profitBrl = stake * profitUnits;
     const now = new Date().toISOString();
-    const { error } = await rawDb
+    const { data: updated, error } = await rawDb
       .from("experimental_bet_tracking")
       .update({
         bet_status: "SETTLED",
@@ -282,7 +294,14 @@ export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
         settled_at: now,
         updated_at: now,
       })
-      .eq("id", data.id);
+      .eq("id", data.id)
+      .eq("bet_status", "OPEN")
+      .eq("result", "PENDING")
+      .select("id")
+      .maybeSingle();
     if (error) throw new Error(`Não foi possível fechar a aposta: ${error.message}`);
+    if (!updated) {
+      throw new Error("Esta aposta mudou de estado antes do fechamento. Atualize a tela e tente novamente.");
+    }
     return { ok: true, profitBrl };
   });
