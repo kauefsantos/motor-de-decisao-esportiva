@@ -4,13 +4,7 @@ import { Loader2, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 
-const ALLOWED_EMAIL = "kauefsantos3@gmail.com";
-
 type AuthState = "loading" | "signed-out" | "authorized";
-
-function normalizedEmail(value: string | null | undefined) {
-  return value?.trim().toLowerCase() ?? "";
-}
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>("loading");
@@ -27,12 +21,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return;
       }
 
+      // The browser gate is UX only. The actual allowlist is enforced twice on
+      // trusted boundaries: auth.users in the database and requireSupabaseAuth
+      // before every serverFn. Do not expose the private allowlisted email here.
       const provider = String(session.user.app_metadata?.provider ?? "");
-      const authorized =
-        normalizedEmail(session.user.email) === ALLOWED_EMAIL && provider === "google";
-
-      if (!authorized) {
-        setMessage("Esta conta Google não tem acesso ao painel.");
+      if (provider !== "google") {
+        setMessage("Esta sessão não tem acesso ao painel.");
         await supabase.auth.signOut();
         if (active) setState("signed-out");
         return;
