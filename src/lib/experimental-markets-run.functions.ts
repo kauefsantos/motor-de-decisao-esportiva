@@ -20,26 +20,33 @@ import {
   familyForMarket,
   type ExperimentalMarketFamily,
 } from "./engine/experimental-goal-markets";
-import { BASE_GATE } from "./engine/opportunity";
 import {
-  CARD_MATCH_OVER_LINES,
-  CARD_MATCH_UNDER_LINES,
-  CARD_TEAM_OVER_LINES,
-  CARD_TEAM_UNDER_LINES,
-  CORNER_OVER_LINES,
-  CORNER_UNDER_LINES,
-} from "./engine/markets";
+  MODEL_LEAN_THRESHOLD,
+  filterQuoteAnchorPredictions,
+  formatBookmakerLine,
+  quoteAnchorFor,
+  referenceLinesFor,
+} from "./engine/market-policy";
 import { CARDS_MODEL_VERSION, fitCardsBaseline, predictCards, type CardMatchRow } from "./engine/cards";
-import { evaluateValue, finalSelection, type ValueInput, type ValueResult } from "./engine/value";
+import {
+  EV_TARGET,
+  evaluateValue,
+  finalSelection,
+  type ValueInput,
+  type ValueResult,
+} from "./engine/value";
 import type { ContractType } from "./engine/types";
 import { eloAdjustGoalForecast } from "./elo-feature.server";
 import { isCrossLeagueCompetitionName, isCrossLeagueLeagueKey } from "./competition-kind";
-import { CROSS_LEAGUE_MODEL_SUFFIX, crossLeagueCornersForecast, crossLeagueGoalForecast } from "./engine/cross-league";
+import {
+  CROSS_LEAGUE_MODEL_SUFFIX,
+  crossLeagueCornersForecast,
+  crossLeagueGoalForecast,
+} from "./engine/cross-league";
 import { loadFiveDollarRawValues, loadRunFiveDollarRawValues } from "./raw-observations.server";
 
 export const EXPERIMENTAL_MARKETS_STATUS = "EXPERIMENTAL_CURRENT_SEASON" as const;
 const PRODUCTION_STATUS = "MODEL_NOT_PRODUCTION_VALIDATED" as const;
-const SOURCE = "five_dollar_football";
 const MIN_EXPERIMENTAL_MATCHES = 3;
 
 type RawValue = Record<string, unknown>;
@@ -61,12 +68,58 @@ type ExperimentalCandidate = {
   fairOddExperimental: number | null;
   sampleSize: number;
   trainingMatches: number;
-  gate: number;
-  gateMet: boolean;
+  quoteAnchor: true;
   modelVersion: string;
   modelStatus: typeof EXPERIMENTAL_MARKETS_STATUS;
   productionStatus: typeof PRODUCTION_STATUS;
   dataStatus: "OK";
+};
+
+type PredictionForAnalysis = {
+  prediction_id: string;
+  match_id: string | null;
+  market: string;
+  participant: string | null;
+  side: string | null;
+  line_raw: string | null;
+  line_canonical: number | string | null;
+  model_probability: number | string | null;
+  outcome_distribution: unknown;
+  model_status: string;
+  data_status: string;
+  model_version: string | null;
+};
+
+type ReferenceAlternative = {
+  matchId: string;
+  market: string;
+  participant: string | null;
+  side: "OVER" | "UNDER";
+  lineCanonical: number;
+  marketLabel: string;
+  probabilityExperimental: number;
+  fairOdd: number | null;
+  minOddTarget: number | null;
+  requiresRealOdd: true;
+  valueStatus: "NAO_AVALIADO";
+};
+
+type DirectionAssessment = {
+  matchId: string;
+  market: string;
+  participant: string | null;
+  anchorLine: number;
+  direction:
+    | "VALUE_OVER"
+    | "VALUE_UNDER"
+    | "MODEL_LEAN_OVER"
+    | "MODEL_LEAN_UNDER"
+    | "NEUTRAL";
+  basis: "VALUE" | "MODEL_ONLY" | "NEUTRAL";
+  overProbability: number;
+  underProbability: number;
+  bestValuePredictionId: string | null;
+  referenceAlternatives: ReferenceAlternative[];
 };
 
 type TrackingTable = {
@@ -102,13 +155,6 @@ function leagueFromExternalMatchId(externalMatchId: string): string {
   return externalMatchId.split(":")[0] ?? "";
 }
 
-function seasonKey(date: string, league: string): number {
-  const year = Number(date.slice(0, 4));
-  const month = Number(date.slice(5, 7));
-  if (league.toLowerCase().includes("brazil")) return year;
-  return month >= 8 ? year : year - 1;
-}
-
 function predictionId(runId: string, matchId: string, family: string, ordinal: number) {
   return `EXP-${family}-${runId.slice(0, 6)}-${matchId.slice(0, 6)}-${String(ordinal).padStart(2, "0")}`;
 }
@@ -140,7 +186,15 @@ function mostFrequentLeague(
 function buildDatasets(observations: RawValue[]) {
   const corners = new Map<string, CornerMatchRow>();
   const goals = new Map<string, GoalMatchRow>();
-  const cardParts = new Map<string, Partial<CardMatchRow> & { homeYellow?: number; homeRed?: number; awayYellow?: number; awayRed?: number }>();
+  const cardParts = new Map<
+    string,
+    Partial<CardMatchRow> & {
+      homeYellow?: number;
+      homeRed?: number;
+      awayYellow?: number;
+      awayRed?: number;
+    }
+  >();
   const conflicts = new Set<string>();
 
   for (const rv of observations) {
@@ -185,17 +239,49 @@ function buildDatasets(observations: RawValue[]) {
     const awayGoals = finiteNumber(raw["goalsAway"]);
 
     if (homeCorners !== null && awayCorners !== null) {
-      const next: CornerMatchRow = { date, league, homeTeam, awayTeam, homeCorners, awayCorners };
+      const next: CornerMatchRow = {
+        date,
+        league,
+        homeTeam,
+        awayTeam,
+        homeCorners,
+        awayCorners,
+      };
       const prev = corners.get(externalMatchId);
-      if (prev && (prev.homeTeam !== next.homeTeam || prev.awayTeam !== next.awayTeam || prev.homeCorners !== next.homeCorners || prev.awayCorners !== next.awayCorners)) conflicts.add(externalMatchId);
-      else corners.set(externalMatchId, next);
+      if (
+        prev &&
+        (prev.homeTeam !== next.homeTeam ||
+          prev.awayTeam !== next.awayTeam ||
+          prev.homeCorners !== next.homeCorners ||
+          prev.awayCorners !== next.awayCorners)
+      ) {
+        conflicts.add(externalMatchId);
+      } else {
+        corners.set(externalMatchId, next);
+      }
     }
 
     if (homeGoals !== null && awayGoals !== null) {
-      const next: GoalMatchRow = { date, league, homeTeam, awayTeam, homeGoals, awayGoals };
+      const next: GoalMatchRow = {
+        date,
+        league,
+        homeTeam,
+        awayTeam,
+        homeGoals,
+        awayGoals,
+      };
       const prev = goals.get(externalMatchId);
-      if (prev && (prev.homeTeam !== next.homeTeam || prev.awayTeam !== next.awayTeam || prev.homeGoals !== next.homeGoals || prev.awayGoals !== next.awayGoals)) conflicts.add(externalMatchId);
-      else goals.set(externalMatchId, next);
+      if (
+        prev &&
+        (prev.homeTeam !== next.homeTeam ||
+          prev.awayTeam !== next.awayTeam ||
+          prev.homeGoals !== next.homeGoals ||
+          prev.awayGoals !== next.awayGoals)
+      ) {
+        conflicts.add(externalMatchId);
+      } else {
+        goals.set(externalMatchId, next);
+      }
     }
   }
 
@@ -208,7 +294,9 @@ function buildDatasets(observations: RawValue[]) {
       part.homeRed === undefined ||
       part.awayYellow === undefined ||
       part.awayRed === undefined
-    ) continue;
+    ) {
+      continue;
+    }
     cards.push({
       date: part.date,
       league: part.league,
@@ -232,32 +320,111 @@ function labelFor(
   side: string | null,
   lineRaw: string | null,
 ) {
+  const numericLine = lineRaw === null ? null : finiteNumber(lineRaw);
+  const lineLabel = numericLine === null ? "" : formatBookmakerLine(numericLine);
   if (market === "corners_match_total") {
-    return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "corners_team_total") {
-    return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "cards_match_total") {
-    return `Cartões da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Cartões da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "cards_team_total") {
-    return `Cartões ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Cartões ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "goals_match_total") {
-    return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
-  }
-  if (market === "team_goals_total") {
-    return `Gols ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "1x2") {
-    return side === "HOME" ? "Vitória mandante" : side === "AWAY" ? "Vitória visitante" : "Empate";
+    return side === "HOME"
+      ? "Vitória mandante"
+      : side === "AWAY"
+        ? "Vitória visitante"
+        : "Empate";
   }
   if (market === "double_chance") {
-    return side === "1X" ? "Dupla chance: 1X" : side === "X2" ? "Dupla chance: X2" : "Dupla chance: 12";
+    return side === "1X"
+      ? "Dupla chance: 1X"
+      : side === "X2"
+        ? "Dupla chance: X2"
+        : "Dupla chance: 12";
   }
-  if (market === "btts") return side === "YES" ? "Ambas marcam: Sim" : "Ambas marcam: Não";
   return market;
+}
+
+function addTotalQuotePair(input: {
+  runId: string;
+  matchId: string;
+  matchLabel: string;
+  competition: string;
+  family: "CORNERS" | "CARDS";
+  market: "corners_match_total" | "corners_team_total" | "cards_match_total" | "cards_team_total";
+  participant: string | null;
+  lambda: number;
+  sampleSize: number;
+  trainingMatches: number;
+  modelVersion: string;
+  predictionAt: string;
+  startOrdinal: number;
+  predictionRows: Record<string, unknown>[];
+  candidates: ExperimentalCandidate[];
+}): number {
+  const anchor = quoteAnchorFor(input.market);
+  if (anchor === null) return input.startOrdinal;
+  const dist = poissonDistribution(input.lambda);
+  let ordinal = input.startOrdinal;
+
+  for (const side of ["OVER", "UNDER"] as const) {
+    ordinal += 1;
+    const probability = absoluteCountProbability(dist, anchor, side);
+    const id = predictionId(input.runId, input.matchId, input.family, ordinal);
+    input.predictionRows.push({
+      run_id: input.runId,
+      match_id: input.matchId,
+      prediction_id: id,
+      market: input.market,
+      participant: input.participant,
+      side,
+      line_raw: String(anchor),
+      line_canonical: anchor,
+      model_probability: probability,
+      p_cal: null,
+      conservative_probability: null,
+      outcome_distribution: { lambda: input.lambda },
+      model_version: input.modelVersion,
+      calibration_version: null,
+      model_status: EXPERIMENTAL_MARKETS_STATUS,
+      data_status: "OK",
+      prediction_at: input.predictionAt,
+    });
+    input.candidates.push({
+      predictionId: id,
+      matchId: input.matchId,
+      matchLabel: input.matchLabel,
+      competition: input.competition,
+      family: input.family,
+      market: input.market,
+      marketLabel: labelFor(input.market, input.participant, side, String(anchor)),
+      participant: input.participant,
+      side,
+      lineRaw: String(anchor),
+      lineCanonical: anchor,
+      contractType: "BINARY",
+      probabilityExperimental: probability,
+      fairOddExperimental: probability > 0 ? 1 / probability : null,
+      sampleSize: input.sampleSize,
+      trainingMatches: input.trainingMatches,
+      quoteAnchor: true,
+      modelVersion: input.modelVersion,
+      modelStatus: EXPERIMENTAL_MARKETS_STATUS,
+      productionStatus: PRODUCTION_STATUS,
+      dataStatus: "OK",
+    });
+  }
+
+  return ordinal;
 }
 
 const prepareSchema = z.object({ runId: z.string().uuid() });
@@ -327,47 +494,59 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       const leagueIdRaw = (externalIds ?? []).find(
         (x) => x.match_id === match.id && x.source === "five_dollar_league",
       )?.external_id;
-      const leagueId = leagueIdRaw && Number.isFinite(Number(leagueIdRaw)) ? Number(leagueIdRaw) : null;
+      const leagueId =
+        leagueIdRaw && Number.isFinite(Number(leagueIdRaw)) ? Number(leagueIdRaw) : null;
       const league = mostFrequentLeague(
         runRaws as { match_id: string | null; raw_value: unknown }[],
         match.id,
       );
-      const label =
+      const matchLabel =
         match.home_team && match.away_team
           ? `${match.home_team} x ${match.away_team}`
           : match.raw_partida;
+      const competition = match.competition ?? "";
+
       if (!homeId || !awayId || !league) {
-        issues.push(`${label}: sem IDs/league 5Dollar suficientes para inferência experimental.`);
+        issues.push(`${matchLabel}: sem IDs/league 5Dollar suficientes para inferência experimental.`);
         continue;
       }
-      const rollingStartDate = new Date(Date.parse(predictionDate + "T00:00:00Z") - 365 * 86400_000)
-        .toISOString().slice(0, 10);
 
+      const rollingStartDate = new Date(
+        Date.parse(predictionDate + "T00:00:00Z") - 365 * 86400_000,
+      )
+        .toISOString()
+        .slice(0, 10);
       const crossLeague =
         isCrossLeagueCompetitionName(match.competition) || isCrossLeagueLeagueKey(league);
+
       const rollingCorners = datasets.corners.filter(
         (r) => r.date < predictionDate && r.date >= rollingStartDate,
       );
-      let cornerForecast: { lambdaHome: number; lambdaAway: number; lambdaTotal: number; sampleSize: number } | null = null;
+      let cornerForecast: {
+        lambdaHome: number;
+        lambdaAway: number;
+        lambdaTotal: number;
+        sampleSize: number;
+      } | null = null;
       let cornerTrainingMatches = 0;
       let cornerModelVersion = CORNERS_MODEL_VERSION;
 
       if (crossLeague) {
-        const crossCorners = crossLeagueCornersForecast(rollingCorners, {
+        const forecast = crossLeagueCornersForecast(rollingCorners, {
           homeTeam: String(homeId),
           awayTeam: String(awayId),
         });
-        if (crossCorners) {
-          cornerForecast = crossCorners;
-          cornerTrainingMatches = crossCorners.trainingMatches;
+        if (forecast) {
+          cornerForecast = forecast;
+          cornerTrainingMatches = forecast.trainingMatches;
           cornerModelVersion = `${CORNERS_MODEL_VERSION}+${CROSS_LEAGUE_MODEL_SUFFIX}`;
         } else {
-          issues.push(`${label}: escanteios continentais sem amostra doméstica suficiente para os dois clubes.`);
+          issues.push(`${matchLabel}: escanteios continentais sem amostra doméstica suficiente para os dois clubes.`);
         }
       } else {
-        const cornerTraining = rollingCorners.filter((r) => r.league === league);
-        if (cornerTraining.length >= MIN_EXPERIMENTAL_MATCHES) {
-          const params = fitCornersBaseline(cornerTraining);
+        const training = rollingCorners.filter((r) => r.league === league);
+        if (training.length >= MIN_EXPERIMENTAL_MATCHES) {
+          const params = fitCornersBaseline(training);
           const forecast = predictCorners(params, {
             league,
             homeTeam: String(homeId),
@@ -375,62 +554,133 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           });
           if (forecast.sampleSize > 0) {
             cornerForecast = forecast;
-            cornerTrainingMatches = cornerTraining.length;
+            cornerTrainingMatches = training.length;
           }
         }
       }
 
       if (cornerForecast && cornerForecast.sampleSize > 0) {
-        const scopes = [
-          { market: "corners_match_total", participant: null, dist: poissonDistribution(cornerForecast.lambdaTotal) },
-          { market: "corners_team_total", participant: match.home_team ?? "Mandante", dist: poissonDistribution(cornerForecast.lambdaHome) },
-          { market: "corners_team_total", participant: match.away_team ?? "Visitante", dist: poissonDistribution(cornerForecast.lambdaAway) },
-        ];
-        const lineSpecs = [
-          ...CORNER_OVER_LINES.map((line) => ({ side: "OVER" as const, line })),
-          ...CORNER_UNDER_LINES.map((line) => ({ side: "UNDER" as const, line })),
-        ];
         let ordinal = 0;
-        for (const spec of scopes) {
-          for (const lineSpec of lineSpecs) {
-            ordinal += 1;
-            const side = lineSpec.side;
-            const lineRaw = lineSpec.line;
-            const line = Number(lineRaw);
-            const p = absoluteCountProbability(spec.dist, line, side);
-            const id = predictionId(data.runId, match.id, "CORNERS", ordinal);
-            predictionRows.push({ run_id: data.runId, match_id: match.id, prediction_id: id, market: spec.market, participant: spec.participant, side, line_raw: lineRaw, line_canonical: line, model_probability: p, p_cal: null, conservative_probability: null, outcome_distribution: {}, model_version: cornerModelVersion, calibration_version: null, model_status: EXPERIMENTAL_MARKETS_STATUS, data_status: "OK", prediction_at: predictionAt });
-            candidates.push({ predictionId: id, matchId: match.id, matchLabel: label, competition: match.competition ?? "", family: "CORNERS", market: spec.market, marketLabel: labelFor(spec.market, spec.participant, side, lineRaw), participant: spec.participant, side, lineRaw, lineCanonical: line, contractType: "BINARY", probabilityExperimental: p, fairOddExperimental: p > 0 ? 1 / p : null, sampleSize: cornerForecast.sampleSize, trainingMatches: cornerTrainingMatches, gate: BASE_GATE, gateMet: p >= BASE_GATE, modelVersion: cornerModelVersion, modelStatus: EXPERIMENTAL_MARKETS_STATUS, productionStatus: PRODUCTION_STATUS, dataStatus: "OK" });
-          }
-        }
+        ordinal = addTotalQuotePair({
+          runId: data.runId,
+          matchId: match.id,
+          matchLabel,
+          competition,
+          family: "CORNERS",
+          market: "corners_match_total",
+          participant: null,
+          lambda: cornerForecast.lambdaTotal,
+          sampleSize: cornerForecast.sampleSize,
+          trainingMatches: cornerTrainingMatches,
+          modelVersion: cornerModelVersion,
+          predictionAt,
+          startOrdinal: ordinal,
+          predictionRows,
+          candidates,
+        });
+        ordinal = addTotalQuotePair({
+          runId: data.runId,
+          matchId: match.id,
+          matchLabel,
+          competition,
+          family: "CORNERS",
+          market: "corners_team_total",
+          participant: match.home_team ?? "Mandante",
+          lambda: cornerForecast.lambdaHome,
+          sampleSize: cornerForecast.sampleSize,
+          trainingMatches: cornerTrainingMatches,
+          modelVersion: cornerModelVersion,
+          predictionAt,
+          startOrdinal: ordinal,
+          predictionRows,
+          candidates,
+        });
+        addTotalQuotePair({
+          runId: data.runId,
+          matchId: match.id,
+          matchLabel,
+          competition,
+          family: "CORNERS",
+          market: "corners_team_total",
+          participant: match.away_team ?? "Visitante",
+          lambda: cornerForecast.lambdaAway,
+          sampleSize: cornerForecast.sampleSize,
+          trainingMatches: cornerTrainingMatches,
+          modelVersion: cornerModelVersion,
+          predictionAt,
+          startOrdinal: ordinal,
+          predictionRows,
+          candidates,
+        });
       }
 
-      const rollingCards = datasets.cards.filter((r) => r.date < predictionDate && r.date >= rollingStartDate);
+      const rollingCards = datasets.cards.filter(
+        (r) => r.date < predictionDate && r.date >= rollingStartDate,
+      );
       if (crossLeague) {
-        issues.push(`${label}: cartões continentais aguardam normalização entre ligas; mercado não publicado nesta partida.`);
+        issues.push(`${matchLabel}: cartões continentais aguardam normalização entre ligas; mercado não publicado nesta partida.`);
       } else {
         const cardTraining = rollingCards.filter((r) => r.league === league);
         if (cardTraining.length >= MIN_EXPERIMENTAL_MATCHES) {
           const params = fitCardsBaseline(cardTraining);
-          const forecast = predictCards(params, { league, homeTeam: String(homeId), awayTeam: String(awayId) });
+          const forecast = predictCards(params, {
+            league,
+            homeTeam: String(homeId),
+            awayTeam: String(awayId),
+          });
           if (forecast.sampleSize > 0) {
-            const cardScopes = [
-              { market: "cards_match_total", participant: null, dist: poissonDistribution(forecast.lambdaTotal), overs: CARD_MATCH_OVER_LINES, unders: CARD_MATCH_UNDER_LINES },
-              { market: "cards_team_total", participant: match.home_team ?? "Mandante", dist: poissonDistribution(forecast.lambdaHome), overs: CARD_TEAM_OVER_LINES, unders: CARD_TEAM_UNDER_LINES },
-              { market: "cards_team_total", participant: match.away_team ?? "Visitante", dist: poissonDistribution(forecast.lambdaAway), overs: CARD_TEAM_OVER_LINES, unders: CARD_TEAM_UNDER_LINES },
-            ];
-            let cardOrdinal = 0;
-            for (const spec of cardScopes) {
-              const specs = [...spec.overs.map((line) => ({ side: "OVER" as const, line })), ...spec.unders.map((line) => ({ side: "UNDER" as const, line }))];
-              for (const lineSpec of specs) {
-                cardOrdinal += 1;
-                const line = Number(lineSpec.line);
-                const p = absoluteCountProbability(spec.dist, line, lineSpec.side);
-                const id = predictionId(data.runId, match.id, "CARDS", cardOrdinal);
-                predictionRows.push({ run_id: data.runId, match_id: match.id, prediction_id: id, market: spec.market, participant: spec.participant, side: lineSpec.side, line_raw: lineSpec.line, line_canonical: line, model_probability: p, p_cal: null, conservative_probability: null, outcome_distribution: {}, model_version: CARDS_MODEL_VERSION, calibration_version: null, model_status: EXPERIMENTAL_MARKETS_STATUS, data_status: "OK", prediction_at: predictionAt });
-                candidates.push({ predictionId: id, matchId: match.id, matchLabel: label, competition: match.competition ?? "", family: "CARDS", market: spec.market, marketLabel: labelFor(spec.market, spec.participant, lineSpec.side, lineSpec.line), participant: spec.participant, side: lineSpec.side, lineRaw: lineSpec.line, lineCanonical: line, contractType: "BINARY", probabilityExperimental: p, fairOddExperimental: p > 0 ? 1 / p : null, sampleSize: forecast.sampleSize, trainingMatches: cardTraining.length, gate: BASE_GATE, gateMet: p >= BASE_GATE, modelVersion: CARDS_MODEL_VERSION, modelStatus: EXPERIMENTAL_MARKETS_STATUS, productionStatus: PRODUCTION_STATUS, dataStatus: "OK" });
-              }
-            }
+            let ordinal = 0;
+            ordinal = addTotalQuotePair({
+              runId: data.runId,
+              matchId: match.id,
+              matchLabel,
+              competition,
+              family: "CARDS",
+              market: "cards_match_total",
+              participant: null,
+              lambda: forecast.lambdaTotal,
+              sampleSize: forecast.sampleSize,
+              trainingMatches: cardTraining.length,
+              modelVersion: CARDS_MODEL_VERSION,
+              predictionAt,
+              startOrdinal: ordinal,
+              predictionRows,
+              candidates,
+            });
+            ordinal = addTotalQuotePair({
+              runId: data.runId,
+              matchId: match.id,
+              matchLabel,
+              competition,
+              family: "CARDS",
+              market: "cards_team_total",
+              participant: match.home_team ?? "Mandante",
+              lambda: forecast.lambdaHome,
+              sampleSize: forecast.sampleSize,
+              trainingMatches: cardTraining.length,
+              modelVersion: CARDS_MODEL_VERSION,
+              predictionAt,
+              startOrdinal: ordinal,
+              predictionRows,
+              candidates,
+            });
+            addTotalQuotePair({
+              runId: data.runId,
+              matchId: match.id,
+              matchLabel,
+              competition,
+              family: "CARDS",
+              market: "cards_team_total",
+              participant: match.away_team ?? "Visitante",
+              lambda: forecast.lambdaAway,
+              sampleSize: forecast.sampleSize,
+              trainingMatches: cardTraining.length,
+              modelVersion: CARDS_MODEL_VERSION,
+              predictionAt,
+              startOrdinal: ordinal,
+              predictionRows,
+              candidates,
+            });
           }
         }
       }
@@ -438,36 +688,37 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       const rollingGoals = datasets.goals.filter(
         (r) => r.date < predictionDate && r.date >= rollingStartDate,
       );
-      let goalForecast: { lambdaHome: number; lambdaAway: number; lambdaTotal: number; sampleSize: number } | null = null;
+      let goalForecast: {
+        lambdaHome: number;
+        lambdaAway: number;
+        lambdaTotal: number;
+        sampleSize: number;
+      } | null = null;
       let goalTrainingMatches = 0;
       let adjustedLambdaHome = 0;
       let adjustedLambdaAway = 0;
       let goalModelVersion = GOALS_MODEL_VERSION;
 
       if (crossLeague) {
-        const crossGoals = crossLeagueGoalForecast(rollingGoals, {
+        const forecast = crossLeagueGoalForecast(rollingGoals, {
           homeTeam: String(homeId),
           awayTeam: String(awayId),
           referenceDate: predictionDate,
         });
-        if (!crossGoals) {
-          issues.push(`${label}: gols continentais sem pelo menos ${MIN_EXPERIMENTAL_MATCHES} partidas domésticas válidas para cada clube nos últimos 365 dias.`);
+        if (!forecast) {
+          issues.push(`${matchLabel}: gols continentais sem pelo menos ${MIN_EXPERIMENTAL_MATCHES} partidas domésticas válidas para cada clube nos últimos 365 dias.`);
           continue;
         }
-        goalForecast = crossGoals;
-        goalTrainingMatches = crossGoals.trainingMatches;
-        adjustedLambdaHome = crossGoals.lambdaHome;
-        adjustedLambdaAway = crossGoals.lambdaAway;
+        goalForecast = forecast;
+        goalTrainingMatches = forecast.trainingMatches;
+        adjustedLambdaHome = forecast.lambdaHome;
+        adjustedLambdaAway = forecast.lambdaAway;
         goalModelVersion = `${GOALS_MODEL_VERSION}+${CROSS_LEAGUE_MODEL_SUFFIX}`;
-        issues.push(
-          `${label}: baseline continental usa histórico doméstico (${crossGoals.homeDomesticLeague} x ${crossGoals.awayDomesticLeague}); Elo cross-country não aplicado sem normalização validada.`,
-        );
+        issues.push(`${matchLabel}: baseline continental usa histórico doméstico (${forecast.homeDomesticLeague} x ${forecast.awayDomesticLeague}); Elo cross-country não aplicado sem normalização validada.`);
       } else {
         const goalTraining = rollingGoals.filter((r) => r.league === league);
         if (goalTraining.length < MIN_EXPERIMENTAL_MATCHES) {
-          issues.push(
-            `${label}: gols com ${goalTraining.length} partida(s) nos últimos 365 dias; mínimo experimental ${MIN_EXPERIMENTAL_MATCHES}.`,
-          );
+          issues.push(`${matchLabel}: gols com ${goalTraining.length} partida(s) nos últimos 365 dias; mínimo experimental ${MIN_EXPERIMENTAL_MATCHES}.`);
           continue;
         }
         const goalParams = fitGoalsBaseline(goalTraining, predictionDate);
@@ -478,7 +729,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         });
         goalTrainingMatches = goalTraining.length;
         if (goalForecast.sampleSize < 1) {
-          issues.push(`${label}: pelo menos um time não possui partida própria de gols nos últimos 365 dias.`);
+          issues.push(`${matchLabel}: pelo menos um time não possui partida própria de gols nos últimos 365 dias.`);
           continue;
         }
 
@@ -496,7 +747,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         adjustedLambdaHome = eloForecast.lambdaHome;
         adjustedLambdaAway = eloForecast.lambdaAway;
         if (!eloForecast.applied) {
-          issues.push(`${label}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
+          issues.push(`${matchLabel}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
         } else if (eloForecast.modelVersionSuffix) {
           goalModelVersion = `${GOALS_MODEL_VERSION}+${eloForecast.modelVersionSuffix}`;
         }
@@ -516,6 +767,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         const ordinal = (familyOrdinals.get(projection.family) ?? 0) + 1;
         familyOrdinals.set(projection.family, ordinal);
         const id = predictionId(data.runId, match.id, projection.family, ordinal);
+        const isGoalTotal = projection.market === "goals_match_total";
         predictionRows.push({
           run_id: data.runId,
           match_id: match.id,
@@ -528,7 +780,9 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           model_probability: projection.probability,
           p_cal: null,
           conservative_probability: null,
-          outcome_distribution: projection.outcomeDistribution ?? {},
+          outcome_distribution: isGoalTotal
+            ? { lambda: adjustedLambdaHome + adjustedLambdaAway }
+            : {},
           model_version: goalModelVersion,
           calibration_version: null,
           model_status: EXPERIMENTAL_MARKETS_STATUS,
@@ -538,8 +792,8 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         candidates.push({
           predictionId: id,
           matchId: match.id,
-          matchLabel: label,
-          competition: match.competition ?? "",
+          matchLabel,
+          competition,
           family: projection.family,
           market: projection.market,
           marketLabel: projection.marketLabel,
@@ -552,8 +806,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           fairOddExperimental: projection.fairOdd,
           sampleSize: goalForecast.sampleSize,
           trainingMatches: goalTrainingMatches,
-          gate: BASE_GATE,
-          gateMet: projection.probability >= BASE_GATE,
+          quoteAnchor: true,
           modelVersion: goalModelVersion,
           modelStatus: EXPERIMENTAL_MARKETS_STATUS,
           productionStatus: PRODUCTION_STATUS,
@@ -592,7 +845,7 @@ const oddsSchema = z.object({
       }),
     )
     .min(1)
-    .max(3000),
+    .max(1000),
 });
 
 type EnrichedValueResult = ValueResult & {
@@ -609,11 +862,112 @@ type EnrichedValueResult = ValueResult & {
   productionStatus: typeof PRODUCTION_STATUS;
 };
 
+function lambdaFromPrediction(row: PredictionForAnalysis): number | null {
+  const distribution = asRecord(row.outcome_distribution);
+  return finiteNumber(distribution?.["lambda"]);
+}
+
+function buildDirectionAssessments(
+  predictions: PredictionForAnalysis[],
+  evaluations: EnrichedValueResult[],
+): DirectionAssessment[] {
+  const totals = predictions.filter(
+    (row) =>
+      row.match_id &&
+      quoteAnchorFor(row.market) !== null &&
+      (row.side === "OVER" || row.side === "UNDER"),
+  );
+  const resultByPrediction = new Map(evaluations.map((row) => [row.predictionId, row]));
+  const groups = new Map<string, PredictionForAnalysis[]>();
+
+  for (const row of totals) {
+    const key = `${row.match_id}|${row.market}|${row.participant ?? "MATCH"}`;
+    const group = groups.get(key) ?? [];
+    group.push(row);
+    groups.set(key, group);
+  }
+
+  const assessments: DirectionAssessment[] = [];
+  for (const group of groups.values()) {
+    const over = group.find((row) => row.side === "OVER");
+    const under = group.find((row) => row.side === "UNDER");
+    if (!over || !under || !over.match_id) continue;
+    const anchor = quoteAnchorFor(over.market);
+    if (anchor === null) continue;
+
+    const overProbability = finiteNumber(over.model_probability) ?? 0;
+    const underProbability = finiteNumber(under.model_probability) ?? 0;
+    const evaluated = [
+      resultByPrediction.get(over.prediction_id),
+      resultByPrediction.get(under.prediction_id),
+    ].filter((row): row is EnrichedValueResult => Boolean(row));
+    const valueRows = evaluated
+      .filter((row) => row.valueStatus === "TEM_VALOR" && row.executionStatus === "EXECUTAVEL")
+      .sort((a, b) => (b.evCons ?? -Infinity) - (a.evCons ?? -Infinity));
+
+    let direction: DirectionAssessment["direction"] = "NEUTRAL";
+    let basis: DirectionAssessment["basis"] = "NEUTRAL";
+    let selectedSide: "OVER" | "UNDER" | null = null;
+    const bestValue = valueRows[0] ?? null;
+
+    if (bestValue && (bestValue.side === "OVER" || bestValue.side === "UNDER")) {
+      selectedSide = bestValue.side;
+      direction = selectedSide === "OVER" ? "VALUE_OVER" : "VALUE_UNDER";
+      basis = "VALUE";
+    } else if (overProbability >= MODEL_LEAN_THRESHOLD) {
+      selectedSide = "OVER";
+      direction = "MODEL_LEAN_OVER";
+      basis = "MODEL_ONLY";
+    } else if (underProbability >= MODEL_LEAN_THRESHOLD) {
+      selectedSide = "UNDER";
+      direction = "MODEL_LEAN_UNDER";
+      basis = "MODEL_ONLY";
+    }
+
+    const source = selectedSide === "OVER" ? over : selectedSide === "UNDER" ? under : null;
+    const lambda = source ? lambdaFromPrediction(source) : null;
+    const referenceAlternatives: ReferenceAlternative[] = [];
+    if (selectedSide && source && lambda !== null) {
+      const dist = poissonDistribution(lambda);
+      for (const line of referenceLinesFor(source.market, selectedSide)) {
+        const probability = absoluteCountProbability(dist, line, selectedSide);
+        referenceAlternatives.push({
+          matchId: over.match_id,
+          market: source.market,
+          participant: source.participant,
+          side: selectedSide,
+          lineCanonical: line,
+          marketLabel: labelFor(source.market, source.participant, selectedSide, String(line)),
+          probabilityExperimental: probability,
+          fairOdd: probability > 0 ? 1 / probability : null,
+          minOddTarget: probability > 0 ? (1 + EV_TARGET) / probability : null,
+          requiresRealOdd: true,
+          valueStatus: "NAO_AVALIADO",
+        });
+      }
+    }
+
+    assessments.push({
+      matchId: over.match_id,
+      market: over.market,
+      participant: over.participant,
+      anchorLine: anchor,
+      direction,
+      basis,
+      overProbability,
+      underProbability,
+      bestValuePredictionId: bestValue?.predictionId ?? null,
+      referenceAlternatives,
+    });
+  }
+
+  return assessments;
+}
+
 export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => oddsSchema.parse(input))
   .handler(async ({ data }) => {
     const supabase = await db();
-    const ids = data.entries.map((e) => e.predictionId);
     const [{ data: predictions }, { data: run }] = await Promise.all([
       supabase
         .from("model_predictions")
@@ -621,29 +975,33 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
           "prediction_id, market, participant, side, line_raw, line_canonical, model_probability, outcome_distribution, model_status, data_status, match_id, model_version",
         )
         .eq("run_id", data.runId)
-        .eq("model_status", EXPERIMENTAL_MARKETS_STATUS)
-        .in("prediction_id", ids),
+        .eq("model_status", EXPERIMENTAL_MARKETS_STATUS),
       supabase.from("analysis_runs").select("target_date").eq("id", data.runId).single(),
     ]);
-    const byId = new Map((predictions ?? []).map((p) => [p.prediction_id, p]));
+
+    const quotePredictions = filterQuoteAnchorPredictions(
+      (predictions ?? []) as PredictionForAnalysis[],
+    );
+    const byId = new Map(quotePredictions.map((p) => [p.prediction_id, p]));
     const results: EnrichedValueResult[] = [];
 
     for (const entry of data.entries) {
       const p = byId.get(entry.predictionId);
       if (!p) continue;
-      const modelProbability = p.model_probability === null ? 0 : Number(p.model_probability);
-      const contractType: ContractType = "BINARY";
+      const modelProbability = finiteNumber(p.model_probability) ?? 0;
       const input: ValueInput = {
         candidateId: p.prediction_id,
         predictionId: p.prediction_id,
-        contractType,
+        contractType: "BINARY",
         bookmaker: "bet365_br",
         odd: entry.odd,
         lineAtEntry: entry.lineAtEntry,
         lineCanonical: p.line_canonical === null ? null : Number(p.line_canonical),
         pCons: modelProbability,
         outcomeDistribution: null,
-        published: modelProbability >= BASE_GATE,
+        // Experimental quotes are eligible for pricing whenever the experimental
+        // probability exists. A raw probability threshold must not pre-block EV.
+        published: true,
         modelStatus: EXPERIMENTAL_MARKETS_STATUS,
         dataStatus: p.data_status,
       };
@@ -716,9 +1074,16 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
     }
 
     const selectedIds = new Set(selected.map((r) => r.predictionId));
+    const directionAssessments = buildDirectionAssessments(quotePredictions, results);
+    const referenceAlternatives = directionAssessments.flatMap(
+      (assessment) => assessment.referenceAlternatives,
+    );
+
     return {
       evaluations: results.map((r) => ({ ...r, selected: selectedIds.has(r.predictionId) })),
       selections: selected,
+      directionAssessments,
+      referenceAlternatives,
       selectionLimit,
       targetDate,
       modelStatus: EXPERIMENTAL_MARKETS_STATUS,

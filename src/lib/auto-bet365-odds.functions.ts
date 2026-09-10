@@ -10,11 +10,11 @@ import {
   type AutoOddsCandidate,
   type AutoOddsMatch,
 } from "./bet365-odds.server";
-import { BASE_GATE } from "./engine/opportunity";
+import { filterQuoteAnchorPredictions } from "./engine/market-policy";
 
 const inputSchema = z.object({ runId: z.string().uuid() });
 const EXPERIMENTAL_STATUS = "EXPERIMENTAL_CURRENT_SEASON";
-const DIRECT_MARKETS = new Set(["1x2", "btts", "goals_match_total", "corners_match_total"]);
+const DIRECT_MARKETS = new Set(["1x2", "goals_match_total", "corners_match_total"]);
 
 type PredictionRow = {
   prediction_id: string;
@@ -47,16 +47,12 @@ function label(match: MatchRow | undefined) {
 }
 
 function candidateFromRow(row: PredictionRow): AutoOddsCandidate {
-  const absoluteLimit = row.line_canonical === null ? null : Number(row.line_canonical);
-  const translatedLine =
-    absoluteLimit !== null && (row.market === "goals_match_total" || row.market === "corners_match_total")
-      ? row.side === "OVER"
-        ? absoluteLimit + 0.5
-        : row.side === "UNDER"
-          ? absoluteLimit - 0.5
-          : absoluteLimit
-      : absoluteLimit;
-  return { predictionId: row.prediction_id, market: row.market, side: row.side, lineCanonical: translatedLine };
+  return {
+    predictionId: row.prediction_id,
+    market: row.market,
+    side: row.side,
+    lineCanonical: row.line_canonical === null ? null : Number(row.line_canonical),
+  };
 }
 
 function unsupported(row: PredictionRow): AutoOddsMatch {
@@ -107,9 +103,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
         .single(),
     ]);
 
-    const eligible = ((predictions ?? []) as PredictionRow[]).filter(
-      (row) => Number(row.model_probability ?? 0) >= BASE_GATE,
-    );
+    const eligible = filterQuoteAnchorPredictions((predictions ?? []) as PredictionRow[]);
     const matchIds = [...new Set(eligible.map((row) => row.match_id))];
     if (matchIds.length === 0) {
       return {
@@ -121,7 +115,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
         sourceUnavailable: 0,
         fixturesRequested: 0,
         dayPagesRequested: 0,
-        message: "Nenhum mercado experimental passou pelo gate para buscar preço.",
+        message: "Nenhuma linha de cotação experimental disponível para buscar preço.",
       };
     }
 
@@ -142,9 +136,9 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       predictionsByMatch.set(row.match_id, list);
     }
 
-    // O plano Pro permite include=odds no feed do dia. Usamos esse feed barato como
-    // preflight: 1X2 já traz preço e totais trazem a linha atual. Assim evitamos
-    // uma chamada /odds por partida quando a linha já sabemos que não coincide.
+    // O feed diário Pro é usado como preflight. Apenas as linhas-âncora que o
+    // usuário realmente pode cotar chegam aqui; probabilidades extremas da escada
+    // estatística não disparam consultas de preço.
     const targetDate = run?.target_date ?? null;
     const day = targetDate
       ? await fetchBet365DayOdds(targetDate)
@@ -213,9 +207,8 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
           }
         }
 
-        // BTTS não vem expandido no feed diário atual; totais com linha coincidente
-        // precisam do endpoint por fixture para receber over/under; 1X2 cai aqui
-        // apenas se o preflight não trouxe a partida.
+        // Totais com linha coincidente precisam do endpoint por fixture para
+        // receber preços O/U; 1X2 cai aqui apenas se o preflight não trouxe o jogo.
         needsFull.add(row.prediction_id);
       }
 
@@ -298,6 +291,6 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       sourceUnavailable: count("SOURCE_UNAVAILABLE"),
       fixturesRequested,
       dayPagesRequested: day.fetches.length,
-      message: "Odds pré-jogo da Bet365 consultadas após o Motor 1, sem usar preço na geração das probabilidades.",
+      message: "Odds pré-jogo da Bet365 consultadas somente para as linhas-âncora, sem usar preço na geração das probabilidades.",
     };
   });

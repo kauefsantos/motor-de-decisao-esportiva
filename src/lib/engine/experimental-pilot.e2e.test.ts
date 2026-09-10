@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import { fitGoalsBaseline, predictGoals, type GoalMatchRow } from "./goals";
 import { buildGoalMarketProjections } from "./experimental-goal-markets";
 import { evaluateValue, finalSelection } from "./value";
-import { BASE_GATE } from "./opportunity";
-import type { AsianOutcomeProbabilities } from "./types";
 
 const LEAGUE = "Brazil Serie A";
 const training: GoalMatchRow[] = [
@@ -23,7 +21,7 @@ const training: GoalMatchRow[] = [
 ];
 
 describe("experimental pilot E2E", () => {
-  it("runs history -> model -> markets -> 75% gate -> Motor 2 -> final selections", () => {
+  it("runs history -> model -> bounded quote markets -> Motor 2 -> final selections", () => {
     const model = fitGoalsBaseline(training);
     const forecast = predictGoals(model, { league: LEAGUE, homeTeam: "A", awayTeam: "B" });
 
@@ -37,19 +35,17 @@ describe("experimental pilot E2E", () => {
       lambdaAway: forecast.lambdaAway,
     });
 
-    expect(projections.some((p) => p.family === "TEAM_GOALS")).toBe(true);
-    expect(projections.some((p) => p.family === "DOUBLE_CHANCE")).toBe(true);
+    expect(projections).toHaveLength(8);
+    expect(projections.some((p) => p.family === "TEAM_GOALS")).toBe(false);
+    expect(projections.some((p) => p.family === "BTTS")).toBe(false);
+    expect(projections.filter((p) => p.family === "DOUBLE_CHANCE")).toHaveLength(3);
     expect(
       projections.some(
-        (p) => p.family === "GOALS" && p.lineRaw === "0" && p.side === "OVER" && p.contractType === "BINARY",
+        (p) => p.family === "GOALS" && p.lineRaw === "2.5" && p.side === "OVER",
       ),
     ).toBe(true);
 
-    expect(BASE_GATE).toBe(0.75);
-    const eligible = projections.filter((p) => p.probability >= BASE_GATE);
-    expect(eligible.length).toBeGreaterThan(0);
-
-    const evaluated = eligible.map((p, index) =>
+    const evaluated = projections.map((p, index) =>
       evaluateValue({
         candidateId: `cand-${index}`,
         predictionId: `pred-${index}`,
@@ -58,21 +54,37 @@ describe("experimental pilot E2E", () => {
         odd: 2,
         lineAtEntry: p.lineCanonical,
         lineCanonical: p.lineCanonical,
-        pCons: p.contractType === "BINARY" ? p.probability : null,
-        outcomeDistribution:
-          p.contractType === "ASIAN"
-            ? (p.outcomeDistribution as AsianOutcomeProbabilities)
-            : null,
+        pCons: p.probability,
+        outcomeDistribution: null,
         published: true,
         modelStatus: "EXPERIMENTAL_CURRENT_SEASON",
         dataStatus: "OK",
       }),
     );
 
-    expect(evaluated.some((r) => r.valueStatus === "TEM_VALOR")).toBe(true);
     const selected = finalSelection(evaluated);
-    expect(selected.length).toBeGreaterThan(0);
     expect(selected.length).toBeLessThanOrEqual(3);
     expect(selected.every((r) => (r.evCons ?? 0) >= 0.02)).toBe(true);
+  });
+
+  it("allows a sub-75% probability to have value when the real price is good", () => {
+    const result = evaluateValue({
+      candidateId: "candidate-60pct",
+      predictionId: "prediction-60pct",
+      contractType: "BINARY",
+      bookmaker: "bet365_br",
+      odd: 2,
+      lineAtEntry: 2.5,
+      lineCanonical: 2.5,
+      pCons: 0.6,
+      outcomeDistribution: null,
+      published: true,
+      modelStatus: "EXPERIMENTAL_CURRENT_SEASON",
+      dataStatus: "OK",
+    });
+
+    expect(result.evCons).toBeCloseTo(0.2);
+    expect(result.valueStatus).toBe("TEM_VALOR");
+    expect(result.executionStatus).toBe("EXECUTAVEL");
   });
 });

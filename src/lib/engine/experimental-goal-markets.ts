@@ -1,5 +1,9 @@
 import { poissonDistribution } from "./corners";
 import { goalOutcomeProbabilities } from "./goals";
+import {
+  formatBookmakerLine,
+  quoteAnchorFor,
+} from "./market-policy";
 import type { ContractType } from "./types";
 
 export type ExperimentalMarketFamily =
@@ -10,9 +14,6 @@ export type ExperimentalMarketFamily =
   | "1X2"
   | "DOUBLE_CHANCE"
   | "BTTS";
-
-export const GOAL_OVER_LIMITS = [0, 1, 2, 3] as const;
-export const GOAL_UNDER_LIMITS = [4, 3, 2, 1] as const;
 
 export interface GoalMarketProjection {
   family: Exclude<ExperimentalMarketFamily, "CORNERS" | "CARDS">;
@@ -28,23 +29,28 @@ export interface GoalMarketProjection {
   outcomeDistribution: null;
 }
 
+/**
+ * Probability of a real half-line bookmaker total.
+ * For example, OVER 2.5 means count >= 3 and UNDER 2.5 means count <= 2.
+ */
 export function absoluteCountProbability(
   distribution: Map<number, number>,
-  limit: number,
+  line: number,
   side: "OVER" | "UNDER",
 ): number {
   let probability = 0;
   for (const [count, p] of distribution) {
-    if (side === "OVER" ? count > limit : count < limit) probability += p;
+    if (side === "OVER" ? count > line : count < line) probability += p;
   }
   return Math.min(1, Math.max(0, probability));
 }
 
-export function bookmakerLineForAbsoluteLimit(side: string | null, limit: number | null): number | null {
-  if (limit === null) return null;
-  if (side === "OVER") return limit + 0.5;
-  if (side === "UNDER") return limit - 0.5;
-  return limit;
+/**
+ * Kept for backwards compatibility. Experimental lineCanonical is now already
+ * the real bookmaker half-line, so no asymmetric +/- 0.5 translation is needed.
+ */
+export function bookmakerLineForAbsoluteLimit(_side: string | null, line: number | null): number | null {
+  return line;
 }
 
 function binary(
@@ -54,7 +60,7 @@ function binary(
   side: string,
   probability: number,
   participant: string | null = null,
-  limit: number | null = null,
+  line: number | null = null,
 ): GoalMarketProjection {
   return {
     family,
@@ -62,8 +68,8 @@ function binary(
     marketLabel,
     participant,
     side,
-    lineRaw: limit === null ? null : String(limit),
-    lineCanonical: limit,
+    lineRaw: line === null ? null : String(line),
+    lineCanonical: line,
     contractType: "BINARY",
     probability,
     fairOdd: probability > 0 ? 1 / probability : null,
@@ -79,38 +85,32 @@ export function buildGoalMarketProjections(input: {
 }): GoalMarketProjection[] {
   const outcomes = goalOutcomeProbabilities(input.lambdaHome, input.lambdaAway);
   const totalDist = poissonDistribution(input.lambdaHome + input.lambdaAway, 15);
-  const homeDist = poissonDistribution(input.lambdaHome, 15);
-  const awayDist = poissonDistribution(input.lambdaAway, 15);
   const projections: GoalMarketProjection[] = [];
 
   projections.push(
     binary("1X2", "1x2", `Vitória ${input.homeTeam}`, "HOME", outcomes.home),
     binary("1X2", "1x2", "Empate", "DRAW", outcomes.draw),
     binary("1X2", "1x2", `Vitória ${input.awayTeam}`, "AWAY", outcomes.away),
-    binary("BTTS", "btts", "Ambas marcam: Sim", "YES", outcomes.bttsYes),
-    binary("BTTS", "btts", "Ambas marcam: Não", "NO", outcomes.bttsNo),
     binary("DOUBLE_CHANCE", "double_chance", `${input.homeTeam} ou Empate (1X)`, "1X", outcomes.home + outcomes.draw),
     binary("DOUBLE_CHANCE", "double_chance", `Empate ou ${input.awayTeam} (X2)`, "X2", outcomes.draw + outcomes.away),
     binary("DOUBLE_CHANCE", "double_chance", `${input.homeTeam} ou ${input.awayTeam} (12)`, "12", outcomes.home + outcomes.away),
   );
 
-  for (const limit of GOAL_OVER_LIMITS) {
-    const probability = absoluteCountProbability(totalDist, limit, "OVER");
-    projections.push(binary("GOALS", "goals_match_total", `Gols da partida Mais de ${limit}`, "OVER", probability, null, limit));
-  }
-  for (const limit of GOAL_UNDER_LIMITS) {
-    const probability = absoluteCountProbability(totalDist, limit, "UNDER");
-    projections.push(binary("GOALS", "goals_match_total", `Gols da partida Menos de ${limit}`, "UNDER", probability, null, limit));
-  }
-
-  for (const [participant, dist] of [[input.homeTeam, homeDist], [input.awayTeam, awayDist]] as const) {
-    for (const limit of GOAL_OVER_LIMITS) {
-      const probability = absoluteCountProbability(dist, limit, "OVER");
-      projections.push(binary("TEAM_GOALS", "team_goals_total", `Gols ${participant} Mais de ${limit}`, "OVER", probability, participant, limit));
-    }
-    for (const limit of GOAL_UNDER_LIMITS) {
-      const probability = absoluteCountProbability(dist, limit, "UNDER");
-      projections.push(binary("TEAM_GOALS", "team_goals_total", `Gols ${participant} Menos de ${limit}`, "UNDER", probability, participant, limit));
+  const anchor = quoteAnchorFor("goals_match_total");
+  if (anchor !== null) {
+    for (const side of ["OVER", "UNDER"] as const) {
+      const probability = absoluteCountProbability(totalDist, anchor, side);
+      projections.push(
+        binary(
+          "GOALS",
+          "goals_match_total",
+          `Gols da partida ${side === "OVER" ? "Mais de" : "Menos de"} ${formatBookmakerLine(anchor)}`,
+          side,
+          probability,
+          null,
+          anchor,
+        ),
+      );
     }
   }
 
