@@ -1,10 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { BASE_GATE } from "./engine/opportunity";
+import { familyForMarket } from "./engine/experimental-goal-markets";
+import { formatBookmakerLine, isQuoteAnchorPrediction } from "./engine/market-policy";
 import { evaluateValue, type ValueInput } from "./engine/value";
 import type { ContractType } from "./engine/types";
-import { familyForMarket } from "./engine/experimental-goal-markets";
 import { EXPERIMENTAL_MARKETS_STATUS } from "./experimental-markets-run.functions";
 
 const PRODUCTION_STATUS = "MODEL_NOT_PRODUCTION_VALIDATED" as const;
@@ -22,17 +22,22 @@ function labelFor(
   side: string | null,
   lineRaw: string | null,
 ) {
+  const numericLine = lineRaw === null ? null : Number(lineRaw);
+  const lineLabel = Number.isFinite(numericLine) ? formatBookmakerLine(numericLine) : "";
   if (market === "corners_match_total") {
-    return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "corners_team_total") {
-    return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+  }
+  if (market === "cards_match_total") {
+    return `Cartões da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+  }
+  if (market === "cards_team_total") {
+    return `Cartões ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "goals_match_total") {
-    return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
-  }
-  if (market === "team_goals_total") {
-    return `Gols ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineRaw ?? ""}`.trim();
+    return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }
   if (market === "1x2") {
     return side === "HOME" ? "Vitória mandante" : side === "AWAY" ? "Vitória visitante" : "Empate";
@@ -40,7 +45,6 @@ function labelFor(
   if (market === "double_chance") {
     return side === "1X" ? "Dupla chance: 1X" : side === "X2" ? "Dupla chance: X2" : "Dupla chance: 12";
   }
-  if (market === "btts") return side === "YES" ? "Ambas marcam: Sim" : "Ambas marcam: Não";
   return market;
 }
 
@@ -81,6 +85,23 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       throw new Error("Não foi possível localizar a rodada desta oportunidade.");
     }
 
+    const lineCanonical = prediction.line_canonical === null ? null : Number(prediction.line_canonical);
+    if (!isQuoteAnchorPrediction({
+      market: prediction.market,
+      side: prediction.side,
+      lineCanonical,
+    })) {
+      throw new Error("Esta oportunidade pertence a um catálogo experimental anterior e precisa ser recalculada.");
+    }
+
+    const modelProbability = Number(prediction.model_probability ?? 0);
+    if (!Number.isFinite(modelProbability) || modelProbability <= 0 || modelProbability >= 1) {
+      throw new Error("A probabilidade experimental desta oportunidade não é válida.");
+    }
+    if (prediction.data_status !== "OK") {
+      throw new Error("Os dados desta oportunidade não estão aptos para avaliação de valor.");
+    }
+
     const { data: existing } = await supabase
       .from("experimental_bet_tracking")
       .select("id,bet_status")
@@ -99,11 +120,6 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       );
     }
 
-    const modelProbability = Number(prediction.model_probability ?? 0);
-    if (!(modelProbability >= BASE_GATE)) {
-      throw new Error("Esta oportunidade não passou pelo gate mínimo do Motor 1.");
-    }
-
     const contractType: ContractType = "BINARY";
     const valueInput: ValueInput = {
       candidateId: prediction.prediction_id,
@@ -112,10 +128,10 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       bookmaker: "bet365_br",
       odd: data.odd,
       lineAtEntry: data.lineAtEntry,
-      lineCanonical: prediction.line_canonical === null ? null : Number(prediction.line_canonical),
+      lineCanonical,
       pCons: modelProbability,
       outcomeDistribution: null,
-      published: modelProbability >= BASE_GATE,
+      published: true,
       modelStatus: prediction.model_status,
       dataStatus: prediction.data_status,
     };
@@ -168,7 +184,7 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       ),
       participant: prediction.participant,
       side: prediction.side,
-      line_canonical: prediction.line_canonical === null ? null : Number(prediction.line_canonical),
+      line_canonical: lineCanonical,
       model_version: prediction.model_version ?? "unknown",
       model_status: EXPERIMENTAL_MARKETS_STATUS,
       model_probability: modelProbability,
