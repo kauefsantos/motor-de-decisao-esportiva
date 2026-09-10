@@ -29,7 +29,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 
 // These are public client identifiers, not server secrets. Keeping a fallback here
 // makes the published browser bundle independent from Lovable/Vite env injection.
-// Never place SUPABASE_SERVICE_ROLE_KEY or any other private secret in this file.
+// Never place privileged server credentials or other private secrets in this file.
 const PUBLIC_SUPABASE_URL = 'https://vsygkpwptoppbrlnrpcp.supabase.co';
 const PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_SJAlM-F6YxWqS0HyesLQYA_b58B3vZk';
 
