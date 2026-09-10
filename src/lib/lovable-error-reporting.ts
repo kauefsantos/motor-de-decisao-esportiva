@@ -1,3 +1,5 @@
+import { redactSensitiveText, redactTelemetryValue } from "./redaction";
+
 type LovableErrorOptions = {
   mechanism?: "manual" | "onerror" | "unhandledrejection" | "react_error_boundary";
   handled?: boolean;
@@ -23,14 +25,21 @@ declare global {
   }
 }
 
+function redactedContext(context: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(context).map(([key, value]) => [key, redactTelemetryValue(value)]),
+  );
+}
+
 export function reportLovableError(error: unknown, context: Record<string, unknown> = {}) {
   if (typeof window === "undefined") return;
+  const safeError = redactTelemetryValue(error);
   window.__lovableEvents?.captureException?.(
-    error,
+    safeError,
     {
       source: "react_error_boundary",
       route: window.location.pathname,
-      ...context,
+      ...redactedContext(context),
     },
     {
       mechanism: "react_error_boundary",
@@ -39,17 +48,18 @@ export function reportLovableError(error: unknown, context: Record<string, unkno
     },
   );
   // Prod React does not rethrow boundary-caught errors to window.onerror, so the
-  // editor's telemetry never sees them. Forward to lovable.js's reporting hook,
-  // which is present only inside the editor preview.
-  // Loaders and server fns commonly throw a raw Response; String(it) is the
-  // opaque "[object Response]", so pull out the status and URL instead.
-  const message =
+  // editor's telemetry never sees them. Forward only redacted diagnostics to
+  // lovable.js's reporting hook, which is present inside the editor preview.
+  const message = redactSensitiveText(
     error instanceof Response
       ? `Response ${error.status}${error.url ? ` at ${error.url}` : ""}`
       : error instanceof Error
         ? error.message
-        : String(error);
-  const stack = error instanceof Error ? error.stack : undefined;
+        : String(error),
+  );
+  const stack = error instanceof Error && error.stack
+    ? redactSensitiveText(error.stack)
+    : undefined;
   window.__lovableReportRuntimeError?.({
     message,
     ...(stack !== undefined && { stack }),
