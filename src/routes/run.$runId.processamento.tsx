@@ -78,16 +78,16 @@ function ProcessingScreen() {
 
   return (
     <AppShell stage="processamento">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-3xl">
         <p className="label-eyebrow">Etapa 2</p>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
-          <div>
+        <div className="mt-1.5 flex items-end justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="page-heading">Preparando sua análise</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               O servidor continua trabalhando mesmo se você sair do app ou bloquear o iPhone.
             </p>
           </div>
-          <span className="num rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">
+          <span className="num shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
             {doneCount}/{PIPELINE_STEPS.length}
           </span>
         </div>
@@ -97,16 +97,16 @@ function ProcessingScreen() {
         {query.isError && (
           <div className="panel mt-4 border-destructive/30 p-4" role="alert">
             <p className="text-sm font-medium">Não foi possível atualizar o andamento agora.</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               A análise pode continuar no servidor. Tente atualizar o status.
             </p>
-            <Button className="mt-3 min-h-11" variant="outline" onClick={() => void query.refetch()}>
+            <Button className="mt-3 min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => void query.refetch()}>
               Atualizar status
             </Button>
           </div>
         )}
 
-        <ol className="panel mt-6 divide-y divide-border overflow-hidden">
+        <ol className="panel mt-5 divide-y divide-border/60 overflow-hidden sm:mt-6">
           {PIPELINE_STEPS.map((step, i) => {
             const isDone = completed.has(step.key);
             const isRunning = !isDone && !failed && jobStatus === "RUNNING" && currentStep === step.key;
@@ -128,11 +128,11 @@ function ProcessingScreen() {
             return (
               <li
                 key={step.key}
-                className={`flex items-start gap-3 px-4 py-3 transition-colors sm:px-5 ${
+                className={`flex items-start gap-3 px-4 py-3.5 transition-colors sm:px-5 ${
                   state === "RUNNING" ? "bg-primary/8" : state === "ERROR" ? "bg-destructive/8" : ""
                 }`}
               >
-                <span className="mt-0.5 shrink-0">
+                <span className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${state === "RUNNING" ? "bg-primary/12" : state === "DONE" ? "bg-success/10" : state === "ERROR" ? "bg-destructive/10" : "bg-secondary/45"}`}>
                   {state === "DONE" ? (
                     <Check className="size-4 text-success" aria-hidden />
                   ) : state === "RUNNING" ? (
@@ -143,18 +143,18 @@ function ProcessingScreen() {
                     <CircleDashed className="size-4 text-muted-foreground" aria-hidden />
                   )}
                 </span>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 pt-1">
                   <p className="text-sm font-medium">
                     <span className="num mr-2 text-xs text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
                     {step.label}
                   </p>
                   {message && (
-                    <p className={`mt-1 text-xs ${showWarn ? "text-warning" : state === "ERROR" ? "text-destructive" : "text-muted-foreground"}`}>
+                    <p className={`mt-1 text-xs leading-relaxed ${showWarn ? "text-warning" : state === "ERROR" ? "text-destructive" : "text-muted-foreground"}`}>
                       {message}
                     </p>
                   )}
                 </div>
-                {state === "DONE" && !showWarn && <span className="hidden text-xs text-muted-foreground sm:inline">Concluído</span>}
+                {state === "DONE" && !showWarn && <span className="hidden pt-1 text-xs text-muted-foreground sm:inline">Concluído</span>}
               </li>
             );
           })}
@@ -164,8 +164,8 @@ function ProcessingScreen() {
 
         {failed && (
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <Button className="min-h-11" onClick={() => void retry()}>Tentar de novo</Button>
-            <Button className="min-h-11" variant="outline" onClick={() => navigate({ to: "/" })}>Enviar outro CSV</Button>
+            <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" onClick={() => void retry()}>Tentar de novo</Button>
+            <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => navigate({ to: "/" })}>Enviar outro CSV</Button>
           </div>
         )}
       </div>
