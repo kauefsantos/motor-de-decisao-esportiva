@@ -96,13 +96,14 @@ function UploadScreen() {
             const file = e.dataTransfer.files?.[0];
             if (file) void handleFile(file);
           }}
-          className={`panel mt-6 flex min-h-60 flex-col items-center justify-center gap-4 px-5 py-10 text-center transition-all sm:min-h-72 sm:px-8 ${
+          className={`panel mt-5 flex min-h-52 flex-col items-center justify-center gap-4 px-4 py-8 text-center transition-all sm:mt-6 sm:min-h-72 sm:px-8 sm:py-10 ${
             dragging ? "border-primary bg-primary/10 ring-1 ring-primary/30" : ""
           }`}
         >
           <UploadCloud className="size-9 text-primary" aria-hidden />
           <div>
-            <p className="font-medium">Arraste o CSV aqui</p>
+            <p className="font-medium sm:hidden">Selecione o CSV dos jogos</p>
+            <p className="hidden font-medium sm:block">Arraste o CSV aqui</p>
             <p className="mt-1 text-sm text-muted-foreground">Data, Partida, Horário e Campeonato · uma data por arquivo</p>
           </div>
           <input
@@ -117,7 +118,7 @@ function UploadScreen() {
               if (file) void handleFile(file);
             }}
           />
-          <Button className="min-h-11" variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
+          <Button className="min-h-11 w-full sm:w-auto" variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
             Escolher CSV
           </Button>
         </div>
