@@ -55,26 +55,31 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
           </div>
 
           {showAnalysisProgress && (
-            <ol className="mt-1.5 grid grid-cols-4 gap-1" aria-label="Progresso da análise">
-              {STAGES.map((item, index) => {
-                const isActive = item.key === stage;
-                return (
-                  <li
-                    key={item.key}
-                    aria-current={isActive ? "step" : undefined}
-                    className={`flex min-h-9 min-w-0 items-center justify-center rounded-lg px-1.5 text-center text-[11px] transition-colors sm:min-h-10 sm:px-2 sm:text-xs ${
-                      isActive
-                        ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
-                        : "text-muted-foreground"
-                    }`}
-                  >
-                    <span className="mr-1 num text-[0.65rem] opacity-70 sm:text-[0.7rem]">{index + 1}</span>
-                    <span className="truncate sm:hidden">{item.shortLabel}</span>
-                    <span className="hidden truncate sm:inline">{item.label}</span>
-                  </li>
-                );
-              })}
-            </ol>
+            <>
+              <ol className="mt-1.5 grid grid-cols-4 gap-1" aria-label="Progresso da análise">
+                {STAGES.map((item, index) => {
+                  const isActive = item.key === stage;
+                  return (
+                    <li
+                      key={item.key}
+                      aria-current={isActive ? "step" : undefined}
+                      className={`flex min-h-9 min-w-0 items-center justify-center rounded-lg px-1.5 text-center text-[11px] transition-colors sm:min-h-10 sm:px-2 sm:text-xs ${
+                        isActive
+                          ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      <span className="mr-1 num text-[0.65rem] opacity-70 sm:text-[0.7rem]">{index + 1}</span>
+                      <span className="truncate sm:hidden">{item.shortLabel}</span>
+                      <span className="hidden truncate sm:inline">{item.label}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+              <p className="mt-1.5 text-center text-[10px] leading-4 text-muted-foreground sm:text-right sm:text-[11px]">
+                Regra atual: chance do modelo <strong className="font-medium text-foreground">&gt; 70%</strong> + odd real + EV mínimo de 2%.
+              </p>
+            </>
           )}
 
           <nav className="mt-2 hidden justify-end gap-2 sm:flex" aria-label="Acompanhamento">
