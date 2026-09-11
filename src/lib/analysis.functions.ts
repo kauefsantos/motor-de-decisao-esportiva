@@ -25,13 +25,21 @@ async function db() {
   return supabaseAdmin;
 }
 
+async function authorizeRun(supabase: any, userId: string | undefined, runId: string) {
+  const { assertRunOwner } = await import("./authorization.server");
+  await assertRunOwner(supabase, userId, runId);
+}
+
 export const createRun = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => createRunSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+    if (!userId) throw new Error("Usuário não autenticado.");
     const supabase = await db();
     const { data: run, error } = await supabase
       .from("analysis_runs")
       .insert({
+        owner_id: userId,
         target_date: data.targetDate,
         status: "CREATED",
         matches_total: data.rows.length,
@@ -72,10 +80,11 @@ export const runStep = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const supabase = await db();
+    await authorizeRun(supabase, context.userId, data.runId);
     const { executeStep } = await import("./pipeline.server");
     const result = await executeStep(data.runId, data.step);
-    const supabase = await db();
     const { data: logs } = await supabase
       .from("pipeline_logs")
       .select("step, level, message, payload")
@@ -88,8 +97,9 @@ export const runStep = createServerFn({ method: "POST" })
 
 export const getRun = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ runId: z.string().uuid() }).parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const supabase = await db();
+    await authorizeRun(supabase, context.userId, data.runId);
     const [{ data: run }, { data: candidates }, { data: logs }, { data: fetches }] =
       await Promise.all([
         supabase.from("analysis_runs").select("*").eq("id", data.runId).single(),
@@ -141,8 +151,9 @@ const oddsSchema = z.object({
 
 export const analyzeOdds = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => oddsSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const supabase = await db();
+    await authorizeRun(supabase, context.userId, data.runId);
     const ids = data.entries.map((e) => e.candidateId);
     const { data: candidates } = await supabase
       .from("market_candidates")
@@ -271,7 +282,8 @@ export const analyzeOdds = createServerFn({ method: "POST" })
         status: "COMPLETED",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", data.runId);
+      .eq("id", data.runId)
+      .eq("owner_id", context.userId);
 
     const rejected = inserted
       .filter((i) => !selections.some((s) => s.candidateId === i.result.candidateId))
@@ -286,8 +298,9 @@ export const analyzeOdds = createServerFn({ method: "POST" })
 
 export const getResults = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ runId: z.string().uuid() }).parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const supabase = await db();
+    await authorizeRun(supabase, context.userId, data.runId);
     const { data: evaluations } = await supabase
       .from("value_evaluations")
       .select("*")
@@ -322,8 +335,9 @@ export const getResults = createServerFn({ method: "POST" })
 /** Auditoria da ingestão: estado por fonte e detalhe de resolução/coleta por partida. */
 export const getAudit = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ runId: z.string().uuid() }).parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const supabase = await db();
+    await authorizeRun(supabase, context.userId, data.runId);
     const [
       { data: fetches },
       { data: matches },
@@ -484,4 +498,3 @@ export const getAudit = createServerFn({ method: "POST" })
       matches: perMatch,
     };
   });
-
