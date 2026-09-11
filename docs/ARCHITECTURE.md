@@ -107,12 +107,14 @@ Ela inclui:
 - modelos de gols;
 - escanteios;
 - cartões;
-- Elo;
+- Elo local e ajuste hierárquico;
 - política de mercados;
 - cálculo de valor;
 - validação de features;
 - seleção de portfólio;
 - CLV.
+
+O baseline cross-league é construído com histórico doméstico dos clubes. Quando existe evidência suficiente entre ligas, a camada Elo converte Elo local + força da liga em rating global point-in-time e redistribui os lambdas de gols sem alterar a expectativa total da partida.
 
 Sempre que possível, a lógica é mantida determinística e desacoplada de UI e banco.
 
@@ -127,7 +129,8 @@ Ele também participa da proteção das regras por meio de:
 - RPCs;
 - triggers;
 - locks e operações atômicas;
-- constraints e validações transacionais.
+- constraints e validações transacionais;
+- históricos point-in-time para reproduzir decisões quantitativas.
 
 ---
 
@@ -178,6 +181,7 @@ flowchart LR
 
 - não recebe odd como feature;
 - trabalha apenas com dados temporalmente válidos;
+- aplica Elo apenas como feature esportiva quando os requisitos são comprovados;
 - pode bloquear um mercado por falta de dados ou validação.
 
 ### Motor 2
@@ -185,6 +189,7 @@ flowchart LR
 - recebe uma previsão já pronta;
 - compara probabilidade e odd;
 - calcula fair odd, edge e EV;
+- expõe a base da probabilidade usada na decisão (`RAW_EXPERIMENTAL`, `CONSERVATIVE_CALIBRATED` ou `OUTCOME_DISTRIBUTION`);
 - aplica regras de execução e portfólio.
 
 ---
@@ -252,7 +257,8 @@ Controles principais:
 - service role fora do bundle do cliente;
 - browser sem acesso operacional direto às tabelas;
 - RLS habilitado;
-- endpoint de sync com Bearer secret;
+- fallback HTTP de sync Elo protegido por Bearer secret;
+- rotina principal Elo executada por jobs no PostgreSQL;
 - CSP e headers de segurança;
 - operações financeiras do piloto protegidas no banco.
 
@@ -265,8 +271,9 @@ O projeto registra contexto suficiente para reconstruir decisões importantes:
 - `run_id`;
 - `prediction_id` versionado;
 - dados de origem;
-- timestamps;
+- timestamps e `prediction_at`;
 - modelo e versão da política;
+- contexto Elo e lambdas quando aplicável;
 - preços usados;
 - estado da aposta;
 - histórico de banca.
@@ -294,6 +301,7 @@ Além do CI, o sistema passou por auditorias independentes de:
 - segurança;
 - backend;
 - frontend;
+- Elo e integração cross-league;
 - limpeza de código pós-auditoria.
 
 ---
@@ -315,8 +323,10 @@ supabase/
 
 docs/
   CASE_STUDY.md             narrativa de portfólio
-  ARCHITECTURE.md            este documento
-  PROJECT_STATE.md           continuidade operacional
+  ARCHITECTURE.md           este documento
+  ELO.md                    arquitetura canônica do Elo
+  ELO_RUNBOOK.md            operação do Elo
+  PROJECT_STATE.md          continuidade operacional
 ```
 
 ---
