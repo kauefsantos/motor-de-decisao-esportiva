@@ -114,11 +114,11 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                   <span className="whitespace-nowrap">
                     <span className="font-medium text-foreground">Regra ativa</span>
                     <span className="mx-1.5 text-border">·</span>
-                    <strong className="font-semibold text-primary">&gt;70%</strong>
+                    chance do modelo <strong className="font-semibold text-primary">&gt; 70%</strong>
                     <span className="mx-1.5">·</span>
                     odd real
                     <span className="mx-1.5">·</span>
-                    EV ≥ 2%
+                    EV mínimo de 2%
                   </span>
                 </div>
               </div>
@@ -145,7 +145,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
 
               <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] leading-4 text-muted-foreground sm:hidden">
                 <span className="size-1.5 rounded-full bg-primary" aria-hidden />
-                <span>Regra: <strong className="font-medium text-foreground">&gt;70%</strong> · odd real · EV ≥ 2%</span>
+                <span>Regra: chance do modelo <strong className="font-medium text-foreground">&gt; 70%</strong> · odd real · EV mínimo de 2%</span>
               </div>
             </>
           )}
