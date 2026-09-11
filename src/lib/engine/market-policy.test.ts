@@ -4,15 +4,24 @@ import {
   EXPERIMENTAL_MARKET_POLICY_VERSION,
   EXPERIMENTAL_QUOTE_CANDIDATES_PER_COMPLETE_MATCH,
   EXPERIMENTAL_TOTAL_MARKET_POLICY,
+  MODEL_LEAN_THRESHOLD,
   expectedQuoteCandidateCount,
   experimentalPredictionId,
   filterQuoteAnchorPredictions,
   isAllowedExperimentalContract,
   isQuoteAnchorPrediction,
+  passesExperimentalModelGate,
   referenceLinesFor,
 } from "./market-policy";
 
 describe("experimental market policy", () => {
+  it("keeps a strict confidence gate above 70%", () => {
+    expect(MODEL_LEAN_THRESHOLD).toBe(0.70);
+    expect(passesExperimentalModelGate(0.70)).toBe(false);
+    expect(passesExperimentalModelGate(0.701)).toBe(true);
+    expect(passesExperimentalModelGate(0.33)).toBe(false);
+  });
+
   it("keeps the requested anchor lines and bounded ladders", () => {
     expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.corners_match_total).toEqual({
       anchor: 9.5,
@@ -58,7 +67,7 @@ describe("experimental market policy", () => {
     }
   });
 
-  it("filters quote rows without using a probability gate", () => {
+  it("keeps quote-anchor discovery independent from the final probability gate", () => {
     const rows = [
       { market: "goals_match_total", side: "OVER", line_canonical: 2.5, model_probability: 0.55 },
       { market: "goals_match_total", side: "UNDER", line_canonical: 2.5, model_probability: 0.45 },

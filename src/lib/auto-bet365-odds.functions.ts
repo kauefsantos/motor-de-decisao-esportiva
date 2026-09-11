@@ -11,7 +11,7 @@ import {
   type AutoOddsMatch,
 } from "./bet365-odds.server";
 import { familyForMarket } from "./engine/experimental-goal-markets";
-import { filterQuoteAnchorPredictions } from "./engine/market-policy";
+import { filterQuoteAnchorPredictions, passesExperimentalModelGate } from "./engine/market-policy";
 import { buildManualQuoteBatches } from "./engine/quote-funnel";
 import { captureFiveDollarLeaguePriorsForRun } from "./five-dollar-priors.server";
 
@@ -109,7 +109,8 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       supabase.from("analysis_runs").select("target_date,notes,created_at").eq("id", data.runId).single(),
     ]);
 
-    const eligible = filterQuoteAnchorPredictions((predictions ?? []) as PredictionRow[]);
+    const quoteAnchors = filterQuoteAnchorPredictions((predictions ?? []) as PredictionRow[]);
+    const eligible = quoteAnchors.filter((row) => passesExperimentalModelGate(Number(row.model_probability)));
     const matchIds = [...new Set(eligible.map((row) => row.match_id))];
     if (matchIds.length === 0) {
       return {
@@ -117,7 +118,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
         sourceUnavailable: 0, fixturesRequested: 0, dayPagesRequested: 0,
         manualBatches: [] as string[][], manualFieldCount: 0,
         automaticallyPricedPredictionIds: [] as string[], priorCapture: null,
-        message: "Nenhuma linha de cotação experimental disponível para buscar preço.",
+        message: "Nenhuma opção passou pela regra de confiança >70% para buscar preço.",
       };
     }
 
@@ -247,9 +248,6 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       automaticallyPricedPredictionIds,
     );
 
-    // Research enrichment is strictly best-effort. It must never make a
-    // successful Bet365 quote pass fail because a standings endpoint/table is
-    // temporarily unavailable.
     let priorCapture: Awaited<ReturnType<typeof captureFiveDollarLeaguePriorsForRun>> | null = null;
     try {
       priorCapture = await captureFiveDollarLeaguePriorsForRun(
@@ -269,6 +267,6 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       noPrice: count("NO_PRICE"), sourceUnavailable: count("SOURCE_UNAVAILABLE"), fixturesRequested,
       dayPagesRequested: day.fetches.length, manualBatches, manualFieldCount: manualBatches.flat().length,
       automaticallyPricedPredictionIds, priorCapture,
-      message: "Odds automáticas foram avaliadas primeiro; o restante foi organizado em lotes manuais progressivos. Standings de escanteios/cartões são pesquisa isolada e nunca bloqueiam a cotação principal.",
+      message: "Somente opções com chance do modelo >70% seguem para cotação; depois disso, a odd real ainda precisa atingir EV mínimo de 2%.",
     };
   });

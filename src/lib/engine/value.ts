@@ -12,7 +12,12 @@ import {
 import type { AsianOutcomeProbabilities, ContractType } from "./types";
 
 export const EV_TARGET = 0.02;
+export const MIN_MODEL_PROBABILITY = 0.70;
 export const MAX_SELECTIONS = 3;
+
+export function passesModelProbabilityGate(probability: number | null | undefined): probability is number {
+  return probability !== null && probability !== undefined && Number.isFinite(probability) && probability > MIN_MODEL_PROBABILITY && probability <= 1;
+}
 
 export type ProbabilityBasis =
   | "CONSERVATIVE_CALIBRATED"
@@ -21,6 +26,7 @@ export type ProbabilityBasis =
 
 export type RejectionReason =
   | "SEM_VALOR"
+  | "MODEL_PROBABILITY_BELOW_THRESHOLD"
   | "PRICE_MOVED_NO_BET"
   | "REFORECAST_REQUIRED"
   | "MODEL_NOT_PRODUCTION_VALIDATED"
@@ -39,11 +45,8 @@ export interface ValueInput {
   lineAtEntry: number | null;
   lineCanonical: number | null;
   /**
-   * Probabilidade binária entregue pelo Motor 1 ao Motor 2.
-   *
-   * Em modelos calibrados deve ser a probabilidade conservadora. No fluxo
-   * experimental legado este campo ainda recebe a probabilidade bruta; nesse
-   * caso probabilityBasis deixa isso explícito e evita chamá-la de calibrada.
+   * Probabilidade entregue pelo Motor 1 ao Motor 2 para a decisão.
+   * Toda recomendação exige valor estritamente maior que 70%.
    */
   pCons: number | null;
   probabilityBasis?: ProbabilityBasis;
@@ -60,14 +63,9 @@ export interface ValueResult {
   impliedProbability: number | null;
   fairOdd: number | null;
   minOddTarget: number | null;
-  /** Probabilidade efetivamente usada para precificar este contrato binário. */
+  /** Probabilidade efetivamente usada para decidir se o contrato pode seguir. */
   decisionProbability: number | null;
   probabilityBasis: ProbabilityBasis | null;
-  /**
-   * Nomes mantidos por compatibilidade com o ledger/UI. Quando probabilityBasis
-   * é RAW_EXPERIMENTAL, representam edge/EV da probabilidade experimental e não
-   * uma alegação de calibração conservadora.
-   */
   edgeCons: number | null;
   evCons: number | null;
   wEff: number | null;
@@ -97,7 +95,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
     impliedProbability: null,
     fairOdd: null,
     minOddTarget: null,
-    decisionProbability: null,
+    decisionProbability: input.pCons,
     probabilityBasis: null,
     edgeCons: null,
     evCons: null,
@@ -129,7 +127,18 @@ export function evaluateValue(input: ValueInput): ValueResult {
     return { ...base, rejectionReason: "REFORECAST_REQUIRED" };
   }
 
-  // Probabilidade/distribuição aprovada pelo Motor 1; Motor 2 só precifica.
+  if (!passesModelProbabilityGate(input.pCons)) {
+    return {
+      ...base,
+      rejectionReason: input.pCons === null || !Number.isFinite(input.pCons) || input.pCons <= 0 || input.pCons > 1
+        ? "INSUFFICIENT_DATA"
+        : "MODEL_PROBABILITY_BELOW_THRESHOLD",
+    };
+  }
+
+  const p = input.pCons;
+
+  // Só depois do gate estrito >70% o Motor 2 avalia preço/value.
   if (input.contractType === "ASIAN") {
     const dist = input.outcomeDistribution;
     if (!dist) return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
@@ -145,6 +154,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
       impliedProbability: implied,
       fairOdd: fair,
       minOddTarget: minOdd,
+      decisionProbability: p,
       probabilityBasis: "OUTCOME_DISTRIBUTION",
       edgeCons: w - implied,
       evCons: ev,
@@ -157,10 +167,6 @@ export function evaluateValue(input: ValueInput): ValueResult {
     };
   }
 
-  const p = input.pCons;
-  if (p === null || !(p > 0) || p > 1) {
-    return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
-  }
   const implied = 1 / input.odd;
   const ev = p * input.odd - 1;
   const hasValue = ev >= EV_TARGET;
@@ -186,7 +192,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
  */
 export function finalSelection(results: ValueResult[]): ValueResult[] {
   return results
-    .filter((r) => r.valueStatus === "TEM_VALOR" && r.executionStatus === "EXECUTAVEL")
+    .filter((r) => r.probabilityStatus === "APROVADA" && passesModelProbabilityGate(r.decisionProbability) && r.valueStatus === "TEM_VALOR" && r.executionStatus === "EXECUTAVEL")
     .sort((a, b) => (b.evCons ?? 0) - (a.evCons ?? 0) || (b.edgeCons ?? 0) - (a.edgeCons ?? 0))
     .slice(0, MAX_SELECTIONS);
 }
