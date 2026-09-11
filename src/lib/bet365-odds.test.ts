@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   bet365ListOfferedLine,
+  matchBet365ClosingPrice,
   matchBet365List1x2,
   matchBet365Price,
 } from "./bet365-odds.server";
@@ -116,6 +117,39 @@ describe("matchBet365Price", () => {
       payload,
     );
     expect(quote.status).toBe("UNSUPPORTED");
+    expect(quote.odd).toBeNull();
+  });
+});
+
+describe("closing-only matcher", () => {
+  it("uses closing and never opening for CLV", () => {
+    const quote = matchBet365ClosingPrice(
+      { predictionId: "clv-1", market: "1x2", side: "HOME", lineCanonical: null },
+      payload,
+    );
+    expect(quote.status).toBe("MATCHED");
+    expect(quote.odd).toBe(1.083);
+    expect(quote.stage).toBe("closing");
+  });
+
+  it("reports a line move instead of comparing different total contracts", () => {
+    const quote = matchBet365ClosingPrice(
+      { predictionId: "clv-2", market: "goals_match_total", side: "OVER", lineCanonical: 3.75 },
+      payload,
+    );
+    expect(quote.status).toBe("LINE_MISMATCH");
+    expect(quote.offeredLine).toBe(4.25);
+    expect(quote.odd).toBeNull();
+  });
+
+  it("does not fall back to opening when closing is absent", () => {
+    const openingOnly = structuredClone(payload);
+    delete (openingOnly.data.bookmakers[0]!.odds.card_line as { closing?: unknown }).closing;
+    const quote = matchBet365ClosingPrice(
+      { predictionId: "clv-3", market: "cards_match_total", side: "OVER", lineCanonical: 4.5 },
+      openingOnly,
+    );
+    expect(quote.status).toBe("NO_PRICE");
     expect(quote.odd).toBeNull();
   });
 });

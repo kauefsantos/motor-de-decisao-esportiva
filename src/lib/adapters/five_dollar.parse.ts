@@ -52,6 +52,8 @@ export interface FiveDollarFixture extends ProviderEvent {
   redHome: number | null;
   redAway: number | null;
   kickoffIso: string | null;
+  embeddedStatistics: Json | null;
+  embeddedEvents: Json[];
 }
 
 export function parseFixtures(payload: unknown): FiveDollarFixture[] {
@@ -72,6 +74,9 @@ export function parseFixtures(payload: unknown): FiveDollarFixture[] {
     const cards = asRecord(item["cards"]);
     const cardsHome = asRecord(cards?.["home"]);
     const cardsAway = asRecord(cards?.["away"]);
+    const embeddedEvents = Array.isArray(item["events"])
+      ? (item["events"] as unknown[]).map(asRecord).filter((v): v is Json => Boolean(v))
+      : [];
 
     const id = num(item["id"]);
     const homeName = str(home?.["name"]);
@@ -99,6 +104,8 @@ export function parseFixtures(payload: unknown): FiveDollarFixture[] {
       redHome: num(cardsHome?.["red"]),
       redAway: num(cardsAway?.["red"]),
       kickoffIso: str(item["kickoff_utc"]),
+      embeddedStatistics: asRecord(item["statistics"]),
+      embeddedEvents,
     });
   }
   return out;
@@ -169,7 +176,26 @@ export type TeamRelativeMetric =
   | "corners_taken_for"
   | "corners_taken_against"
   | "cards_yellow_raw"
-  | "cards_red_raw";
+  | "cards_red_raw"
+  | "research_attacks_for"
+  | "research_attacks_against"
+  | "research_dangerous_attacks_for"
+  | "research_dangerous_attacks_against"
+  | "research_shots_on_target_for"
+  | "research_shots_on_target_against"
+  | "research_shots_off_target_for"
+  | "research_shots_off_target_against"
+  | "research_possession_for"
+  | "research_possession_against"
+  | "research_first_half_attacks_for"
+  | "research_first_half_dangerous_attacks_for"
+  | "research_first_half_shots_on_target_for"
+  | "research_first_half_shots_off_target_for"
+  | "research_first_half_possession_for"
+  | "research_corners_first_30_for"
+  | "research_corners_first_30_against"
+  | "research_card_points_first_30_for"
+  | "research_card_points_first_30_against";
 
 export interface TeamRelativeStat {
   canonical: TeamRelativeMetric;
@@ -190,6 +216,33 @@ export interface TeamRelativeFixtureStats {
     cornersHome: number | null;
     cornersAway: number | null;
   };
+}
+
+function statisticPair(stats: Json | null, key: string): { home: number | null; away: number | null } {
+  const pair = asRecord(stats?.[key]);
+  return { home: num(pair?.["home"]), away: num(pair?.["away"]) };
+}
+
+function earlyEventCount(
+  events: Json[],
+  type: "corner" | "card_points",
+): { home: number; away: number } {
+  let home = 0;
+  let away = 0;
+  for (const event of events) {
+    const minute = num(event["minute"]);
+    if (minute === null || minute > 30) continue;
+    const team = str(event["team"]);
+    if (team !== "home" && team !== "away") continue;
+    const eventType = str(event["type"]);
+    let value = 0;
+    if (type === "corner" && eventType === "corner") value = num(event["count"]) ?? 1;
+    if (type === "card_points" && eventType === "yellow_card") value = num(event["count"]) ?? 1;
+    if (type === "card_points" && eventType === "red_card") value = 2 * (num(event["count"]) ?? 1);
+    if (team === "home") home += value;
+    else away += value;
+  }
+  return { home, away };
 }
 
 export function teamRelativeStats(
@@ -229,6 +282,41 @@ export function teamRelativeStats(
   push("cards_yellow_raw", mine(fixture.yellowHome, fixture.yellowAway), mine("cards.home.yellow", "cards.away.yellow"), false, yellowNote);
   const redNote = "Total bruto de vermelhos; definição ainda incompatível com o settlement de cartões.";
   push("cards_red_raw", mine(fixture.redHome, fixture.redAway), mine("cards.home.red", "cards.away.red"), false, redNote);
+
+  const researchNote = "Feature 5Dollar capturada para pesquisa; não altera probabilidades até aprovação explícita em walk-forward fora da amostra.";
+  const full = fixture.embeddedStatistics;
+  const firstHalf = asRecord(full?.["first_half"]);
+  for (const [key, forMetric, againstMetric] of [
+    ["attacks", "research_attacks_for", "research_attacks_against"],
+    ["dangerous_attacks", "research_dangerous_attacks_for", "research_dangerous_attacks_against"],
+    ["shots_on_target", "research_shots_on_target_for", "research_shots_on_target_against"],
+    ["shots_off_target", "research_shots_off_target_for", "research_shots_off_target_against"],
+    ["possession", "research_possession_for", "research_possession_against"],
+  ] as const) {
+    const pair = statisticPair(full, key);
+    push(forMetric, mine(pair.home, pair.away), `statistics.${key}.for`, false, researchNote);
+    push(againstMetric, theirs(pair.home, pair.away), `statistics.${key}.against`, false, researchNote);
+  }
+
+  for (const [key, metric] of [
+    ["attacks", "research_first_half_attacks_for"],
+    ["dangerous_attacks", "research_first_half_dangerous_attacks_for"],
+    ["shots_on_target", "research_first_half_shots_on_target_for"],
+    ["shots_off_target", "research_first_half_shots_off_target_for"],
+    ["possession", "research_first_half_possession_for"],
+  ] as const) {
+    const pair = statisticPair(firstHalf, key);
+    push(metric, mine(pair.home, pair.away), `statistics.first_half.${key}.for`, false, researchNote);
+  }
+
+  if (fixture.embeddedEvents.length > 0) {
+    const earlyCorners = earlyEventCount(fixture.embeddedEvents, "corner");
+    const earlyCards = earlyEventCount(fixture.embeddedEvents, "card_points");
+    push("research_corners_first_30_for", mine(earlyCorners.home, earlyCorners.away), "events.corner.minute<=30.for", false, researchNote);
+    push("research_corners_first_30_against", theirs(earlyCorners.home, earlyCorners.away), "events.corner.minute<=30.against", false, researchNote);
+    push("research_card_points_first_30_for", mine(earlyCards.home, earlyCards.away), "events.cards.minute<=30.for", false, researchNote);
+    push("research_card_points_first_30_against", theirs(earlyCards.home, earlyCards.away), "events.cards.minute<=30.against", false, researchNote);
+  }
 
   return {
     stats,

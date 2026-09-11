@@ -63,6 +63,12 @@ function preMatchStage(market: Row | null): { stage: "closing" | "opening"; row:
   return null;
 }
 
+function closingStage(market: Row | null): { stage: "closing"; row: Row } | null {
+  if (!market) return null;
+  const closing = record(market["closing"]);
+  return closing ? { stage: "closing", row: closing } : null;
+}
+
 function linePrice(
   candidate: AutoOddsCandidate,
   odds: Row,
@@ -120,6 +126,53 @@ function linePrice(
   };
 }
 
+function closingLinePrice(
+  candidate: AutoOddsCandidate,
+  odds: Row,
+  apiMarket: TotalsApiMarket,
+): AutoOddsMatch {
+  const stage = closingStage(record(odds[apiMarket]));
+  if (!stage) {
+    return {
+      predictionId: candidate.predictionId,
+      status: "NO_PRICE",
+      odd: null,
+      offeredLine: null,
+      stage: null,
+      apiMarket,
+      reason: "A Bet365 não expôs um preço de fechamento para este mercado.",
+    };
+  }
+
+  const offeredLine = finite(stage.row["line"]);
+  const requestedLine = candidate.lineCanonical;
+  if (offeredLine === null || requestedLine === null || Math.abs(offeredLine - requestedLine) > 1e-9) {
+    return {
+      predictionId: candidate.predictionId,
+      status: "LINE_MISMATCH",
+      odd: null,
+      offeredLine,
+      stage: "closing",
+      apiMarket,
+      reason: `A linha de fechamento (${offeredLine ?? "—"}) difere da linha aceita (${requestedLine ?? "—"}); CLV de preço não é comparável.`,
+    };
+  }
+
+  const priceKey = candidate.side === "OVER" ? "over" : candidate.side === "UNDER" ? "under" : null;
+  const odd = priceKey ? finite(stage.row[priceKey]) : null;
+  return {
+    predictionId: candidate.predictionId,
+    status: odd !== null && odd > 1 ? "MATCHED" : "NO_PRICE",
+    odd: odd !== null && odd > 1 ? odd : null,
+    offeredLine,
+    stage: "closing",
+    apiMarket,
+    reason: odd !== null && odd > 1
+      ? "Preço de fechamento do mesmo contrato Bet365 coletado via 5DollarFootballAPI."
+      : "A linha de fechamento coincide, mas o preço do lado não está disponível.",
+  };
+}
+
 export function matchBet365Price(candidate: AutoOddsCandidate, payload: unknown): AutoOddsMatch {
   const odds = bookmakerOdds(payload);
   if (!odds) {
@@ -168,17 +221,9 @@ export function matchBet365Price(candidate: AutoOddsCandidate, payload: unknown)
     };
   }
 
-  if (candidate.market === "goals_match_total") {
-    return linePrice(candidate, odds, "goal_line");
-  }
-
-  if (candidate.market === "corners_match_total") {
-    return linePrice(candidate, odds, "corner_line");
-  }
-
-  if (candidate.market === "cards_match_total") {
-    return linePrice(candidate, odds, "card_line");
-  }
+  if (candidate.market === "goals_match_total") return linePrice(candidate, odds, "goal_line");
+  if (candidate.market === "corners_match_total") return linePrice(candidate, odds, "corner_line");
+  if (candidate.market === "cards_match_total") return linePrice(candidate, odds, "card_line");
 
   return {
     predictionId: candidate.predictionId,
@@ -188,6 +233,56 @@ export function matchBet365Price(candidate: AutoOddsCandidate, payload: unknown)
     stage: null,
     apiMarket: null,
     reason: "A 5Dollar Pro não expõe o preço Bet365 deste contrato específico; entrada manual continua disponível.",
+  };
+}
+
+/**
+ * Closing-only matcher for CLV. Unlike matchBet365Price this function never
+ * falls back to opening, because an opening quote is not a closing benchmark.
+ */
+export function matchBet365ClosingPrice(candidate: AutoOddsCandidate, payload: unknown): AutoOddsMatch {
+  const odds = bookmakerOdds(payload);
+  if (!odds) {
+    return {
+      predictionId: candidate.predictionId,
+      status: "SOURCE_UNAVAILABLE",
+      odd: null,
+      offeredLine: null,
+      stage: null,
+      apiMarket: null,
+      reason: "Resposta sem bloco de odds da Bet365.",
+    };
+  }
+
+  if (candidate.market === "1x2") {
+    const stage = closingStage(record(odds["1x2"]));
+    const key = candidate.side === "HOME" ? "home" : candidate.side === "DRAW" ? "draw" : candidate.side === "AWAY" ? "away" : null;
+    const odd = stage && key ? finite(stage.row[key]) : null;
+    return {
+      predictionId: candidate.predictionId,
+      status: odd !== null && odd > 1 ? "MATCHED" : "NO_PRICE",
+      odd: odd !== null && odd > 1 ? odd : null,
+      offeredLine: null,
+      stage: stage ? "closing" : null,
+      apiMarket: "1x2",
+      reason: odd !== null && odd > 1
+        ? "Preço de fechamento 1X2 da Bet365 coletado via 5DollarFootballAPI."
+        : "Sem preço de fechamento 1X2 válido para este lado.",
+    };
+  }
+
+  if (candidate.market === "goals_match_total") return closingLinePrice(candidate, odds, "goal_line");
+  if (candidate.market === "corners_match_total") return closingLinePrice(candidate, odds, "corner_line");
+  if (candidate.market === "cards_match_total") return closingLinePrice(candidate, odds, "card_line");
+
+  return {
+    predictionId: candidate.predictionId,
+    status: "UNSUPPORTED",
+    odd: null,
+    offeredLine: null,
+    stage: null,
+    apiMarket: null,
+    reason: "Este contrato não possui preço de fechamento Bet365 equivalente no parser atual.",
   };
 }
 
