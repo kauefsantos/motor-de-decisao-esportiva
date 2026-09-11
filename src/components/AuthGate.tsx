@@ -90,7 +90,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (state === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status" aria-live="polite">
           <Loader2 className="size-4 animate-spin" aria-hidden />
           Verificando acesso…
@@ -100,7 +100,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
+    <div className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background px-4 pt-[calc(2.5rem+env(safe-area-inset-top))] pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.18)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.18)_1px,transparent_1px)] bg-[size:55px_55px]" />
       <main className="panel relative z-10 w-full max-w-md p-6 sm:p-8">
         <div className="flex size-11 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
