@@ -60,34 +60,34 @@ function AnalyticsScreen() {
 
   return (
     <AppShell stage="analytics">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-5xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="label-eyebrow">Acompanhamento</p>
-            <h1 className="page-heading mt-2">Como as sugestões estão se saindo?</h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            <h1 className="page-heading mt-1.5">Como as sugestões estão se saindo?</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
               Esta tela é somente para acompanhar banca, resultados e qualidade das estimativas.
             </p>
           </div>
-          <Button asChild variant="outline" className="min-h-11 shrink-0">
+          <Button asChild variant="outline" className="min-h-12 w-full shrink-0 sm:min-h-11 sm:w-auto">
             <Link to="/open-bets">Registrar resultados</Link>
           </Button>
         </div>
 
         {isLoading && (
-          <div className="panel mt-6 flex items-center gap-3 p-5 text-sm text-muted-foreground">
+          <div className="panel mt-5 flex items-center gap-3 p-5 text-sm text-muted-foreground sm:mt-6">
             <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando o desempenho…
           </div>
         )}
 
         {isError && (
-          <div className="panel mt-6 border-destructive/30 p-5">
+          <div className="panel mt-5 border-destructive/30 p-5 sm:mt-6">
             <div className="flex items-start gap-3">
               <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Não foi possível carregar o desempenho.</p>
                 {error instanceof Error && <p className="mt-1 text-xs text-muted-foreground">{error.message}</p>}
-                <Button className="mt-4 min-h-11" variant="outline" onClick={() => void refetch()}>
+                <Button className="mt-4 min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => void refetch()}>
                   Tentar novamente
                 </Button>
               </div>
@@ -97,14 +97,14 @@ function AnalyticsScreen() {
 
         {data && (
           <>
-            <div className="mt-6 grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2 lg:mt-6 lg:grid-cols-4">
               <MetricCard label="Banca atual" value={money(data.summary.currentBankroll)} hint={`Resultado: ${money(data.summary.totalProfit)}`} highlight />
               <MetricCard label="Resultado acumulado" value={money(data.summary.totalProfit)} hint={`Desde ${date(data.config.startDate)}`} />
               <MetricCard label="Retorno sobre o valor apostado" value={pct(data.summary.roi)} hint={`${data.summary.settled} encerrada(s)`} />
               <MetricCard label="Taxa de acerto" value={pct(data.summary.hitRate)} hint={`${data.summary.wins} ganhos · ${data.summary.losses} perdas`} />
             </div>
 
-            <p className="mt-3 rounded-lg border border-border bg-secondary/20 px-4 py-3 text-sm text-muted-foreground">
+            <p className="mt-3 rounded-xl bg-secondary/25 px-4 py-3 text-sm leading-relaxed text-muted-foreground ring-1 ring-border/45">
               {data.summary.sampleMessage}
             </p>
 
@@ -119,7 +119,7 @@ function AnalyticsScreen() {
             </CollapsiblePanel>
 
             <section className="panel mt-4 p-4 sm:p-5">
-              <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                 <div>
                   <p className="label-eyebrow">Evolução da banca</p>
                   <h2 className="mt-1 text-lg font-semibold">Saldo ao longo do teste</h2>
@@ -129,7 +129,7 @@ function AnalyticsScreen() {
               <BankrollChart points={data.bankrollSeries} />
             </section>
 
-            <div className="mt-4 rounded-lg border border-border bg-secondary/20 px-4 py-3 text-sm text-muted-foreground">
+            <div className="mt-4 rounded-xl bg-secondary/25 px-4 py-3 text-sm leading-relaxed text-muted-foreground ring-1 ring-border/45">
               Para encerrar uma aposta, use <Link to="/open-bets" className="font-medium text-accent underline underline-offset-4">Em andamento</Link>. O histórico abaixo é somente leitura para evitar dois lugares diferentes alterando o mesmo resultado.
             </div>
 
@@ -150,7 +150,13 @@ function AnalyticsScreen() {
                   </div>
                   <div className="grid gap-2 md:hidden">
                     {data.byFamily.map((family) => (
-                      <div key={family.family} className="metric-tile p-3"><div className="flex items-center justify-between gap-3"><p className="font-medium">{FAMILY_LABELS[family.family] ?? family.family}</p><p className="num text-sm">{pct(family.roi)}</p></div><p className="mt-1 text-xs text-muted-foreground">{family.selections} sugestões · {family.settled} encerradas · {pct(family.hitRate)} acertos</p></div>
+                      <div key={family.family} className="metric-tile p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium">{FAMILY_LABELS[family.family] ?? family.family}</p>
+                          <p className="num text-lg font-semibold text-primary">{pct(family.roi)}</p>
+                        </div>
+                        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{family.selections} sugestões · {family.settled} encerradas · {pct(family.hitRate)} acertos</p>
+                      </div>
                     ))}
                   </div>
                 </>
@@ -192,16 +198,23 @@ function AnalyticsScreen() {
 
                   <div className="grid gap-3 md:hidden">
                     {recent.map((row) => (
-                      <article key={row.id} className="metric-tile p-3">
+                      <article key={row.id} className="rounded-xl bg-secondary/30 p-4 ring-1 ring-border/45">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0"><p className="text-xs text-muted-foreground">{date(row.target_date)}</p><p className="mt-1 text-sm font-medium">{row.match_label}</p><p className="text-xs text-muted-foreground">{row.market_label}</p></div>
-                          <div className="shrink-0 text-right"><p className="num text-sm">{pct(Number(row.model_probability))}</p><p className="num text-xs text-muted-foreground">odd {odd(row.entry_odd)}</p></div>
+                          <div className="min-w-0">
+                            <p className="text-xs text-muted-foreground">{date(row.target_date)}</p>
+                            <p className="mt-1 text-sm font-medium leading-snug">{row.match_label}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">{row.market_label}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="num text-lg font-semibold text-primary">{pct(Number(row.model_probability))}</p>
+                            <p className="num text-xs text-muted-foreground">odd {odd(row.entry_odd)}</p>
+                          </div>
                         </div>
                         <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                          <div><dt className="text-muted-foreground">Odd final</dt><dd className="num mt-1">{odd(row.closing_odd)}</dd></div>
-                          <div><dt className="text-muted-foreground">Valor</dt><dd className="num mt-1">{row.stake_brl === null ? "—" : money(Number(row.stake_brl))}</dd></div>
-                          <div><dt className="text-muted-foreground">Resultado</dt><dd className="mt-1">{friendlyResult(row.result)}</dd></div>
-                          <div><dt className="text-muted-foreground">Financeiro</dt><dd className="num mt-1">{row.profit_brl === null ? "—" : money(Number(row.profit_brl))}</dd></div>
+                          <div className="metric-tile p-2.5"><dt className="text-muted-foreground">Odd final</dt><dd className="num mt-1 text-sm font-medium">{odd(row.closing_odd)}</dd></div>
+                          <div className="metric-tile p-2.5"><dt className="text-muted-foreground">Valor</dt><dd className="num mt-1 text-sm font-medium">{row.stake_brl === null ? "—" : money(Number(row.stake_brl))}</dd></div>
+                          <div className="metric-tile p-2.5"><dt className="text-muted-foreground">Resultado</dt><dd className="mt-1 text-sm font-medium">{friendlyResult(row.result)}</dd></div>
+                          <div className="metric-tile p-2.5"><dt className="text-muted-foreground">Financeiro</dt><dd className="num mt-1 text-sm font-medium">{row.profit_brl === null ? "—" : money(Number(row.profit_brl))}</dd></div>
                         </dl>
                       </article>
                     ))}
@@ -218,10 +231,10 @@ function AnalyticsScreen() {
 
 function MetricCard({ label, value, hint, highlight = false }: { label: string; value: string; hint: string; highlight?: boolean }) {
   return (
-    <div className={`panel p-3 sm:p-4 ${highlight ? "border-primary/30 bg-primary/8" : ""}`}>
+    <div className={`panel p-4 ${highlight ? "border-primary/25 bg-primary/[0.055]" : ""}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`num mt-1 text-xl font-semibold sm:text-2xl ${highlight ? "text-primary" : ""}`}>{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      <p className={`num mt-1 text-2xl font-semibold tracking-tight ${highlight ? "text-primary" : ""}`}>{value}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{hint}</p>
     </div>
   );
 }
@@ -256,8 +269,8 @@ function BankrollChart({ points }: { points: Array<{ date: string; bankroll: num
         <MetricTile label="Menor saldo" value={money(min)} />
         <MetricTile label="Maior saldo" value={money(max)} />
       </div>
-      <div className="mt-3 rounded-lg border border-border bg-secondary/10 p-3">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full overflow-visible text-primary sm:h-52" role="img" aria-label={`Evolução da banca de ${money(start)} para ${money(current)}; mínimo ${money(min)} e máximo ${money(max)}`}>
+      <div className="mt-3 rounded-xl bg-secondary/15 p-3 ring-1 ring-border/45">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-44 w-full overflow-visible text-primary sm:h-52" role="img" aria-label={`Evolução da banca de ${money(start)} para ${money(current)}; mínimo ${money(min)} e máximo ${money(max)}`}>
           <line x1="0" x2="100" y1={startY} y2={startY} stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" opacity="0.25" vectorEffect="non-scaling-stroke" />
           <polyline points={coords.join(" ")} fill="none" stroke="currentColor" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
           {points.map((point, index) => (
