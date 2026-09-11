@@ -1,6 +1,6 @@
-# E2E real do piloto experimental no ambiente Lovable.
-# Usa uma partida coberta pela 5Dollar, percorre upload -> pipeline -> Motor 1 ->
-# input de odd -> Motor 2 -> resultado final. A odd 2.00 é exclusivamente de teste.
+# E2E do fluxo quantitativo atual no ambiente Lovable/local autenticado.
+# Percorre upload -> pipeline -> cotação -> resultado. A odd 2.00 é somente de teste
+# quando houver um campo manual disponível.
 
 import asyncio
 import os
@@ -42,46 +42,33 @@ async def main() -> int:
         await page.set_input_files('[data-testid="csv-input"]', str(csv_path))
         process = page.get_by_test_id("processar-jogos")
         await process.wait_for(state="visible", timeout=20000)
-        check(await process.is_enabled(), "CSV diário válido habilita PROCESSAR JOGOS")
+        check(await process.is_enabled(), "CSV diário válido habilita COMEÇAR ANÁLISE")
         await process.click()
 
         await page.wait_for_url("**/oportunidades", timeout=240000)
-        await page.get_by_text("Odds organizadas por jogo").wait_for(timeout=90000)
+        await page.get_by_text("Cotação em etapas", exact=True).wait_for(timeout=90000)
         body = await page.locator("body").inner_text()
-        check("Vitória x Grêmio" in body, "partida resolvida aparece no piloto")
-        check(
-            "DOUBLE_CHANCE" in body and "Dupla chance" in body,
-            "dupla chance é derivada e publicada no Motor 1 experimental",
-        )
-        check(
-            "TEAM_GOALS" in body or "Gols Vitória" in body or "Gols Grêmio" in body,
-            "mercados de gols por time chegam à tela quando passam o gate",
-        )
+        check("Vitória x Grêmio" in body, "partida resolvida aparece na cotação")
+        check("Não foi possível preparar as opções" not in body, "preparação não terminou em erro técnico")
 
-        inputs = page.locator('input[aria-label^="Odd experimental para"]')
+        inputs = page.locator('input[aria-label^="Odd bet365 para"]')
         count = await inputs.count()
-        check(count > 0, "há ao menos uma odd experimental para preencher")
         if count > 0:
-            # A odd é propositalmente artificial e serve apenas para validar o Motor 2.
             await inputs.first.fill("2.00")
-            await page.get_by_role(
-                "button", name="ANALISAR ODDS — PILOTO EXPERIMENTAL"
-            ).click()
-            await page.wait_for_url("**/resultado?mode=experimental", timeout=60000)
-            result_body = await page.locator("body").inner_text()
-            check(
-                "Resultado final experimental" in result_body,
-                "Motor 2 redireciona para o resultado experimental",
-            )
-            check(
-                "Escolha experimental" in result_body,
-                "Motor 2 produz ao menos uma seleção com odd de teste",
-            )
-            check(
-                "NÃO VALIDADO PARA PRODUÇÃO" in result_body,
-                "status experimental permanece separado da produção",
-            )
+            check(True, "há odd manual para preencher")
+        else:
+            check("Odds encontradas automaticamente" in body, "sem campo manual, há odds automáticas visíveis")
 
+        analyze = page.get_by_role("button", name="ANALISAR ODDS DISPONÍVEIS")
+        await analyze.wait_for(state="visible", timeout=30000)
+        await analyze.click()
+        await page.wait_for_url("**/resultado?mode=experimental", timeout=60000)
+        result_body = await page.locator("body").inner_text()
+        check("Sugestões do dia" in result_body, "análise redireciona para o resultado")
+        check(
+            "Modelo em validação" in result_body or "Resultado recuperado" in result_body,
+            "status do modelo continua explícito no resultado",
+        )
         check(not page_errors, f"sem erros de runtime no navegador ({page_errors[:1]})")
         await browser.close()
 

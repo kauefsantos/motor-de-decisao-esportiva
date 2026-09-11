@@ -36,7 +36,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
       setCustom("");
       setShowCustom(false);
       await refetch();
-      toast.success(stakeBrl > 0 ? "Aposta confirmada. O saldo foi atualizado." : "Sugestão recusada.");
+      toast.success(stakeBrl > 0 ? "Registro confirmado. O saldo foi atualizado." : "Sugestão recusada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível confirmar.");
     } finally {
@@ -47,7 +47,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
   if (isLoading) {
     return (
       <section className="panel mx-auto mt-4 flex max-w-5xl items-center gap-3 p-5 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Calculando quanto apostar…
+        <Loader2 className="size-4 animate-spin" /> Calculando quanto registrar…
       </section>
     );
   }
@@ -62,7 +62,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         <h2 className="mt-1 text-lg font-semibold">Tudo revisado nesta rodada</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {data.openCount > 0
-            ? `${data.openCount} aposta(s) confirmada(s) estão em “Em andamento”.`
+            ? `${data.openCount} aposta(s) registrada(s) estão em “Em andamento”.`
             : "Nenhuma sugestão ficou pendente de confirmação."}
         </p>
       </section>
@@ -78,7 +78,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
     <section className="panel mx-auto mt-4 max-w-5xl overflow-hidden border-primary/30">
       <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
         <div>
-          <p className="label-eyebrow">Confirmar aposta</p>
+          <p className="label-eyebrow">Registrar aposta</p>
           <h2 className="mt-1 text-lg font-semibold sm:text-xl">{proposal.match_label}</h2>
           <p className="text-sm text-muted-foreground">{proposal.market_label}</p>
         </div>
@@ -95,17 +95,18 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
       </div>
 
       <div className="border-t border-border p-4 sm:p-5">
+        <p className="mb-3 text-xs text-muted-foreground">Use esta etapa para registrar no sistema uma aposta que você fez na Bet365. O painel não executa a aposta por você.</p>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {suggested > 0 && (
             <Button className="min-h-11" disabled={saving} onClick={() => void submit(suggested)}>
-              <Check className="mr-2 size-4" /> Apostar {money(suggested)}
+              <Check className="mr-2 size-4" /> Registrar {money(suggested)}
             </Button>
           )}
           <Button className="min-h-11" variant="outline" disabled={saving} onClick={() => setShowCustom((value) => !value)}>
-            Escolher outro valor
+            Registrar outro valor
           </Button>
           <Button className="min-h-11" variant="ghost" disabled={saving} onClick={() => void submit(0)}>
-            <X className="mr-2 size-4" /> Não apostar
+            <X className="mr-2 size-4" /> Não registrar
           </Button>
         </div>
 
@@ -120,7 +121,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
               disabled={saving || !Number.isFinite(customNumber) || customNumber < 0 || (customNumber > 0 && customNumber < minimumStake) || customNumber > maxAllowed}
               onClick={() => void submit(Number.isFinite(customNumber) ? customNumber : 0)}
             >
-              Confirmar
+              Confirmar registro
             </Button>
           </div>
         )}
@@ -133,7 +134,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
             <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Máximo permitido</p><p className="num mt-1">{money(maxAllowed)}</p></div>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-            O valor sugerido considera o saldo disponível e os limites definidos para a banca. Ao confirmar, esse valor fica separado e a próxima sugestão usa o saldo restante.
+            O valor sugerido considera o saldo disponível e os limites definidos para a banca. Ao confirmar o registro, esse valor fica separado e a próxima sugestão usa o saldo restante.
           </p>
         </CollapsiblePanel>
       </div>

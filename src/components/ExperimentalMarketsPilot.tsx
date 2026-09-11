@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Info, Loader2 } from "lucide-react";
+import { Info, Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -74,7 +74,13 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   } | null>(null);
   const autoStartedForRun = useRef<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch: refetchPreparation,
+  } = useQuery({
     queryKey: ["experimental-markets-run", runId],
     queryFn: () => prepare({ data: { runId } }),
     staleTime: 5 * 60 * 1000,
@@ -137,7 +143,9 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     }
 
     void runAutomaticOdds();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [collectAutoOdds, eligible, runId]);
 
   const visibleManualIds = useMemo(
@@ -147,6 +155,15 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   const visibleCandidates = useMemo(
     () => eligible.filter((candidate) => visibleManualIds.has(candidate.predictionId)),
     [eligible, visibleManualIds],
+  );
+  const automaticCandidates = useMemo(
+    () =>
+      eligible.flatMap((candidate) => {
+        const quote = autoQuotes[candidate.predictionId];
+        if (quote?.status !== "MATCHED" || quote.odd === null || quote.odd <= 1) return [];
+        return [{ candidate, quote }];
+      }),
+    [autoQuotes, eligible],
   );
   const remainingManual = Math.max(
     0,
@@ -213,20 +230,23 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           lineCanonical: candidate?.lineCanonical ?? evaluation.lineCanonical ?? null,
         };
       });
-      localStorage.setItem(`experimental-result:${runId}`, JSON.stringify({
-        runId,
-        analyzedAt: new Date().toISOString(),
-        targetDate,
-        dayType: selectionLimit === 3 ? "WEEKEND" : "WEEKDAY",
-        selectionLimit,
-        modelStatus: evaluated.modelStatus,
-        productionStatus: evaluated.productionStatus,
-        evaluations: enrichedEvaluations,
-        selectionOrder: limitedSelections.map((selection) => selection.predictionId),
-        directionAssessments: evaluated.directionAssessments,
-        referenceAlternatives: evaluated.referenceAlternatives,
-        correlatedAlternates: evaluated.correlatedAlternates ?? [],
-      }));
+      localStorage.setItem(
+        `experimental-result:${runId}`,
+        JSON.stringify({
+          runId,
+          analyzedAt: new Date().toISOString(),
+          targetDate,
+          dayType: selectionLimit === 3 ? "WEEKEND" : "WEEKDAY",
+          selectionLimit,
+          modelStatus: evaluated.modelStatus,
+          productionStatus: evaluated.productionStatus,
+          evaluations: enrichedEvaluations,
+          selectionOrder: limitedSelections.map((selection) => selection.predictionId),
+          directionAssessments: evaluated.directionAssessments,
+          referenceAlternatives: evaluated.referenceAlternatives,
+          correlatedAlternates: evaluated.correlatedAlternates ?? [],
+        }),
+      );
       navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } });
     } catch {
       toast.error("Não foi possível comparar as odds agora. Tente novamente.");
@@ -237,26 +257,46 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   const targetDate = runData?.run?.target_date ?? data?.predictionAt?.slice(0, 10) ?? null;
   const selectionLimit = selectionLimitForDate(targetDate);
 
+  if (isError) {
+    return (
+      <section className="panel mt-4 border-destructive/30 p-5">
+        <div className="flex items-start gap-3">
+          <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold">Não foi possível preparar as opções</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              A análise não foi concluída nesta tela. Isso não significa que não existam oportunidades.
+            </p>
+            {error instanceof Error && <p className="mt-2 text-xs text-destructive">{error.message}</p>}
+            <Button className="mt-4 min-h-11" variant="outline" onClick={() => void refetchPreparation()}>
+              Tentar novamente
+            </Button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="panel mt-4 overflow-hidden border-warning/30">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-warning/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning">Modo de teste</span>
+            <span className="rounded-full bg-warning/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning">Modelo em validação</span>
             <span className="text-xs text-muted-foreground">até {selectionLimit} sugestão(ões)</span>
           </div>
           <h2 className="mt-2 text-lg font-semibold">Cotação em etapas</h2>
-          <p className="mt-1 text-xs text-muted-foreground">A API é usada primeiro; você só preenche um lote pequeno do que ficou sem preço.</p>
+          <p className="mt-1 text-xs text-muted-foreground">A API é usada primeiro; você só preenche o que ficou sem preço automático.</p>
         </div>
         {autoOddsLoading ? (
           <span className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Buscando odds</span>
         ) : autoSummary ? (
-          <span className="text-xs text-muted-foreground">{autoSummary.matched} automática(s) · {visibleCandidates.length} neste lote</span>
+          <span className="text-xs text-muted-foreground">{autoSummary.matched} automática(s) · {visibleCandidates.length} manual(is) neste lote</span>
         ) : null}
       </div>
 
       <CollapsiblePanel className="m-4 mb-0 border-warning/20 bg-transparent shadow-none sm:m-5 sm:mb-0" title="Como funciona" description="Preço automático primeiro, lotes manuais depois">
-        <p className="text-sm text-muted-foreground">O sistema calcula as linhas centrais, tenta obter o preço real da Bet365 e retira da fila tudo que conseguiu preencher sozinho. O restante é priorizado apenas para organizar o trabalho — não é um corte de value. As opções que não aparecem no primeiro lote continuam disponíveis nos próximos.</p>
+        <p className="text-sm text-muted-foreground">O sistema calcula as linhas centrais, tenta obter o preço real da Bet365 e retira da fila manual tudo que conseguiu preencher sozinho. O restante é priorizado apenas para organizar o trabalho — não é um corte de value.</p>
         {autoSummary && <p className="mt-2 text-xs text-muted-foreground">{autoSummary.matched} automáticas · {autoSummary.manualFieldCount} manuais no total · {autoSummary.lineMismatch} com linha diferente · {autoSummary.unsupported} sem contrato direto na API · {autoSummary.noPrice} sem preço.</p>}
       </CollapsiblePanel>
 
@@ -266,8 +306,33 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         <div className="p-5 text-sm text-muted-foreground">Nenhuma linha pôde ser modelada com os dados disponíveis nesta rodada.</div>
       ) : (
         <>
+          {automaticCandidates.length > 0 && (
+            <CollapsiblePanel
+              className="m-4 mb-0 bg-transparent shadow-none sm:m-5 sm:mb-0"
+              title="Odds encontradas automaticamente"
+              description="Confira os preços que serão incluídos quando você analisar as odds disponíveis"
+              meta={automaticCandidates.length}
+              defaultOpen
+            >
+              <ul className="divide-y divide-border">
+                {automaticCandidates.map(({ candidate, quote }) => (
+                  <li key={candidate.predictionId} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{candidate.matchLabel}</p>
+                      <p className="text-xs text-muted-foreground">{candidate.marketLabel}</p>
+                    </div>
+                    <div className="shrink-0 sm:text-right">
+                      <p className="num text-sm font-semibold">odd {dec(quote.odd)}</p>
+                      <p className="text-[11px] text-muted-foreground">Bet365 · preenchida automaticamente</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </CollapsiblePanel>
+          )}
+
           {visibleCandidates.length === 0 ? (
-            <div className="p-5 text-sm text-muted-foreground">Não há odd manual neste lote. As odds disponíveis foram preenchidas automaticamente.</div>
+            <div className="p-5 text-sm text-muted-foreground">Não há odd manual neste lote. As odds disponíveis acima já foram preenchidas automaticamente.</div>
           ) : (
             <div className="divide-y divide-border/70">
               {groupedByMatch.map((group) => (
@@ -298,15 +363,18 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
             </div>
           )}
 
-          <div className="flex flex-col gap-2 border-t border-border p-4 sm:flex-row sm:items-center sm:p-5">
-            <Button className="min-h-11" onClick={() => void evaluate()} disabled={submitting}>
-              {submitting ? "Comparando…" : "COMPARAR ODDS DESTE LOTE"}
-            </Button>
-            {remainingManual > 0 && (
-              <Button type="button" variant="outline" className="min-h-11" onClick={() => setVisibleBatchCount((count) => Math.min(manualBatches.length, count + 1))}>
-                MOSTRAR PRÓXIMO LOTE ({remainingManual} restantes)
+          <div className="border-t border-border p-4 sm:p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Button className="min-h-11" onClick={() => void evaluate()} disabled={submitting}>
+                {submitting ? "Analisando…" : "ANALISAR ODDS DISPONÍVEIS"}
               </Button>
-            )}
+              {remainingManual > 0 && (
+                <Button type="button" variant="outline" className="min-h-11" onClick={() => setVisibleBatchCount((count) => Math.min(manualBatches.length, count + 1))}>
+                  MOSTRAR PRÓXIMO LOTE ({remainingManual} restantes)
+                </Button>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">A análise inclui as odds automáticas e todas as odds manuais válidas que você preencheu até aqui.</p>
           </div>
         </>
       )}

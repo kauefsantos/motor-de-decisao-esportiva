@@ -8,7 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 const STAGES = [
   { key: "upload", label: "1 · Enviar jogos" },
   { key: "processamento", label: "2 · Preparar" },
-  { key: "oportunidades", label: "3 · Ver opções" },
+  { key: "oportunidades", label: "3 · Conferir odds" },
   { key: "resultado", label: "4 · Ver sugestões" },
 ] as const;
 

@@ -52,12 +52,15 @@ function ProcessingScreen() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    let cancelled = false;
 
     (async () => {
       for (const step of PIPELINE_STEPS) {
+        if (cancelled) return;
         setStates((prev) => ({ ...prev, [step.key]: { status: "RUNNING", message: null, level: null } }));
         try {
           const res = await execute({ data: { runId, step: step.key as PipelineStepKey } });
+          if (cancelled) return;
           setStates((prev) => ({
             ...prev,
             [step.key]: {
@@ -68,6 +71,7 @@ function ProcessingScreen() {
           }));
           setAuditKey((k) => k + 1);
         } catch {
+          if (cancelled) return;
           setStates((prev) => ({
             ...prev,
             [step.key]: {
@@ -80,8 +84,14 @@ function ProcessingScreen() {
           return;
         }
       }
-      navigate({ to: "/run/$runId/oportunidades", params: { runId } });
+      if (!cancelled) {
+        navigate({ to: "/run/$runId/oportunidades", params: { runId } });
+      }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [execute, navigate, runId]);
 
   const doneCount = Object.values(states).filter((state) => state.status === "DONE").length;
