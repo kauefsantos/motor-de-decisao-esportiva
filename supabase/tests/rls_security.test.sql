@@ -1,6 +1,6 @@
 begin;
 
-select plan(6);
+select plan(8);
 
 select ok(
   not exists (
@@ -92,6 +92,32 @@ select ok(
       )
   ),
   'postgres defaults do not grant browser roles or PUBLIC function execution'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where not t.tgisinternal
+      and n.nspname = 'auth'
+      and c.relname = 'users'
+      and t.tgname = 'enforce_single_google_user'
+  ),
+  'auth.users has the single approved Google user trigger'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'private'
+      and p.proname = 'enforce_single_google_user'
+      and has_function_privilege('supabase_auth_admin', p.oid, 'EXECUTE')
+  ),
+  'supabase_auth_admin can execute the single-user auth trigger function'
 );
 
 select * from finish();
