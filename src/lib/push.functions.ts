@@ -25,6 +25,18 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     if (!userId) throw new Error("Usuário não autenticado.");
 
     const supabase = await db();
+    const { data: existing, error: lookupError } = await supabase
+      .from("push_subscriptions")
+      .select("user_id")
+      .eq("endpoint", data.endpoint)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    if (existing && existing.user_id !== userId) {
+      const error = new Error("Este endpoint de notificação pertence a outra conta.") as Error & { statusCode: number };
+      error.statusCode = 403;
+      throw error;
+    }
+
     const { error } = await supabase.from("push_subscriptions").upsert(
       {
         user_id: userId,
