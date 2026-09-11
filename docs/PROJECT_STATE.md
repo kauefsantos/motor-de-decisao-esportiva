@@ -203,6 +203,24 @@ A preparação `RESOLVE → COLLECT → CLEAN → FEATURES → PROBABILITY → G
 
 Nenhuma regra quantitativa, Elo, mercado, cálculo de value ou regra de banca é executada de forma diferente por causa dessa camada operacional.
 
+## Observabilidade do funil de decisão
+
+A rota autenticada e somente leitura `/diagnostico` audita a run mais recente sem alterar dados. Ela deriva métricas das tabelas operacionais já existentes (`analysis_runs`, `model_predictions`, `experimental_odds_snapshots` e `experimental_bet_tracking`) e usa os mesmos helpers canônicos de política de mercado para evitar uma segunda definição da regra de 70%.
+
+O painel mostra:
+
+- jogos e anchors modelados;
+- quantidade estritamente acima de 70% e quantidade bloqueada em 70% ou menos;
+- buckets >70–<75, 75–<80, 80–<85 e 85%+;
+- preços automáticos válidos, falhas/linhas incompatíveis e contratos não expostos pela API;
+- preços automáticos que atingem EV mínimo de 2%;
+- sugestões finais e teto diário;
+- contador explícito de eventual cotação automática que tenha vazado para probabilidade <=70%.
+
+Runs criadas antes da ativação da regra estrita são tratadas como **legado** e nunca como prova de conformidade da regra nova. A auditoria datada está em `docs/DECISION_FUNNEL_AUDIT_2026-09-11.md`.
+
+Limitação conhecida: o ledger completo de todas as odds manuais avaliadas/rejeitadas ainda não é persistido; por isso o contador de EV da tela é explicitamente o EV dos preços automáticos auditados. A seleção final continua protegida pelo gate estrito no backend.
+
 ## Elo operacional
 
 Jobs diários principais no Lovable Cloud/PostgreSQL:
