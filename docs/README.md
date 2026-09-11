@@ -1,4 +1,4 @@
-# Documentação do Value Bet Finder
+# Documentação do Motor de Decisão Esportiva
 
 Este diretório reúne a documentação de produto, arquitetura, auditorias e operação do projeto.
 

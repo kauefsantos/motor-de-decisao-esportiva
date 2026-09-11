@@ -1,4 +1,4 @@
-# Arquitetura — Value Bet Finder
+# Arquitetura — Motor de Decisão Esportiva
 
 ## Objetivo
 

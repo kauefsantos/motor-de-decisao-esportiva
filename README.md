@@ -1,4 +1,4 @@
-# Value Bet Finder
+# Motor de Decisão Esportiva
 
 > **Case de produto low-code com engenharia de dados, regras quantitativas, integrações externas e governança de software.**
 
@@ -9,11 +9,11 @@
 ![Lovable](https://img.shields.io/badge/Lovable-Low--code-6C5CE7)
 ![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
 
-O **Value Bet Finder** é uma aplicação full-stack para análise pré-jogo de futebol. O projeto começou com uma abordagem low-code e foi evoluindo até se tornar um produto versionado, testado e auditável, com backend próprio, banco PostgreSQL/Supabase, integrações com API esportiva, regras de negócio determinísticas, autenticação, CI e controles de segurança.
+O **Motor de Decisão Esportiva** é uma aplicação full-stack para análise pré-jogo de futebol. O projeto começou com uma abordagem low-code e foi evoluindo até se tornar um produto versionado, testado e auditável, com backend próprio, banco PostgreSQL/Supabase, integrações com API esportiva, regras de negócio determinísticas, autenticação, CI e controles de segurança.
 
 A proposta de portfólio aqui não é apenas mostrar uma interface criada com low-code, mas demonstrar como **low-code + código tradicional** podem trabalhar juntos: rapidez de prototipação onde faz sentido e engenharia explícita nos pontos em que confiabilidade, dados, segurança e regras de negócio importam.
 
-**Acesso à aplicação publicada é restrito por autenticação.** O repositório documenta a arquitetura, as decisões e a evolução técnica do produto.
+**A aplicação publicada permanece protegida por autenticação.** O repositório existe como case técnico e de produto, documentando arquitetura, decisões e evolução.
 
 [Ver case de portfólio](docs/CASE_STUDY.md) · [Ver arquitetura](docs/ARCHITECTURE.md) · [Índice técnico](docs/README.md)
 
@@ -202,7 +202,7 @@ bun run build
 bun run lint
 ```
 
-> O ambiente completo depende de variáveis de integração e banco. Credenciais não ficam versionadas no repositório.
+> O ambiente completo depende de variáveis de integração e banco. Credenciais reais não ficam versionadas no repositório.
 
 ---
 
@@ -233,3 +233,11 @@ Este repositório foi estruturado para mostrar competências que vão além da c
 - usar IA e ferramentas low-code como aceleradores, sem abrir mão de governança técnica.
 
 O resultado é um **case de product engineering low-code**, em que velocidade de construção e controle técnico coexistem no mesmo fluxo de desenvolvimento.
+
+---
+
+## Uso e licença
+
+Este repositório é publicado como **case de portfólio**. A aplicação e os modelos permanecem experimentais e não constituem recomendação financeira ou garantia de resultado.
+
+O repositório não possui licença open source explícita; a publicação do código não implica autorização automática para reutilização, redistribuição ou exploração comercial.
