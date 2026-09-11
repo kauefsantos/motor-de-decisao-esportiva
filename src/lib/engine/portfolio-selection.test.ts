@@ -10,6 +10,8 @@ function candidate(id: string, matchId: string, ev: number): PortfolioCandidate 
     impliedProbability: 0.5,
     fairOdd: 1.6,
     minOddTarget: 1.632,
+    decisionProbability: 0.6,
+    probabilityBasis: "RAW_EXPERIMENTAL",
     edgeCons: 0.1,
     evCons: ev,
     wEff: null,
