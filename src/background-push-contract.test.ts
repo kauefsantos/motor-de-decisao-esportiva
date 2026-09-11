@@ -52,7 +52,7 @@ describe("iPhone Web Push contract", () => {
   });
 
   it("registers a service worker that always shows a visible push notification", () => {
-    const client = source("./lib/push.client.ts");
+    const client = source("./lib/push.browser.ts");
     const worker = source("../public/sw.js");
     expect(client).toContain('register("/sw.js"');
     expect(worker).toContain('addEventListener("push"');
