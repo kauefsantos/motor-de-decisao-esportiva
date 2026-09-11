@@ -4,10 +4,15 @@ import { z } from "zod";
 import {
   CORNERS_MODEL_VERSION,
   fitBaseline as fitCornersBaseline,
-  poissonDistribution,
   predict as predictCorners,
   type CornerMatchRow,
 } from "./engine/corners";
+import {
+  chooseCountDistribution,
+  countDistributionMetadata,
+  distributionFromStoredOutcome,
+  type CountMarket,
+} from "./engine/count-market-distribution";
 import {
   GOALS_MODEL_VERSION,
   fitGoalsBaseline,
@@ -39,7 +44,6 @@ import {
 import {
   EV_TARGET,
   evaluateValue,
-  type ValueInput,
   type ValueResult,
 } from "./engine/value";
 import { selectExperimentalPortfolio } from "./engine/portfolio-selection";
@@ -297,9 +301,10 @@ function addTotalQuotePair(input: {
   matchLabel: string;
   competition: string;
   family: "CORNERS" | "CARDS";
-  market: "corners_match_total" | "corners_team_total" | "cards_match_total" | "cards_team_total";
+  market: CountMarket;
   participant: string | null;
   lambda: number;
+  dispersionAlpha: number | null;
   sampleSize: number;
   trainingMatches: number;
   modelVersion: string;
@@ -309,7 +314,19 @@ function addTotalQuotePair(input: {
 }) {
   const anchor = quoteAnchorFor(input.market);
   if (anchor === null) return;
-  const dist = poissonDistribution(input.lambda);
+
+  const distributionPolicy = chooseCountDistribution({
+    market: input.market,
+    lambda: input.lambda,
+    estimatedAlpha: input.dispersionAlpha,
+    trainingMatches: input.trainingMatches,
+  });
+  const dist = distributionPolicy.distribution;
+  const outcomeDistribution = countDistributionMetadata({
+    lambda: input.lambda,
+    policy: distributionPolicy,
+  });
+  const modelVersion = `${input.modelVersion}+${distributionPolicy.kind === "negative_binomial" ? "nb2" : "poisson"}`;
 
   for (const side of ["OVER", "UNDER"] as const) {
     const probability = absoluteCountProbability(dist, anchor, side);
@@ -334,8 +351,8 @@ function addTotalQuotePair(input: {
       model_probability: probability,
       p_cal: null,
       conservative_probability: null,
-      outcome_distribution: { lambda: input.lambda },
-      model_version: input.modelVersion,
+      outcome_distribution: outcomeDistribution,
+      model_version: modelVersion,
       calibration_version: null,
       model_status: EXPERIMENTAL_MARKETS_STATUS,
       data_status: "OK",
@@ -359,7 +376,7 @@ function addTotalQuotePair(input: {
       sampleSize: input.sampleSize,
       trainingMatches: input.trainingMatches,
       quoteAnchor: true,
-      modelVersion: input.modelVersion,
+      modelVersion,
       modelStatus: EXPERIMENTAL_MARKETS_STATUS,
       productionStatus: PRODUCTION_STATUS,
       dataStatus: "OK",
@@ -414,7 +431,15 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       const crossLeague = isCrossLeagueCompetitionName(match.competition) || isCrossLeagueLeagueKey(league);
 
       const rollingCorners = datasets.corners.filter((r) => r.date < predictionDate && r.date >= rollingStartDate);
-      let cornerForecast: { lambdaHome: number; lambdaAway: number; lambdaTotal: number; sampleSize: number } | null = null;
+      let cornerForecast: {
+        lambdaHome: number;
+        lambdaAway: number;
+        lambdaTotal: number;
+        sampleSize: number;
+        dispersionAlphaTotal?: number;
+        dispersionAlphaHome?: number;
+        dispersionAlphaAway?: number;
+      } | null = null;
       let cornerTrainingMatches = 0;
       let cornerModelVersion = CORNERS_MODEL_VERSION;
       if (crossLeague) {
@@ -436,9 +461,9 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       }
       if (cornerForecast && cornerForecast.sampleSize > 0) {
         for (const spec of [
-          { market: "corners_match_total" as const, participant: null, lambda: cornerForecast.lambdaTotal },
-          { market: "corners_team_total" as const, participant: match.home_team ?? "Mandante", lambda: cornerForecast.lambdaHome },
-          { market: "corners_team_total" as const, participant: match.away_team ?? "Visitante", lambda: cornerForecast.lambdaAway },
+          { market: "corners_match_total" as const, participant: null, lambda: cornerForecast.lambdaTotal, dispersionAlpha: cornerForecast.dispersionAlphaTotal ?? null },
+          { market: "corners_team_total" as const, participant: match.home_team ?? "Mandante", lambda: cornerForecast.lambdaHome, dispersionAlpha: cornerForecast.dispersionAlphaHome ?? null },
+          { market: "corners_team_total" as const, participant: match.away_team ?? "Visitante", lambda: cornerForecast.lambdaAway, dispersionAlpha: cornerForecast.dispersionAlphaAway ?? null },
         ]) addTotalQuotePair({ runId: data.runId, matchId: match.id, matchLabel, competition, family: "CORNERS", ...spec, sampleSize: cornerForecast.sampleSize, trainingMatches: cornerTrainingMatches, modelVersion: cornerModelVersion, predictionAt, predictionRows, candidates });
       }
 
@@ -451,9 +476,9 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           const forecast = predictCards(fitCardsBaseline(cardTraining), { league, homeTeam: String(homeId), awayTeam: String(awayId) });
           if (forecast.sampleSize > 0) {
             for (const spec of [
-              { market: "cards_match_total" as const, participant: null, lambda: forecast.lambdaTotal },
-              { market: "cards_team_total" as const, participant: match.home_team ?? "Mandante", lambda: forecast.lambdaHome },
-              { market: "cards_team_total" as const, participant: match.away_team ?? "Visitante", lambda: forecast.lambdaAway },
+              { market: "cards_match_total" as const, participant: null, lambda: forecast.lambdaTotal, dispersionAlpha: forecast.dispersionAlphaTotal },
+              { market: "cards_team_total" as const, participant: match.home_team ?? "Mandante", lambda: forecast.lambdaHome, dispersionAlpha: forecast.dispersionAlphaHome },
+              { market: "cards_team_total" as const, participant: match.away_team ?? "Visitante", lambda: forecast.lambdaAway, dispersionAlpha: forecast.dispersionAlphaAway },
             ]) addTotalQuotePair({ runId: data.runId, matchId: match.id, matchLabel, competition, family: "CARDS", ...spec, sampleSize: forecast.sampleSize, trainingMatches: cardTraining.length, modelVersion: CARDS_MODEL_VERSION, predictionAt, predictionRows, candidates });
           }
         }
@@ -548,11 +573,6 @@ type EnrichedValueResult = ValueResult & {
   productionStatus: typeof PRODUCTION_STATUS;
 };
 
-function lambdaFromPrediction(row: PredictionForAnalysis): number | null {
-  const distribution = asRecord(row.outcome_distribution);
-  return finiteNumber(distribution?.["lambda"]);
-}
-
 function buildDirectionAssessments(predictions: PredictionForAnalysis[], evaluations: EnrichedValueResult[]): DirectionAssessment[] {
   const totals = predictions.filter((row) => row.match_id && quoteAnchorFor(row.market) !== null && (row.side === "OVER" || row.side === "UNDER"));
   const resultByPrediction = new Map(evaluations.map((row) => [row.predictionId, row]));
@@ -591,10 +611,9 @@ function buildDirectionAssessments(predictions: PredictionForAnalysis[], evaluat
     }
 
     const source = selectedSide === "OVER" ? over : selectedSide === "UNDER" ? under : null;
-    const lambda = source ? lambdaFromPrediction(source) : null;
+    const dist = source ? distributionFromStoredOutcome(source.outcome_distribution) : null;
     const referenceAlternatives: ReferenceAlternative[] = [];
-    if (selectedSide && source && lambda !== null) {
-      const dist = poissonDistribution(lambda);
+    if (selectedSide && source && dist) {
       for (const line of referenceLinesFor(source.market, selectedSide)) {
         const probability = absoluteCountProbability(dist, line, selectedSide);
         referenceAlternatives.push({
