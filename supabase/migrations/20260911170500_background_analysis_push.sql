@@ -35,9 +35,13 @@ create table if not exists public.push_subscriptions (
 );
 
 alter table public.push_subscriptions enable row level security;
-grant select, insert, update, delete on table public.push_subscriptions to authenticated;
+-- Browser roles intentionally receive no direct relation privileges. The app
+-- saves/removes subscriptions through authenticated server functions only.
+revoke all on table public.push_subscriptions from public, anon, authenticated;
 grant all on table public.push_subscriptions to service_role;
 
+-- These policies are defense-in-depth for any future narrowly-scoped browser
+-- grant. With the current privilege model, direct browser access is still denied.
 drop policy if exists "push_subscriptions_select_own" on public.push_subscriptions;
 create policy "push_subscriptions_select_own"
   on public.push_subscriptions for select
@@ -75,21 +79,21 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 begin
   return query
   update public.analysis_jobs j
   set status = 'RUNNING',
       attempts = j.attempts + 1,
-      locked_at = now(),
+      locked_at = pg_catalog.now(),
       last_error = null,
-      updated_at = now()
+      updated_at = pg_catalog.now()
   where j.run_id = p_run_id
     and j.dispatch_token = p_dispatch_token
     and (
       j.status = 'QUEUED'
-      or (j.status = 'RUNNING' and j.locked_at < now() - interval '20 minutes')
+      or (j.status = 'RUNNING' and j.locked_at < pg_catalog.now() - interval '20 minutes')
     )
   returning j.run_id, j.user_id, j.completed_steps, j.attempts;
 end;
@@ -102,7 +106,7 @@ create or replace function public.kick_analysis_worker()
 returns bigint
 language plpgsql
 security definer
-set search_path = public, net, pg_temp
+set search_path = ''
 as $$
 declare
   next_run_id uuid;
@@ -113,7 +117,7 @@ begin
     into next_run_id, next_dispatch_token
   from public.analysis_jobs j
   where j.status = 'QUEUED'
-     or (j.status = 'RUNNING' and j.locked_at < now() - interval '20 minutes')
+     or (j.status = 'RUNNING' and j.locked_at < pg_catalog.now() - interval '20 minutes')
   order by j.created_at
   limit 1;
 
@@ -123,12 +127,12 @@ begin
 
   select net.http_post(
     url := 'https://quant-football-insights.lovable.app/api/analysis-worker',
-    body := jsonb_build_object(
+    body := pg_catalog.jsonb_build_object(
       'runId', next_run_id,
       'dispatchToken', next_dispatch_token
     ),
     params := '{}'::jsonb,
-    headers := jsonb_build_object('Content-Type', 'application/json'),
+    headers := pg_catalog.jsonb_build_object('Content-Type', 'application/json'),
     timeout_milliseconds := 120000
   ) into request_id;
 
