@@ -9,9 +9,9 @@ import {
 } from "./engine/elo";
 
 type DbError = { message: string } | null;
-type DbResponse = { data: unknown; error: DbError };
+type DbResponse = { data: unknown; error: DbError; count?: number | null };
 interface DbQuery extends PromiseLike<DbResponse> {
-  select(columns?: string): DbQuery;
+  select(columns?: string, options?: Record<string, unknown>): DbQuery;
   eq(column: string, value: unknown): DbQuery;
   lt(column: string, value: unknown): DbQuery;
   or(filters: string): DbQuery;
@@ -39,6 +39,25 @@ type LeagueRatingRow = {
   updated_at: string;
 };
 
+type LeagueHistoryRow = {
+  competition_id: number | string;
+  fixture_id: number | string;
+  kickoff_at: string;
+  home_league_id: number | string;
+  away_league_id: number | string;
+  home_league_rating_after: number | string;
+  away_league_rating_after: number | string;
+};
+
+type LeagueConfigRow = {
+  league_id: number | string;
+  league_key: string;
+  prior_rating: number | string;
+  parent_league_key: string | null;
+  focus_role: string;
+  division_level: number | string;
+};
+
 type EloAt = {
   found: boolean;
   leagueId: number | null;
@@ -52,8 +71,19 @@ type LeagueAt = {
   evidenceMatches: number;
 };
 
+type HistoricalLeagueBase = LeagueAt & {
+  config: LeagueConfigRow | null;
+};
+
 const db = supabaseAdmin as unknown as UntypedDb;
 const MIN_LEAGUE_EVIDENCE_MATCHES = 3;
+const BIG_FIVE_LEAGUE_IDS = [
+  4160026622, // Premier League
+  4212821298, // La Liga
+  686337048, // Bundesliga
+  3405541143, // Serie A
+  3614399544, // Ligue 1
+] as const;
 
 function parseHistoryRow(data: unknown, teamId: number): EloAt {
   if (!data || typeof data !== "object") {
@@ -89,6 +119,7 @@ async function ratingAtLeague(
     .lt("kickoff_at", predictionAt)
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
     .order("kickoff_at", { ascending: false })
+    .order("fixture_id", { ascending: false })
     .limit(1)
     .maybeSingle();
 
@@ -110,6 +141,7 @@ async function latestDomesticRatingAt(teamId: number, predictionAt: string): Pro
     .lt("kickoff_at", predictionAt)
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
     .order("kickoff_at", { ascending: false })
+    .order("fixture_id", { ascending: false })
     .limit(1)
     .maybeSingle();
 
@@ -118,11 +150,9 @@ async function latestDomesticRatingAt(teamId: number, predictionAt: string): Pro
 }
 
 /**
- * O rating de liga só é elegível quando:
- * - o snapshot foi calculado antes do prediction_at; e
- * - há pelo menos 3 partidas interligas reais sustentando o ajuste.
- *
- * Assim, o prior estrutural nunca entra sozinho como se fosse evidência medida.
+ * Snapshot atual é o caminho barato para previsões presentes/futuras. Ele só é
+ * utilizável quando foi calculado antes do prediction_at; runs históricas caem
+ * no ledger point-in-time abaixo.
  */
 async function leagueRatingAtCurrentSnapshot(leagueId: number, predictionAt: string): Promise<LeagueAt> {
   const res = await db
@@ -151,6 +181,137 @@ async function leagueRatingAtCurrentSnapshot(leagueId: number, predictionAt: str
     rating: Number.isFinite(rating) ? rating : ELO_INITIAL_RATING,
     evidenceMatches: Number.isFinite(evidenceMatches) ? evidenceMatches : 0,
   };
+}
+
+async function leagueConfigById(leagueId: number): Promise<LeagueConfigRow | null> {
+  const res = await db
+    .from("elo_target_leagues")
+    .select("league_id,league_key,prior_rating,parent_league_key,focus_role,division_level")
+    .eq("league_id", leagueId)
+    .limit(1)
+    .maybeSingle();
+  return !res.error && res.data && typeof res.data === "object"
+    ? (res.data as LeagueConfigRow)
+    : null;
+}
+
+async function leagueConfigByKey(leagueKey: string): Promise<LeagueConfigRow | null> {
+  const res = await db
+    .from("elo_target_leagues")
+    .select("league_id,league_key,prior_rating,parent_league_key,focus_role,division_level")
+    .eq("league_key", leagueKey)
+    .limit(1)
+    .maybeSingle();
+  return !res.error && res.data && typeof res.data === "object"
+    ? (res.data as LeagueConfigRow)
+    : null;
+}
+
+function ratingAfterForLeague(row: LeagueHistoryRow, leagueId: number): number | null {
+  const isHome = Number(row.home_league_id) === leagueId;
+  const isAway = Number(row.away_league_id) === leagueId;
+  if (!isHome && !isAway) return null;
+  const rating = Number(isHome ? row.home_league_rating_after : row.away_league_rating_after);
+  return Number.isFinite(rating) ? rating : null;
+}
+
+/**
+ * Reconstrói o rating bruto de uma liga no instante da previsão usando somente
+ * fixtures interligas com kickoff anterior. A ordenação replica
+ * elo_rebuild_league_ratings(): kickoff_at, competition_id, fixture_id.
+ */
+async function rawHistoricalLeagueRatingAt(
+  leagueId: number,
+  predictionAt: string,
+): Promise<HistoricalLeagueBase> {
+  const [config, latest, evidence] = await Promise.all([
+    leagueConfigById(leagueId),
+    db
+      .from("elo_league_fixture_history")
+      .select("competition_id,fixture_id,kickoff_at,home_league_id,away_league_id,home_league_rating_after,away_league_rating_after")
+      .eq("model_version", LEAGUE_ELO_MODEL_VERSION)
+      .lt("kickoff_at", predictionAt)
+      .or(`home_league_id.eq.${leagueId},away_league_id.eq.${leagueId}`)
+      .order("kickoff_at", { ascending: false })
+      .order("competition_id", { ascending: false })
+      .order("fixture_id", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    db
+      .from("elo_league_fixture_history")
+      .select("fixture_id", { count: "exact", head: true })
+      .eq("model_version", LEAGUE_ELO_MODEL_VERSION)
+      .lt("kickoff_at", predictionAt)
+      .or(`home_league_id.eq.${leagueId},away_league_id.eq.${leagueId}`),
+  ]);
+
+  const evidenceMatches = evidence.error ? 0 : Number(evidence.count ?? 0);
+  const prior = Number(config?.prior_rating ?? ELO_INITIAL_RATING);
+  const latestRating = !latest.error && latest.data && typeof latest.data === "object"
+    ? ratingAfterForLeague(latest.data as LeagueHistoryRow, leagueId)
+    : null;
+  const rating = latestRating ?? (Number.isFinite(prior) ? prior : ELO_INITIAL_RATING);
+
+  return {
+    found:
+      config !== null &&
+      Number.isFinite(rating) &&
+      Number.isFinite(evidenceMatches) &&
+      evidenceMatches >= MIN_LEAGUE_EVIDENCE_MATCHES,
+    leagueId: config ? Number(config.league_id) : null,
+    rating,
+    evidenceMatches: Number.isFinite(evidenceMatches) ? evidenceMatches : 0,
+    config,
+  };
+}
+
+/**
+ * O snapshot histórico precisa reproduzir também as restrições estruturais
+ * aplicadas no fim do rebuild: divisão inferior <= pai - 70 e divisões CORE de
+ * nível 2+ <= menor Big Five - 25.
+ */
+async function leagueRatingAtHistory(leagueId: number, predictionAt: string): Promise<LeagueAt> {
+  const base = await rawHistoricalLeagueRatingAt(leagueId, predictionAt);
+  if (!base.config || base.leagueId === null) return base;
+
+  let rating = base.rating;
+  const divisionLevel = Number(base.config.division_level);
+
+  if (base.config.parent_league_key) {
+    const parentConfig = await leagueConfigByKey(base.config.parent_league_key);
+    if (parentConfig) {
+      const parent = await rawHistoricalLeagueRatingAt(Number(parentConfig.league_id), predictionAt);
+      rating = Math.min(rating, parent.rating - 70);
+    }
+  }
+
+  if (base.config.focus_role === "CORE" && Number.isFinite(divisionLevel) && divisionLevel >= 2) {
+    const bigFive = await Promise.all(
+      BIG_FIVE_LEAGUE_IDS.map((id) => rawHistoricalLeagueRatingAt(id, predictionAt)),
+    );
+    const bigFiveRatings = bigFive.map((row) => row.rating).filter(Number.isFinite);
+    if (bigFiveRatings.length === BIG_FIVE_LEAGUE_IDS.length) {
+      rating = Math.min(rating, Math.min(...bigFiveRatings) - 25);
+    }
+  }
+
+  return {
+    found: base.found && Number.isFinite(rating),
+    leagueId: base.leagueId,
+    rating: Number.isFinite(rating) ? rating : base.rating,
+    evidenceMatches: base.evidenceMatches,
+  };
+}
+
+/**
+ * O rating de liga é point-in-time. Para previsão atual usamos o snapshot já
+ * materializado; para reprocessamento histórico reconstruímos a partir do
+ * ledger interligas, sem olhar qualquer fixture posterior ao prediction_at.
+ */
+async function leagueRatingAt(leagueId: number, predictionAt: string): Promise<LeagueAt> {
+  const current = await leagueRatingAtCurrentSnapshot(leagueId, predictionAt);
+  if (current.leagueId !== null) return current;
+  return leagueRatingAtHistory(leagueId, predictionAt);
 }
 
 export async function eloAdjustGoalForecast(input: {
@@ -198,8 +359,8 @@ export async function eloAdjustGoalForecast(input: {
     }
 
     [homeLeagueRating, awayLeagueRating] = await Promise.all([
-      leagueRatingAtCurrentSnapshot(home.leagueId, input.predictionAt),
-      leagueRatingAtCurrentSnapshot(away.leagueId, input.predictionAt),
+      leagueRatingAt(home.leagueId, input.predictionAt),
+      leagueRatingAt(away.leagueId, input.predictionAt),
     ]);
 
     if (!homeLeagueRating.found || !awayLeagueRating.found) {
