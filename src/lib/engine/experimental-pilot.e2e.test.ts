@@ -21,7 +21,7 @@ const training: GoalMatchRow[] = [
 ];
 
 describe("experimental pilot E2E", () => {
-  it("runs history -> model -> bounded quote markets -> Motor 2 -> final selections", () => {
+  it("runs history -> model -> strict confidence gate -> Motor 2 -> final selections", () => {
     const model = fitGoalsBaseline(training);
     const forecast = predictGoals(model, { league: LEAGUE, homeTeam: "A", awayTeam: "B" });
 
@@ -64,10 +64,11 @@ describe("experimental pilot E2E", () => {
 
     const selected = finalSelection(evaluated);
     expect(selected.length).toBeLessThanOrEqual(3);
+    expect(selected.every((r) => (r.decisionProbability ?? 0) > 0.70)).toBe(true);
     expect(selected.every((r) => (r.evCons ?? 0) >= 0.02)).toBe(true);
   });
 
-  it("allows a sub-75% probability to have value when the real price is good", () => {
+  it("blocks a sub-70% probability even when the real price would create mathematical EV", () => {
     const result = evaluateValue({
       candidateId: "candidate-60pct",
       predictionId: "prediction-60pct",
@@ -83,8 +84,10 @@ describe("experimental pilot E2E", () => {
       dataStatus: "OK",
     });
 
-    expect(result.evCons).toBeCloseTo(0.2);
-    expect(result.valueStatus).toBe("TEM_VALOR");
-    expect(result.executionStatus).toBe("EXECUTAVEL");
+    expect(result.evCons).toBeNull();
+    expect(result.probabilityStatus).toBe("BLOQUEADA");
+    expect(result.valueStatus).toBe("NAO_AVALIADO");
+    expect(result.executionStatus).toBe("NAO_EXECUTAR");
+    expect(result.rejectionReason).toBe("MODEL_PROBABILITY_BELOW_THRESHOLD");
   });
 });
