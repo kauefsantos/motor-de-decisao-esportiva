@@ -22,10 +22,12 @@ export function CollapsiblePanel({
 }: CollapsiblePanelProps) {
   const [open, setOpen] = useState(defaultOpen);
   const contentId = useId();
+  const buttonId = useId();
 
   return (
     <section className={`panel overflow-hidden ${className}`}>
       <button
+        id={buttonId}
         type="button"
         className="flex min-h-14 w-full items-center justify-between gap-4 px-4 py-3 text-left sm:px-5"
         aria-expanded={open}
@@ -48,18 +50,14 @@ export function CollapsiblePanel({
           />
         </span>
       </button>
-      <div
-        id={contentId}
-        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
-          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        }`}
-      >
-        <div className="min-h-0 overflow-hidden">
+
+      {open && (
+        <div id={contentId} role="region" aria-labelledby={buttonId}>
           <div className={`border-t border-border px-4 py-4 sm:px-5 ${contentClassName}`}>
             {children}
           </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
