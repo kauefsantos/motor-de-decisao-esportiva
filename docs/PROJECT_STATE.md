@@ -60,6 +60,7 @@ Após a integração do Elo hierárquico, uma rodada adicional corrigiu a semân
 - a etapa de preparação não depende mais da aba permanecer aberta: o telefone enfileira o job e a tela apenas acompanha o estado persistido no servidor;
 - Web Push no PWA instalado pode avisar quando a preparação termina; a permissão só é pedida por ação explícita do usuário e negar avisos não bloqueia a análise;
 - mojibake comum de UTF-8 é reparado na ingestão de CSV e também na exibição de competições históricas, evitando textos como `ItÃ¡lia`;
+- durante o fluxo de análise, a UI informa a regra vigente: probabilidade do modelo estritamente acima de 70%, odd real e EV mínimo de 2%;
 - nenhuma pendência estrutural P0–P2 conhecida.
 
 ### Elo — fechado
@@ -99,6 +100,7 @@ A separação estrutural é:
 ```text
 Motor esportivo, sem odd da casa
 → model_probability
+→ gate operacional de confiança > 70%
 → preço real da Bet365
 → Motor 2 / EV
 → seleção de portfólio
@@ -110,21 +112,30 @@ A odd nunca é feature do modelo esportivo.
 
 O contrato atual expõe:
 
-- `decisionProbability` — probabilidade realmente usada no cálculo de value;
+- `decisionProbability` — probabilidade realmente usada na decisão;
 - `RAW_EXPERIMENTAL` — previsão bruta do piloto experimental;
 - `CONSERVATIVE_CALIBRATED` — reservado para uma camada futura realmente calibrada;
 - `OUTCOME_DISTRIBUTION` — base de decisão em contratos asiáticos.
 
 Não criar haircut/calibração arbitrária sem amostra out-of-sample suficiente.
 
+### Regra operacional de confiança
+
+- `MIN_MODEL_PROBABILITY = 70%` como fronteira, com comparação **estrita**;
+- **70,0% reprova**; somente valores **> 70%** podem seguir para avaliação de value e seleção;
+- a regra vale também para o fluxo experimental e para promoção manual de alternativas, pois todas passam por `evaluateValue`;
+- uma oportunidade abaixo do limite recebe `MODEL_PROBABILITY_BELOW_THRESHOLD`, fica com probabilidade bloqueada e não tem EV usado para recomendação;
+- o seletor de portfólio repete o gate como defesa em profundidade para impedir que resultados antigos/stale com EV positivo sejam promovidos.
+
 ### Value
 
 - `EV_TARGET = 2%`;
-- não existe gate de probabilidade bruto para declarar value;
-- lean de 55% é leitura de modelo, não confirmação de value;
-- uma odd só é value quando existe preço real compatível;
+- probabilidade > 70% é pré-condição de recomendação, mas **não significa value**;
+- uma odd só é value quando existe preço real compatível e EV mínimo de 2%;
+- probabilidade <= 70% é descartada da recomendação mesmo quando a odd produziria EV matemático positivo;
 - seleção automática evita mais de uma escolha do mesmo jogo;
-- limite operacional: 2 seleções em dia útil e 3 no fim de semana.
+- limite operacional: 2 seleções em dia útil e 3 no fim de semana;
+- o limite é teto, nunca meta: o sistema pode retornar 0, 1, 2 ou 3 seleções conforme os filtros.
 
 ## Política experimental de mercados
 
@@ -136,7 +147,8 @@ Arquivo canônico: `src/lib/engine/market-policy.ts`.
 - **escanteios da partida:** âncora 9.5;
 - **escanteios por time:** âncora 4.5;
 - **cartões da partida/time:** âncora 4.5;
-- o fluxo novo não gera BTTS/team goals para cotação.
+- o fluxo novo não gera BTTS/team goals para cotação;
+- `MODEL_LEAN_THRESHOLD = 70%`, com regra de negócio interpretada de forma estrita: somente probabilidade > 70% é confiança suficiente.
 
 Máximo plenamente modelado de anchors de cotação por jogo: 20.
 
