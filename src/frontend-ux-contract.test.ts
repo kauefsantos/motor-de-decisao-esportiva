@@ -53,3 +53,55 @@ describe("frontend P0/P1 UX contract", () => {
     expect(openBets).toContain("disabled={settlingId !== null}");
   });
 });
+
+describe("frontend P2 usability and performance contract", () => {
+  it("separates analysis progress from persistent navigation", () => {
+    const shell = source("./components/AppShell.tsx");
+    expect(shell).toContain('aria-label="Progresso da análise"');
+    expect(shell).toContain('aria-label="Acompanhamento"');
+    expect(shell).toContain("grid grid-cols-4");
+    expect(shell).toContain("Em andamento");
+    expect(shell).toContain("Desempenho");
+    expect(shell).not.toContain("overflow-x-auto");
+  });
+
+  it("lazy-renders collapsible content and exposes it as a region", () => {
+    const panel = source("./components/CollapsiblePanel.tsx");
+    expect(panel).toContain("{open && (");
+    expect(panel).toContain('role="region"');
+    expect(panel).toContain("aria-labelledby={buttonId}");
+    expect(panel).not.toContain("grid-rows-[0fr]");
+  });
+
+  it("keeps touch targets and mobile microcopy legible", () => {
+    const input = source("./components/ui/input.tsx");
+    const styles = source("./styles.css");
+    expect(input).toContain("h-11");
+    expect(styles).toContain(".text-\\[10px\\]");
+    expect(styles).toContain("font-size: 0.75rem");
+  });
+
+  it("avoids expensive blur on every panel and respects reduced motion", () => {
+    const styles = source("./styles.css");
+    expect(styles).not.toContain("backdrop-filter: blur(10px)");
+    expect(styles).toContain("prefers-reduced-motion: reduce");
+  });
+
+  it("uses a single place to settle bets and keeps analytics read-only", () => {
+    const openBets = source("./routes/open-bets.tsx");
+    const analytics = source("./routes/analytics.tsx");
+    expect(openBets).toContain("única tela que encerra apostas e atualiza a banca");
+    expect(analytics).toContain("somente para acompanhar banca, resultados e qualidade das estimativas");
+    expect(analytics).toContain("histórico abaixo é somente leitura");
+    expect(analytics).not.toContain("updateExperimentalTracking");
+    expect(analytics).not.toContain("<Input");
+  });
+
+  it("keeps card labels human-readable and makes the bankroll chart informative", () => {
+    const analytics = source("./routes/analytics.tsx");
+    expect(analytics).toContain('CARDS: "Cartões"');
+    expect(analytics).toContain("Menor saldo");
+    expect(analytics).toContain("Maior saldo");
+    expect(analytics).toContain("A linha tracejada marca o saldo inicial");
+  });
+});
