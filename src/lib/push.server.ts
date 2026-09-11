@@ -18,11 +18,11 @@ function base64Url(value: Uint8Array | Buffer) {
 }
 
 function deriveVapidKeyPair() {
-  const rootSecret = process.env["SUPABASE_SERVICE_ROLE_KEY"];
-  if (!rootSecret) throw new Error("SUPABASE_SERVICE_ROLE_KEY ausente no servidor.");
+  const rootSecret = process.env["LOVABLE_CRON_SECRET"];
+  if (!rootSecret) throw new Error("LOVABLE_CRON_SECRET ausente no servidor.");
 
   // Domain separation keeps the derived Web Push signing key independent from
-  // the database credential itself. Only the derived public key leaves server code.
+  // cron authentication itself. Only the derived public key leaves server code.
   const digest = createHash("sha256")
     .update("bet-value-web-push-v1\0", "utf8")
     .update(rootSecret, "utf8")
