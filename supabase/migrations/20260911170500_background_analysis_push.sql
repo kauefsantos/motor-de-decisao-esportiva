@@ -16,6 +16,9 @@ create table if not exists public.analysis_jobs (
   updated_at timestamptz not null default now()
 );
 
+alter table public.analysis_jobs
+  add column if not exists dispatch_token uuid not null default gen_random_uuid();
+
 alter table public.analysis_jobs enable row level security;
 revoke all on table public.analysis_jobs from public, anon, authenticated;
 grant all on table public.analysis_jobs to service_role;
@@ -35,22 +38,26 @@ alter table public.push_subscriptions enable row level security;
 grant select, insert, update, delete on table public.push_subscriptions to authenticated;
 grant all on table public.push_subscriptions to service_role;
 
+drop policy if exists "push_subscriptions_select_own" on public.push_subscriptions;
 create policy "push_subscriptions_select_own"
   on public.push_subscriptions for select
   to authenticated
   using ((select auth.uid()) = user_id);
 
+drop policy if exists "push_subscriptions_insert_own" on public.push_subscriptions;
 create policy "push_subscriptions_insert_own"
   on public.push_subscriptions for insert
   to authenticated
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "push_subscriptions_update_own" on public.push_subscriptions;
 create policy "push_subscriptions_update_own"
   on public.push_subscriptions for update
   to authenticated
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "push_subscriptions_delete_own" on public.push_subscriptions;
 create policy "push_subscriptions_delete_own"
   on public.push_subscriptions for delete
   to authenticated
@@ -122,7 +129,7 @@ begin
     ),
     params := '{}'::jsonb,
     headers := jsonb_build_object('Content-Type', 'application/json'),
-    timeout_milliseconds := 600000
+    timeout_milliseconds := 120000
   ) into request_id;
 
   return request_id;
