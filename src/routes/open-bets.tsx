@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -20,6 +20,12 @@ export const Route = createFileRoute("/open-bets")({
 
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+
+const date = (iso: string | null | undefined) => {
+  if (!iso) return "—";
+  const [year, month, day] = iso.slice(0, 10).split("-");
+  return `${day}/${month}/${year}`;
+};
 
 type PendingOutcome = { id: string; outcome: "WIN" | "LOSS" } | null;
 
@@ -51,9 +57,18 @@ function OpenBetsScreen() {
   return (
     <AppShell stage="open-bets">
       <div className="mx-auto max-w-5xl">
-        <p className="label-eyebrow">Acompanhamento</p>
-        <h1 className="page-heading mt-2">Apostas em andamento</h1>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Depois do jogo, marque o resultado das apostas que você registrou.</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="label-eyebrow">Acompanhamento</p>
+            <h1 className="page-heading mt-2">Apostas em andamento</h1>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              Depois do jogo, registre o resultado aqui. Esta é a única tela que encerra apostas e atualiza a banca.
+            </p>
+          </div>
+          <Button asChild variant="outline" className="min-h-11 shrink-0">
+            <Link to="/analytics">Ver desempenho</Link>
+          </Button>
+        </div>
 
         {data && (
           <div className="mt-5">
@@ -66,8 +81,8 @@ function OpenBetsScreen() {
             </div>
             <CollapsiblePanel className="mt-3" title="Ver saldo completo" description="Banca total e valor já comprometido">
               <div className="grid grid-cols-2 gap-2">
-                <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Banca total</p><p className="num mt-1 text-lg">{money(data.bankroll.equity)}</p></div>
-                <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Em apostas</p><p className="num mt-1 text-lg">{money(data.bankroll.locked)}</p></div>
+                <div className="metric-tile p-3"><p className="text-xs text-muted-foreground">Banca total</p><p className="num mt-1 text-lg">{money(data.bankroll.equity)}</p></div>
+                <div className="metric-tile p-3"><p className="text-xs text-muted-foreground">Em apostas</p><p className="num mt-1 text-lg">{money(data.bankroll.locked)}</p></div>
               </div>
             </CollapsiblePanel>
           </div>
@@ -89,12 +104,12 @@ function OpenBetsScreen() {
               <article key={row.id} className="panel p-4 sm:p-5">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <p className="text-[11px] text-muted-foreground">{row.target_date ?? ""} · {row.competition ?? ""}</p>
+                    <p className="text-xs text-muted-foreground">{date(row.target_date)} · {row.competition ?? ""}</p>
                     <h2 className="mt-1 text-lg font-semibold">{row.match_label}</h2>
                     <p className="text-sm text-muted-foreground">{row.market_label}</p>
                   </div>
                   <div className="flex items-end justify-between gap-5 sm:block sm:text-right">
-                    <div><p className="text-[11px] text-muted-foreground">Valor apostado</p><p className="num mt-1 text-xl font-semibold">{money(Number(row.stake_brl ?? 0))}</p></div>
+                    <div><p className="text-xs text-muted-foreground">Valor apostado</p><p className="num mt-1 text-xl font-semibold">{money(Number(row.stake_brl ?? 0))}</p></div>
                     <p className="num text-sm text-muted-foreground">odd {Number(row.entry_odd).toFixed(2)}</p>
                   </div>
                 </div>
