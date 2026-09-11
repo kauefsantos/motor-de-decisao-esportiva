@@ -6,7 +6,7 @@ import {
   type CornersPrediction,
 } from "./corners";
 
-export const CARDS_MODEL_VERSION = "cards-bet365-points-proxy-v2";
+export const CARDS_MODEL_VERSION = "cards-bet365-points-proxy-negbin-v3";
 export const CARDS_SETTLEMENT_PROXY_VERSION = "bet365-yellow1-red2-aggregate-v1";
 
 /**
