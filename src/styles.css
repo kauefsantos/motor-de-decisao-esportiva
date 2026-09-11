@@ -166,3 +166,12 @@
   border: 1px solid color-mix(in oklab, var(--color-border) 74%, transparent);
   border-radius: var(--radius-md);
 }
+
+/* Legacy micro-labels remain compact on desktop, but never drop below 12px on phones. */
+@media (max-width: 639px) {
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+}
