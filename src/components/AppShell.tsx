@@ -36,6 +36,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
         <div className="mx-auto max-w-[1400px] px-3 py-2.5 sm:px-6 sm:py-3 lg:px-8">
           <div className="flex items-center justify-between gap-3">
             <Link to="/" className="flex min-h-11 min-w-0 items-center gap-2" aria-label="Ir para o início">
+              <img src="/icons/favicon-32.png" alt="" className="size-7 shrink-0 rounded-lg" aria-hidden />
               <span className="num truncate text-sm font-semibold tracking-tight text-primary">
                 <span className="sm:hidden">BET VALUE</span>
                 <span className="hidden sm:inline">BET VALUE ENGINE</span>
