@@ -52,7 +52,7 @@ type BankrollConfig = {
 
 async function db() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
+  return supabaseAdmin as any;
 }
 
 function n(value: unknown, fallback = 0) {
@@ -211,26 +211,31 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
   };
 }
 
-export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handler(async () => {
+export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handler(async ({ context }) => {
+  const userId = context.userId;
+  if (!userId) throw new Error("Usuário não autenticado.");
   const supabase = await db();
-  const rawDb = supabase as unknown as {
-    from: (table: string) => any;
-  };
+  const { ownedRunIds } = await import("./authorization.server");
+  const runIds = await ownedRunIds(supabase, userId);
 
-  const [{ data: configData, error: configError }, { data: trackingData, error: trackingError }] =
-    await Promise.all([
-      rawDb
-        .from("experimental_bankroll_config")
-        .select("id,start_date,initial_bankroll,max_stake_pct,fractional_kelly")
-        .eq("id", "main")
-        .single(),
-      rawDb
+  const configQuery = supabase
+    .from("experimental_bankroll_config")
+    .select("id,start_date,initial_bankroll,max_stake_pct,fractional_kelly")
+    .eq("id", "main")
+    .eq("owner_id", userId)
+    .single();
+  const trackingQuery = runIds.length
+    ? supabase
         .from("experimental_bet_tracking")
         .select("*")
+        .in("run_id", runIds)
         .order("target_date", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(5000),
-    ]);
+        .limit(5000)
+    : Promise.resolve({ data: [], error: null });
+
+  const [{ data: configData, error: configError }, { data: trackingData, error: trackingError }] =
+    await Promise.all([configQuery, trackingQuery]);
 
   if (configError) throw new Error(`Falha ao carregar configuração do acompanhamento: ${configError.message}`);
   if (trackingError) throw new Error(`Falha ao carregar histórico experimental: ${trackingError.message}`);
@@ -256,10 +261,14 @@ const settleSchema = z.object({
 
 export const updateExperimentalTracking = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => settleSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+    if (!userId) throw new Error("Usuário não autenticado.");
     const supabase = await db();
-    const rawDb = supabase as unknown as { from: (table: string) => any };
-    const { data: row, error: fetchError } = await rawDb
+    const { assertTrackingOwner } = await import("./authorization.server");
+    await assertTrackingOwner(supabase, userId, data.id);
+
+    const { data: row, error: fetchError } = await supabase
       .from("experimental_bet_tracking")
       .select("id,entry_odd,bet_status")
       .eq("id", data.id)
@@ -286,7 +295,7 @@ export const updateExperimentalTracking = createServerFn({ method: "POST" })
       betStatus = "OPEN";
     }
 
-    const { error } = await rawDb
+    const { error } = await supabase
       .from("experimental_bet_tracking")
       .update({
         stake_brl: stake,
