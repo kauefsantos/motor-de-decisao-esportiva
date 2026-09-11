@@ -22,6 +22,7 @@ const TIMEOUT_MS = 15000;
 const MAX_PER_MINUTE = 9;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const PAGE_SIZE = 100;
+const EXPANDED_PAGE_SIZE = 50;
 
 export type FiveDollarStatus = "OK" | "UNAVAILABLE" | "NOT_CONFIGURED" | "RATE_LIMITED";
 
@@ -188,12 +189,15 @@ function hasMore(payload: unknown): boolean {
   );
 }
 
-async function paginatedFixtures(basePath: string): Promise<{ fixtures: FiveDollarFixture[]; fetches: FiveDollarFetch[] }> {
+async function paginatedFixtures(
+  basePath: string,
+  pageSize = PAGE_SIZE,
+): Promise<{ fixtures: FiveDollarFixture[]; fetches: FiveDollarFetch[] }> {
   const fetches: FiveDollarFetch[] = [];
   const byId = new Map<number, FiveDollarFixture>();
   for (let page = 1; page <= 50; page += 1) {
     const join = basePath.includes("?") ? "&" : "?";
-    const res = await fiveDollarGet(`${basePath}${join}page=${page}&per_page=${PAGE_SIZE}`);
+    const res = await fiveDollarGet(`${basePath}${join}page=${page}&per_page=${pageSize}`);
     fetches.push(res);
     if (res.status !== "OK" || res.payload === null) break;
     for (const fixture of parseFixtures(res.payload)) byId.set(fixture.eventId, fixture);
@@ -215,7 +219,13 @@ export async function fiveDollarResolveMatch(
 ): Promise<FiveDollarResolution> {
   const start = Math.floor(Date.parse(`${isoDate}T03:00:00Z`) / 1000);
   const end = start + 24 * 3600;
-  const { fixtures, fetches } = await paginatedFixtures(`/fixtures?start_time=${start}&end_time=${end}`);
+  // Use the exact same expanded-day URL as the automatic-odds preflight. When
+  // both stages run within the adapter TTL, the second stage becomes a cache hit
+  // instead of another 5Dollar network request.
+  const { fixtures, fetches } = await paginatedFixtures(
+    `/fixtures?start_time=${start}&end_time=${end}&include=odds`,
+    EXPANDED_PAGE_SIZE,
+  );
   const fetch = fetches[0] ?? {
     status: "UNAVAILABLE" as const,
     endpoint: `${BASE}/fixtures`,
@@ -326,9 +336,15 @@ export async function fiveDollarTeamHistory(
   const fetches: FiveDollarFetch[] = [];
   const observations: FiveDollarRawObservation[] = [];
   const cutoff = Math.floor(Date.parse(predictionAtIso) / 1000) - 1;
-  const perPage = Math.min(Math.max(maxEvents, 1), PAGE_SIZE);
+  const perPage = Math.min(Math.max(maxEvents, 1), EXPANDED_PAGE_SIZE);
 
-  const res = await fiveDollarGet(`/teams/${teamId}/fixtures?status=finished&end_time=${cutoff}&page=1&per_page=${perPage}`);
+  // Team history is already bounded to <=40 rows in the cross-league path, so
+  // events/stats can be folded into the same request without increasing page
+  // count. These fields are persisted as research observations and do not enter
+  // model pricing until an explicit walk-forward gate approves a feature.
+  const res = await fiveDollarGet(
+    `/teams/${teamId}/fixtures?status=finished&end_time=${cutoff}&include=events,stats&page=1&per_page=${perPage}`,
+  );
   fetches.push(res);
   if (res.status !== "OK" || res.payload === null) {
     return { observations, fetches, eventsConsidered: 0, insufficientHistory: true, fixtures: [] };
