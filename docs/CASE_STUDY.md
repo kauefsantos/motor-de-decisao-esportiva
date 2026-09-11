@@ -1,8 +1,8 @@
-# Case Study — Value Bet Finder
+# Case Study — Motor de Decisão Esportiva
 
 ## Visão geral
 
-O **Value Bet Finder** é um projeto de produto digital criado para transformar um processo esportivo complexo em uma experiência guiada, auditável e repetível.
+O **Motor de Decisão Esportiva** é um projeto de produto digital criado para transformar um processo esportivo complexo em uma experiência guiada, auditável e repetível.
 
 A construção começou com uma abordagem low-code para acelerar interface e fluxo de uso. Conforme o produto ganhou regras de negócio, integrações, persistência e requisitos de segurança, a arquitetura foi evoluída para uma combinação de **Lovable + código TypeScript + Supabase/PostgreSQL + GitHub**.
 
