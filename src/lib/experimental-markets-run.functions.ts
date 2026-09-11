@@ -498,10 +498,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         }
         goalForecast = forecast;
         goalTrainingMatches = forecast.trainingMatches;
-        adjustedLambdaHome = forecast.lambdaHome;
-        adjustedLambdaAway = forecast.lambdaAway;
         goalModelVersion = `${GOALS_MODEL_VERSION}+${CROSS_LEAGUE_MODEL_SUFFIX}`;
-        issues.push(`${matchLabel}: baseline continental usa histórico doméstico (${forecast.homeDomesticLeague} x ${forecast.awayDomesticLeague}); Elo cross-country não aplicado sem normalização validada.`);
       } else {
         const goalTraining = rollingGoals.filter((r) => r.league === league);
         if (goalTraining.length < MIN_EXPERIMENTAL_MATCHES) {
@@ -514,13 +511,27 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           issues.push(`${matchLabel}: pelo menos um time não possui partida própria de gols nos últimos 365 dias.`);
           continue;
         }
-        const eloForecast = await eloAdjustGoalForecast({ runId: data.runId, matchId: match.id, leagueKey: league, leagueId, homeTeamId: Number(homeId), awayTeamId: Number(awayId), predictionAt, lambdaHome: goalForecast.lambdaHome, lambdaAway: goalForecast.lambdaAway });
-        adjustedLambdaHome = eloForecast.lambdaHome;
-        adjustedLambdaAway = eloForecast.lambdaAway;
-        if (!eloForecast.applied) issues.push(`${matchLabel}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
-        else if (eloForecast.modelVersionSuffix) goalModelVersion = `${GOALS_MODEL_VERSION}+${eloForecast.modelVersionSuffix}`;
       }
       if (!goalForecast) continue;
+
+      const eloForecast = await eloAdjustGoalForecast({
+        runId: data.runId,
+        matchId: match.id,
+        leagueKey: league,
+        leagueId,
+        homeTeamId: Number(homeId),
+        awayTeamId: Number(awayId),
+        predictionAt,
+        lambdaHome: goalForecast.lambdaHome,
+        lambdaAway: goalForecast.lambdaAway,
+      });
+      adjustedLambdaHome = eloForecast.lambdaHome;
+      adjustedLambdaAway = eloForecast.lambdaAway;
+      if (!eloForecast.applied) {
+        issues.push(`${matchLabel}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
+      } else if (eloForecast.modelVersionSuffix) {
+        goalModelVersion = `${goalModelVersion}+${eloForecast.modelVersionSuffix}`;
+      }
 
       const projections = buildGoalMarketProjections({ homeTeam: match.home_team ?? "Mandante", awayTeam: match.away_team ?? "Visitante", lambdaHome: adjustedLambdaHome, lambdaAway: adjustedLambdaAway });
       for (const projection of projections) {
