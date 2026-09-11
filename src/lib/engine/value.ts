@@ -15,7 +15,7 @@ export const EV_TARGET = 0.02;
 export const MIN_MODEL_PROBABILITY = 0.70;
 export const MAX_SELECTIONS = 3;
 
-export function passesModelProbabilityGate(probability: number | null | undefined) {
+export function passesModelProbabilityGate(probability: number | null | undefined): probability is number {
   return probability !== null && probability !== undefined && Number.isFinite(probability) && probability > MIN_MODEL_PROBABILITY && probability <= 1;
 }
 
@@ -136,6 +136,8 @@ export function evaluateValue(input: ValueInput): ValueResult {
     };
   }
 
+  const p = input.pCons;
+
   // Só depois do gate estrito >70% o Motor 2 avalia preço/value.
   if (input.contractType === "ASIAN") {
     const dist = input.outcomeDistribution;
@@ -152,6 +154,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
       impliedProbability: implied,
       fairOdd: fair,
       minOddTarget: minOdd,
+      decisionProbability: p,
       probabilityBasis: "OUTCOME_DISTRIBUTION",
       edgeCons: w - implied,
       evCons: ev,
@@ -164,7 +167,6 @@ export function evaluateValue(input: ValueInput): ValueResult {
     };
   }
 
-  const p = input.pCons;
   const implied = 1 / input.odd;
   const ev = p * input.odd - 1;
   const hasValue = ev >= EV_TARGET;
@@ -190,7 +192,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
  */
 export function finalSelection(results: ValueResult[]): ValueResult[] {
   return results
-    .filter((r) => r.probabilityStatus === "APROVADA" && r.valueStatus === "TEM_VALOR" && r.executionStatus === "EXECUTAVEL")
+    .filter((r) => r.probabilityStatus === "APROVADA" && passesModelProbabilityGate(r.decisionProbability) && r.valueStatus === "TEM_VALOR" && r.executionStatus === "EXECUTAVEL")
     .sort((a, b) => (b.evCons ?? 0) - (a.evCons ?? 0) || (b.edgeCons ?? 0) - (a.edgeCons ?? 0))
     .slice(0, MAX_SELECTIONS);
 }
