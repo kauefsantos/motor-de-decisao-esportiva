@@ -39,7 +39,8 @@ describe("background analysis contract", () => {
     expect(migration).toContain("dispatch_token uuid");
     expect(migration).toContain("net.http_post");
     expect(migration).toContain("analysis-worker-watch");
-    expect(migration).toContain("locked_at < now() - interval '20 minutes'");
+    expect(migration).toContain("locked_at < pg_catalog.now() - interval '20 minutes'");
+    expect(migration).toContain("set search_path = ''");
   });
 });
 
