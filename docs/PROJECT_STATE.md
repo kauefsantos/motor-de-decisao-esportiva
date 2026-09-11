@@ -1,298 +1,203 @@
 # Value Bet Finder — Estado Canônico
 
-> Atualizado: 2026-09-08 20:55 BRT
-> Repo: `kauefsantos/quant-football-insights`
-> Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a` (`Value Bet Finder`)
-> Workspace: `IgC7Z3MS5vlDXWjvizgE`
-> Preview: `https://id-preview--28664075-8af4-4155-9ee9-8ed86021681a.lovable.app`
-> Baseline funcional após a reconciliação: `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a` (merge PR #22)
-> PR #23 foi somente documental; antes de qualquer nova alteração, confirme novamente o HEAD real de `main` e o `latest_commit_sha` do Lovable.
-> Baseline auditado antes da reconciliação: `f59e26276986737448ae02e66a19b24a87eab77b` (merge PR #21)
+> Atualizado: 2026-09-11 BRT  
+> Repo: `kauefsantos/quant-football-insights`  
+> Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a`  
+> URL publicada: `https://quant-football-insights.lovable.app/`  
+> Baseline funcional auditado antes da limpeza pós-auditoria: `98cdb0a4c88023d16b0ab41d8af24d6a34d1a6dc`
 
-## Regras que não podem ser quebradas
+## Fontes de verdade
 
-- NUNCA criar/remixar outro projeto Lovable sem pedido explícito.
-- Preferir GitHub + Supabase e evitar gastar créditos Lovable desnecessariamente.
-- Nunca pedir/expor API keys.
-- Motor 1 não usa odds como feature; odds entram somente depois das probabilidades.
-- Nunca usar dados posteriores ao `prediction_at`.
-- Não inventar estatísticas/probabilidades nem marcar modelo como produção validada sem validação real.
-- Cards/shots/SOT permanecem bloqueados até compatibilidade de definição/settlement ser validada.
-- Migrações já materializadas no banco não devem ser reaplicadas cegamente apenas para corrigir histórico de `schema_migrations`.
+- **Lovable Cloud** = fonte de verdade do banco, ambiente e runtime publicados.
+- **GitHub `main`** = fonte de verdade do código versionado, migrations, testes e regras de negócio.
+- Não usar outro projeto Lovable e não tratar um Supabase conectado separadamente como banco canônico deste app.
+- Não manipular manualmente `supabase_migrations.schema_migrations` para “alinhar” histórico.
 
-## Fluxo
+## Estado das auditorias
 
-CSV: `Data`, `Partida`, `Horário`, `Campeonato`.
+### RLS — fechado
 
-Interface: Enviar jogos → Preparar análise → Conferir mercados → Ver seleções → Apostas abertas → Desempenho.
-
-Timezone: `America/Sao_Paulo`. Bookmaker operacional: bet365 Brasil.
-
-## 5DollarFootballAPI
-
-Plano atual: **Pro US$5/mês**, confirmado em 08/09/2026.
+- RLS habilitado nas tabelas públicas auditadas.
+- Privilégios de browser removidos.
+- Funções privilegiadas com `search_path` endurecido e execução restrita ao `service_role`.
+- CI de segurança do banco passou no fechamento.
 
-Integração atual:
-- limite local conservador de 9 req/min;
-- respeita rate headers/429/Retry-After;
-- fixtures do dia paginadas (`per_page=100`) e deduplicadas;
-- `fixtureId`, home/away team IDs e `leagueId` persistidos;
-- ligas domésticas usam histórico bulk por `leagueId`, até 365 dias pré-`prediction_at`;
-- competições continentais usam histórico recente por time para recuperar também as ligas domésticas;
-- `raw_observations` é lido com paginação real, sem `.limit(10000)` truncando a base Pro.
+### Segurança — fechado
 
-Teste do feed Pro em 09/09/2026 retornou 72 fixtures, incluindo Champions, Championship, Libertadores e Sul-Americana.
+- autenticação global nas server functions;
+- login Google + allowlist validada no servidor;
+- service role restrita ao boundary server-side;
+- `/api/elo-sync` protegido por Bearer secret;
+- CSP/headers e cache/noindex endurecidos;
+- transições críticas de apostas protegidas contra disputa/duplicidade.
 
-## Resolver
+Residuais documentados continuam sendo melhorias operacionais, não blockers estruturais.
 
-Aliases determinísticos adicionados sem baixar o threshold global, incluindo:
-- Charlton Athletic ↔ Charlton
-- Queens Park Rangers ↔ QPR
-- Derby County ↔ Derby
-- West Bromwich Albion ↔ West Brom
-- Norwich City ↔ Norwich
-- Birmingham City ↔ Birmingham
-- Atlético-MG ↔ Atletico Mineiro
-- Estudiantes ↔ Estudiantes LP
-- VfB Stuttgart ↔ Stuttgart
+### Backend — fechado como eixo de implementação
 
-Threshold de aceitação continua conservador (`0.78`).
+Rodadas consolidadas:
 
-## Modelo de gols
+1. **Estrutural** — fluxo, mercados, integrações, duplicações e regras de negócio.
+2. **Integridade operacional** — funil progressivo de odds, IDs versionados, banca transacional, controle de correlação e limite diário no banco.
+3. **Quant/API** — CLV, priors/standings 5Dollar, requests compostas, validação cronológica OOS e política híbrida NB2/Poisson.
 
-Versão: `goals-baseline-v2-recency`.
+PR principal da rodada 3: **#44**, merge `630ce99cf598c6d8c45b68cb0debf7e7af6dc940`.
 
-- rolling 365 dias;
-- meia-vida 120 dias (`0.5^(ageDays/120)`);
-- ataque/defesa por mando + shrinkage;
-- Poisson independente → matriz de placares → 1X2/BTTS/totais/team goals;
-- `sampleSize` é número real de jogos.
+Residual operacional: um smoke autenticado/reprocessamento normal pós-publicação ainda deve ser usado quando houver sessão adequada para validar o caminho completo no runtime. Isso não representa pendência de código/migration do Backend.
 
-### Jogos continentais / cross-league
+### Frontend — fechado P0 a P3
 
-Versão de base: `cross-league-domestic-v1`, ainda dentro do MESMO Motor 1.
+- **P0/P1 — PR #45**: erro explícito, fluxo único de odds, odds automáticas visíveis, lifecycle protegido, resultado recuperável e ações críticas mais claras.
+- **P2 — PR #46**: navegação mobile, acessibilidade, touch targets, performance, analytics somente leitura e gráfico de banca melhorado.
+- **P3 — PR #47**: continuidade de rota após login, estados finais, semântica e refinamentos de UX.
 
-Para Champions/Libertadores/Sul-Americana etc.:
-- identifica a liga doméstica principal de cada clube usando os próprios dados 5Dollar dos últimos 365 dias;
-- exige pelo menos 3 partidas domésticas válidas para cada clube;
-- estima força ofensiva/defensiva de cada clube relativa à própria liga;
-- combina bases das duas ligas de forma conservadora;
-- o Elo cross-league só é acrescentado quando houver evidência interligas medida suficiente e temporalmente válida;
-- se o Elo hierárquico não estiver elegível, o modelo faz fallback sem esse ajuste em vez de transformar prior em evidência.
+Baseline publicada após P3: `98cdb0a4c88023d16b0ab41d8af24d6a34d1a6dc`.
 
-## Corners
+Não há P4 estrutural aberta no Frontend.
 
-Base: `corners-baseline-v1`, rolling 365 dias.
+## Fluxo atual da aplicação
 
-Em confrontos continentais pode usar `corners-baseline-v1+cross-league-domestic-v1` com a mesma lógica doméstica conservadora. Mercados: total da partida e total por time.
+`Enviar jogos → Preparar → Conferir odds → Ver sugestões → Registrar aposta → Em andamento → Desempenho`
 
-## Elo hierárquico — estado real validado
+- **Registrar aposta** significa registrar no painel uma aposta que o usuário fez na Bet365; o sistema não envia apostas à casa.
+- **Em andamento** é a única tela de settlement operacional.
+- **Desempenho** é somente leitura.
 
-Elo continua sendo **feature auxiliar do modelo de gols**, nunca um segundo motor.
+## Política experimental de mercados
 
-Versões:
-- time local: `elo-v1-w020`;
-- liga: `league-elo-v1`;
-- composição cross-league: `hierarchical-elo-v1`.
+Arquivo canônico: `src/lib/engine/market-policy.ts`.
 
-### Elo de times
+### Escanteios
 
-- inicial 1500; K=20;
-- cada time é avaliado na escala local de sua liga;
-- mando entra na atualização do rating, sem duplicar o mando do modelo de gols;
-- ajuste dos lambdas preserva `lambdaTotal`;
-- lookup doméstico prefere o `leagueId` oficial da 5Dollar;
-- leitura para previsão é estritamente anterior ao `prediction_at`.
+- partida: âncora 9.5; Over `[9.5, 10.5]`; Under `[9.5, 8.5, 7.5, 6.5]`;
+- time: âncora 4.5; Over `[4.5, 5.5, 6.5, 7.5]`; Under `[4.5, 3.5, 2.5]`.
 
-### Elo de ligas / cross-league
+### Gols
 
-PR #20 adicionou a camada hierárquica e PR #21 adicionou o gate de evidência medida.
+- partida: âncora 2.5; Over `[2.5, 3.5]`; Under `[2.5, 1.5]`;
+- geração experimental atual não cria BTTS/team goals no fluxo novo.
 
-- `global_team_elo = league_elo + (team_local_elo - 1500)`;
-- league Elo parte de priors estruturais, mas o prior sozinho **não** pode alterar uma previsão;
-- para aplicar `CROSS_LEAGUE_HIERARCHICAL`, cada liga precisa de pelo menos **3 partidas interligas reais** em `evidence_matches`;
-- o snapshot de liga também precisa existir antes do `prediction_at`;
-- sem essas condições, o forecast segue sem Elo hierárquico;
-- atualização interligas usa K efetivo 6 e mantém o league Elo limitado a ±60 do prior;
-- divisão inferior com pai configurado fica no máximo 70 pontos abaixo da divisão superior;
-- divisões inferiores `CORE` também ficam abaixo do piso atual das Big 5 em pelo menos 25 pontos.
+### Cartões
 
-Estado do banco validado em 08/09/2026 após o rollout:
-- 32 ligas-alvo ativas;
-- 737 ratings de times (`elo-v1-w020`);
-- 32 ratings de liga (`league-elo-v1`);
-- 9 competições cross-league ativas;
-- 1.275 fixtures continentais/interligas armazenadas;
-- 480 fixtures realmente aproveitadas para atualizar league Elo;
-- 20/32 ligas já possuem `evidence_matches >= 3`;
-- auditoria: 32/32 ligas `OK`, 0 violações hierárquicas, 0 erros de sync;
-- piso das Big 5 ≈ 1559,32 e maior rating de segunda divisão = 1505;
-- drift médio local máximo ≈ 12,63, dentro da tolerância auditada de 25.
+- partida e time: âncora 4.5; Over `[4.5, 5.5, 6.5]`; Under `[4.5, 3.5, 2.5]`.
 
-Tabelas principais: `elo_fixtures`, `elo_team_ratings`, `elo_fixture_history`, `elo_target_leagues`, `elo_cross_competitions`, `elo_cross_fixtures`, `elo_league_ratings`, `elo_league_fixture_history`, `elo_audit_runs`, `elo_sync_state`, `elo_prediction_context`.
+### Resultado
 
-### Lacuna de validação ainda aberta
+- 1X2: HOME / DRAW / AWAY;
+- dupla chance: 1X / X2 / 12.
 
-Os 18 registros existentes em `elo_prediction_context` ainda são do modelo antigo (`elo-v1-w020`) e não têm `elo_scope` preenchido. Portanto, a implementação hierárquica está no código e o ledger de ligas está auditado, mas ainda falta registrar uma **nova previsão continental pós-rollout** que demonstre no banco:
-- `CROSS_LEAGUE_HIERARCHICAL` quando as duas ligas passam o gate de evidência;
-- fallback sem Elo quando uma das ligas não passa o gate.
+Máximo de anchors de cotação plenamente modelados por jogo: **20**.
 
-Não considerar essa validação E2E concluída até existir esse registro.
+A linha de referência nunca é value sem preço real compatível.
 
-## Jobs diários do Elo — estado real validado
+## Regra de value
 
-O cron monolítico antigo foi substituído pela fila incremental.
+- EV alvo experimental: **2%**.
+- Não há gate de probabilidade bruto para declarar value no Motor 2.
+- Lean de modelo em 55% não equivale a value confirmado.
+- Seleção automática: no máximo uma seleção por jogo; alternativas correlacionadas permanecem separadas.
+- Limite operacional: **2 seleções em dia útil / 3 no fim de semana**.
 
-Jobs ativos no Supabase:
-- `elo-daily-incremental`: `*/2 6-7 * * *` UTC = a cada 2 minutos entre **03:00 e 04:58 BRT**; processa um alvo por invocação;
-- `elo-daily-finalize`: `5 8 * * *` UTC = **05:05 BRT**; reconstrói league Elo, roda auditoria e consolida `elo_sync_state`.
+## Distribuições de contagem — runtime atual
 
-Job legado `elo-bootstrap-now` está inativo.
+- `corners_match_total`: NB2 quando há evidência/alpha válidos; senão Poisson.
+- `corners_team_total`: mesma regra.
+- `cards_match_total`: mesma regra.
+- `cards_team_total`: **Poisson**.
+- cross-league corners sem alpha: Poisson.
+- gols: política própria já existente, sem alteração pela rodada 3.
 
-Estado consolidado após o rollout:
-- `elo_sync_state.model_version = hierarchical-elo-v1`;
-- `last_status = OK`;
-- 32 ligas processadas;
-- 11.356 fixtures domésticas no ledger;
-- `pendingTargets = 0`;
-- último finalize/audit manual do rollout terminou OK.
+A decisão NB2 vs Poisson deve continuar baseada em evidência OOS, não preferência manual.
 
-**Importante:** os novos job IDs 8/9 ainda não possuem execução normal registrada em `cron.job_run_details`. A primeira janela agendada real após o rollout precisa ser conferida depois de 05:05 BRT. O estado atual prova que as funções e a fila foram executadas no rollout, mas ainda não prova o primeiro ciclo automático completo desses novos jobs.
+## Cartões — contrato operacional
 
-## Divergência de histórico de migrações
+Bet365:
 
-O schema live contém as tabelas/funções do Elo hierárquico e está operacional, porém `supabase_migrations.schema_migrations` ainda lista somente:
-- `20260906172209`
-- `20260906181530`
-- `20260906195556`
+- amarelo = 1;
+- vermelho = 2;
+- segundo amarelo é ignorado como amarelo adicional;
+- cartões de não-jogadores são excluídos;
+- settlement em 90 min programados.
 
-Ou seja: o banco materializado avançou além do histórico oficial de migrações; as migrations do repositório a partir de 07/09 não estão refletidas nessa tabela de histórico.
+A resposta agregada da 5Dollar `{yellow, red}` não traz identidade suficiente para reproduzir tudo exatamente.
 
-Além disso, o audit live já usa `local_mean_drift` com tolerância 25 e resumo expandido, enquanto o arquivo original `20260908230000_hierarchical_league_elo.sql` carregava a versão inicial do audit.
+Proxy canônico: `bet365-yellow1-red2-aggregate-v1`, com `yellow + 2 * red`.
 
-Reconciliação concluída no código via PR #22:
-- nova migration aditiva/idempotente `20260908235000_reconcile_hierarchical_elo_audit.sql` espelha no repositório a definição de audit que já está saudável no banco;
-- CI da PR #22 passou em **Experimental engine E2E + unit tests + build**;
-- PR #22 mergeada em `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`;
-- Lovable canônico sincronizou automaticamente após os merges do `main`;
-- o banco não precisou receber DDL corretivo, pois já possuía a definição reconciliada;
-- `schema_migrations` continua divergente e não deve ser “consertado” manualmente nem por replay cego das migrations antigas.
+Nunca descrever o settlement de cartões como exato enquanto a fonte continuar agregada.
 
-## Motor 1
+## 5DollarFootballAPI Pro
 
-Mercados experimentais ativos: corners, gols, team goals, 1X2, double chance, BTTS.
+Plano Pro ativo durante a auditoria de setembro/2026.
 
-Gate-base:
-- binário `p_cal >= 0.65`;
-- asiático `p_profit_cal >= 0.65`.
+Uso consolidado:
 
-Status continua experimental/`MODEL_NOT_PRODUCTION_VALIDATED` quando aplicável.
+- requests compostas `/fixtures?include=odds,events,stats` quando vantajosas;
+- standings de corner/card usados como priors/feature de pesquisa quando point-in-time válido;
+- Bet365 list/snapshot para preço operacional;
+- tick-by-tick history não é assumido, pois pertence ao plano Ultra.
 
-## Motor 2
+Health auditado desde 08/09: **992/992 chamadas OK, 0 non-OK, 0 HTTP 429** no período verificado.
 
-EV mínimo 2%.
+Não adicionar limiter distribuído sem evidência de necessidade.
 
-Binário: `EV = p_cons * odd - 1`.
+## CLV
 
-Asiático: preservar FW/HW/PUSH/HL/FL; `W_eff=P(FW)+0.5P(HW)`, `L_eff=P(FL)+0.5P(HL)`, `EV=W_eff*(O-1)-L_eff`, `fair=1+L_eff/W_eff`.
+A rodada 3 adicionou persistência/diagnóstico de opening/closing price e CLV por contrato exato.
 
-Linha mudou → reforecast. Só odd mudou → recalcula valor. Seleção final nunca força apostas; máximo operacional atual: 2 em dias úteis / 3 no fim de semana.
+CLV é métrica de acompanhamento; não deve vazar informação futura para a previsão.
 
-### Coleta automática de odds Bet365
+## Elo
 
-Implementada pelos PRs #15 e #16.
+O Elo hierárquico permanece feature auxiliar, não motor independente.
 
-Fluxo preserva separação dos motores:
-1. Motor 1 calcula probabilidades sem preço.
-2. Aplica gate.
-3. Só depois a 5Dollar Pro consulta Bet365.
-4. Motor 2 calcula EV/edge e seleção.
+Arquivos/runbooks: `docs/ELO_V1.md`, `docs/ELO_RUNBOOK.md`, `docs/ELO_AUDIT_2026-09-08.md`.
 
-Automático quando há contrato seguro:
-- 1X2;
-- BTTS;
-- total de gols da partida quando a linha Bet365 coincide com a linha modelada;
-- total de escanteios da partida quando a linha coincide.
+Regras essenciais:
 
-Não sintetizar preço quando a API não entrega diretamente:
-- double chance;
-- gols por time;
-- escanteios por time.
+- leitura estritamente anterior ao `prediction_at`;
+- hierarquia de liga/divisão deve continuar respeitada;
+- prior de liga não substitui evidência interligas;
+- job diário e finalize permanecem separados conforme migrations/runbook.
 
-O preflight usa `/fixtures?include=odds` para aproveitar 1X2 e linhas principais antes de gastar chamadas individuais; `/fixtures/{id}/odds` é usado somente quando necessário.
+## Banca experimental
 
-Validação na run de 09/09/2026:
-- 131 oportunidades passaram pelo gate;
-- 2 receberam odd automática (`BTTS Sim` em Stuttgart x Viking FK e Sporting x Galatasaray, ambas 1.571 naquele snapshot);
-- 41 ficaram `LINE_MISMATCH` porque a linha principal atual da Bet365 diferia da linha modelada;
-- 88 eram contratos não expostos diretamente pela API;
-- 0 erros de fonte;
-- somente 2 chamadas individuais de odds foram necessárias.
+- confirmação e settlement usam RPCs transacionais;
+- limite diário também é protegido por trigger no banco;
+- `DECLINED` libera slot; `PROPOSED`, `OPEN` e `SETTLED` contam conforme regra versionada;
+- não recalcular retroativamente apostas históricas apenas porque o modelo evoluiu.
 
-Possível evolução posterior: reforecast automático da distribuição para a linha principal oferecida pela Bet365 em gols/escanteios, sem usar o preço como feature.
+## Run histórica conhecida
 
-## Seleções qualificadas fora do corte automático
+Run `d43e0099-b7b2-482c-8fd9-995be9b53394`, target `2026-09-11`, chegou a ter **1545** `experimental_predictions` antes do reprocessamento do catálogo novo.
 
-PRs #17, #18 e #19 consolidaram o fluxo de alternativas qualificadas.
+Não apagar/reconstruir manualmente via SQL. Se precisar atualizar essa run, usar o fluxo autenticado de `prepareExperimentalMarketsRun` e verificar novamente o estado real depois.
 
-Na tela de resultado experimental, “Outras odds avaliadas” é dividida em:
-- **Qualificadas fora da seleção final**: passaram probabilidade + valor + execução, mas ficaram fora por limite/ranking. Aparecem com odd, EV e botão **Selecionar**.
-- **Sem margem ou não executáveis**: ficam em lista recolhível com motivo.
+## Migrations críticas recentes
 
-Ao clicar em **Selecionar**:
-- backend revalida a mesma odd no Motor 2;
-- revalida gate, linha, EV e execução;
-- confere vagas da rodada contando apenas `PROPOSED` + `OPEN`;
-- uma sugestão `DECLINED` libera vaga;
-- se houver vaga, cria nova `PROPOSED` no `experimental_bet_tracking` e ela entra no fluxo normal de confirmação/stake;
-- não permite ultrapassar o limite diário nem bypassar banca/regras.
+- `20260911000500_atomic_experimental_bankroll.sql`
+- `20260911000600_selection_limit_counts_settled.sql`
+- `20260911010000_quantitative_api_round3.sql`
 
-## Banca piloto
+Live Lovable Cloud foi reconciliado por DDL aditivo durante as auditorias sem editar `schema_migrations` manualmente.
 
-Início: 07/09/2026. Banca inicial: **R$10,00**.
-- stake mínima Bet365: R$0,50;
-- referência proporcional: 5% da banca disponível;
-- fractional Kelly 0.25 como controle secundário;
-- 0 = recusar aposta.
+## Testes e CI
 
-Aposta oficial #1: Vitória x Grêmio, Over 9,5 escanteios @1,80, stake R$0,50, p registrada 74,6%, fair 1,34, EV +34,28%. Nunca recalcular retroativamente essa aposta com modelos novos.
+CI atual executa:
 
-## Analytics e decisão futura
+- boundary de secrets;
+- E2E do motor experimental;
+- Vitest completo;
+- build.
 
-Dashboard acompanha banca, ROI, CLV, calibração, drawdown e desempenho por mercado.
+Os scripts Python Playwright em `tests/e2e/` foram atualizados para a UI nova, porém continuam fora do CI por dependerem de uma sessão Google autorizada. Não enfraquecer autenticação para automatizá-los.
 
-- FUNDO DO POÇO: banca R$0 → revisão completa antes de novas apostas.
-- AUGE / elegível para API-Football Pro: pelo menos 100 apostas liquidadas + CLV médio positivo + erro de calibração <= 5 p.p.; ROI é confirmação, não critério isolado.
+## Regra para próximas alterações
 
-A revisão Elo diária agora termina às 05:05 BRT depois da fila incremental iniciada às 03:00.
+Antes de qualquer mudança relevante:
 
-## Últimas validações
-
-CSV 09/09 após correções Pro:
-- 17/17 jogos resolvidos pela 5Dollar;
-- 7.782 observações brutas;
-- 510 previsões experimentais;
-- 17/17 jogos com previsões;
-- 131 previsões acima do gate.
-
-Estado técnico validado em 08/09/2026:
-- baseline funcional pós-reconciliação = `6a304b67ba6bb2b7bd3616ebcfca4ddfe7640a9a`;
-- PR #23 foi somente atualização documental posterior;
-- Lovable canônico acompanhou os merges de `main`;
-- PR #20 (Elo hierárquico), PR #21 (evidence gate) e PR #22 (reconciliação do audit) mergeadas;
-- banco hierárquico preenchido e auditoria `OK`;
-- jobs incrementais ativos;
-- migration history ainda divergente do schema materializado;
-- falta uma nova previsão continental pós-rollout e o primeiro ciclo cron automático completo dos jobs 8/9.
-
-## Próximo passo obrigatório
-
-1. Rodar uma nova análise continental pós-rollout e conferir `elo_prediction_context`:
-   - aplicar `CROSS_LEAGUE_HIERARCHICAL` somente com evidência >= 3 em ambas as ligas e snapshot pré-`prediction_at`;
-   - confirmar fallback sem Elo nos casos sem evidência suficiente.
-2. Depois da primeira janela automática, conferir `cron.job_run_details` dos jobs 8/9, novo `elo_audit_runs` e `elo_sync_state`.
-3. Só depois voltar ao próximo item funcional da UI: teste visual de “Qualificadas fora da seleção final” / botão **Selecionar** e, se aprovado, avaliar reforecast automático para a linha principal Bet365.
-
-Para continuar em outro chat:
-
-> Leia `docs/PROJECT_STATE.md` do repositório `kauefsantos/quant-football-insights`, confira GitHub/Lovable/Supabase e continue a partir do próximo passo. Não crie outro projeto Lovable. Antes de alterações, valide o estado real do banco e do main, incluindo Elo hierárquico e jobs diários.
+1. confirmar HEAD real de `main`;
+2. confirmar sync do Lovable;
+3. manter Lovable Cloud como fonte de verdade do runtime/banco;
+4. evitar reabrir RLS, Segurança, Backend ou Frontend sem evidência concreta de regressão;
+5. alterações quantitativas novas devem vir com evidência OOS e teste;
+6. alterações de UI não devem recriar scaffolding genérico ou componentes não usados.
