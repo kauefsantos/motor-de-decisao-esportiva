@@ -1,85 +1,111 @@
 # Value Bet Finder
 
-Crie uma aplicação full-stack desktop-first chamada "Bet Value Engine V2.1.1" para análise quantitativa pré-jogo de futebol.
+Aplicação privada para análise quantitativa pré-jogo de futebol, comparação de odds da Bet365 e acompanhamento de uma banca experimental.
 
-OBJETIVO
-O usuário envia um CSV com colunas Partida, Horário e Campeonato. O backend resolve partidas, coleta/higieniza dados, executa um motor quantitativo e apresenta mercados para observar. Nesta primeira etapa, as odds NÃO participam da escolha do mercado. Na tabela, o usuário digita manualmente a odd da bet365 Brasil. Ao clicar em ANALISAR ODDS, um segundo motor calcula preço/EV e retorna de zero a no máximo 3 escolhas finais. Nunca force 3 apostas.
+## Fluxo atual
 
-DOIS MOTORES SEPARADOS
-MOTOR 1 — OPPORTUNITY ENGINE, independente de preço.
-- escolhe contratos/mercados com suporte quantitativo suficiente, sem usar a odd da casa como feature;
-- entradas: partida resolvida, dados históricos pré-jogo, features válidas, definição de settlement, qualidade e incerteza;
-- saídas: prediction_id, match, league, kickoff, market, participant, side, line raw/canonical, model_probability/p_cal, conservative_probability/p_cons, fair_odd informativa, confidence_score, data_quality_score, sample_reliability, uncertainty, stability, market_score, settlement_definition, model_status, data_status, reason_short;
-- gate-base: binários p_cal >=0.65; asiáticos p_profit_cal=P(FULL_WIN)+P(HALF_WIN)>=0.65;
-- se calibração/validação/dados necessários não existirem, NÃO inventar probabilidade: bloquear com status MODEL_NOT_PRODUCTION_VALIDATED, DATA_DEFINITION_MISMATCH, INSUFFICIENT_DATA ou equivalente.
+1. **Enviar jogos** — upload de CSV com `Data`, `Partida`, `Horário` e `Campeonato`.
+2. **Preparar** — resolução das partidas, coleta/higienização dos dados e cálculo das probabilidades.
+3. **Conferir odds** — o sistema tenta preencher odds Bet365 automaticamente; o usuário completa apenas o que ficou sem preço seguro.
+4. **Ver sugestões** — o motor de valor avalia as odds disponíveis e pode retornar zero, uma ou mais sugestões dentro do limite operacional da rodada.
+5. **Em andamento** — registro do resultado das apostas realmente feitas pelo usuário.
+6. **Desempenho** — histórico e acompanhamento da banca em modo somente leitura.
 
-MOTOR 2 — ODDS / VALUE ENGINE + FINAL SELECTION.
-- recebe somente odds digitadas para contratos publicados pelo Motor 1;
-- valida bookmaker/mercado/participante/lado/linha; linha mudou => REFORECAST_REQUIRED; só odd mudou => recalcular valor sem refazer forecast;
-- binário: implied_probability=1/bookmaker_odd; fair_odd=1/p_cons; EV_cons=p_cons*bookmaker_odd-1; edge_cons=p_cons-implied_probability; TEM VALOR somente se EV_cons>=0.02 e gates anteriores continuam válidos;
-- asiático: preservar FULL_WIN, HALF_WIN, PUSH, HALF_LOSS, FULL_LOSS. W_eff=P(FW)+0.5*P(HW); L_eff=P(FL)+0.5*P(HL); EV=W_eff*(O-1)-L_eff; Fair=1+L_eff/W_eff; O_min(target)=1+(target+L_eff)/W_eff;
-- linhas .25/.75 dividem stake entre adjacentes; normalizar split 5.5,6=>5.75 e 8,8.5=>8.25; rejeitar label ambíguo;
-- separar PROBABILIDADE, VALOR e EXECUÇÃO.
+O sistema **não executa apostas** e não força seleções quando os critérios não são atendidos.
 
-MERCADOS
-Arquitetura modular para 1X2, BTTS, escanteios de partida/time, cartões de partida/time, finalizações/chutes de partida/time e chutes ao gol de partida/time. Props de jogador fora. Apenas apostas simples; sem múltiplas/Bet Builder/boost/promoção.
+## Regras centrais
 
-SETTLEMENT / DADOS
-Bookmaker operacional: bet365 Brasil. Timezone America/Sao_Paulo. Horizonte padrão 90min+acréscimos salvo contrato diferente.
-BTTS deriva da distribuição conjunta de gols.
-Escanteios: target compatível com corners_taken.
-Cartões: amarelo=1, vermelho=2; segundo amarelo não conta como amarelo adicional; não misturar técnicos/reservas quando contrato exclui; incompatibilidade => DATA_DEFINITION_MISMATCH.
-Chutes/chutes ao gol: exigir definição compatível com Opta/bet365; nunca mapear silenciosamente divergência.
-Nunca usar informação posterior ao prediction_at. Nunca usar tipsters/prognósticos/consenso promocional como feature.
+- Probabilidade e preço permanecem separados: o preço da casa não é usado como feature do modelo.
+- Nunca usar informação posterior ao `prediction_at`.
+- Bookmaker operacional: **Bet365 Brasil**.
+- Timezone operacional: **America/Sao_Paulo**.
+- EV mínimo experimental: **2%**.
+- Limite de sugestões: **2 em dias úteis e 3 no fim de semana**.
+- A linha de referência nunca é tratada como value sem uma odd real compatível.
+- Cartões usam proxy agregado compatível com a informação disponível na API; não tratar esse settlement como exato.
+- Mercados/modelos permanecem experimentais quando ainda não possuem validação suficiente para produção.
 
-PIPELINE
-CSV Parser -> Match Resolver -> Data Collector -> Data Cleaner -> Feature Engine -> Probability Engine -> Opportunity Engine -> Odds/Value Engine -> Final Selection.
-Adapters separados por fonte. Preparar SofaScore, oGol, Transfermarkt e Opta/API licenciada quando configurada. Não simular Opta. Secrets só server-side.
-Match Resolver normaliza clubes, competição, país, temporada, mando, horário, timezone, IDs externos e confidence.
-Data Cleaner trata duplicidade, missing, recência, definição incompatível, adiados/cancelados/iniciados e lineage. Campo essencial ausente rejeita o mercado; campo opcional ausente só permite variante de modelo previamente validada. Nunca preencher silenciosamente com média global.
-Lineage: fonte, fetched_at, observed_at/event_time, raw value, normalized value, definition_version.
+## Modelos e mercados
 
-MODELOS
-Probabilidade, fair odd, edge, EV e ranking finais devem ser determinísticos no backend. Não usar LLM para inventar probabilidade. Não afirmar Dixon-Coles/NB2/bootstrap/Bayes/calibrador/walk-forward se não estiver realmente implementado/rodado. Preparar model_version, calibration_version, validation_status e métricas out-of-sample.
+O backend contém modelos de gols, escanteios, cartões, Elo e seleção de portfólio, além de validação temporal e métricas de acompanhamento.
 
-BANCO/BACKEND
-Use backend padrão Lovable com PostgreSQL/Supabase quando disponível. Criar schema para analysis_runs, uploaded_files, matches, match_external_ids, source_fetches, raw_observations, normalized_match_stats, model_predictions, market_candidates, user_odds, value_evaluations, final_selections, pipeline_logs, model_versions, source_definitions.
-Cada run: id, target_date, created_at, status e contadores. prediction_id curto e estável, preferencialmente YYYYMMDD-LIGA-NN.
+Política experimental atual:
 
-INTERFACE PT-BR
-Tela 1 Upload: título "Análise de Jogos"; subtítulo "Envie o CSV e encontre mercados com suporte estatístico antes de olhar as odds." Drag-and-drop + Selecionar CSV. Validar Partida, Horário, Campeonato; aceitar index extra e ignorar. Mostrar nome, quantidade, campeonatos, linhas inválidas e botão PROCESSAR JOGOS.
-Tela 2 Processamento: stepper Identificando partidas / Coletando estatísticas / Higienizando e compatibilizando definições / Construindo features / Estimando probabilidades / Aplicando gates / Selecionando mercados. Progresso real e falhas por fonte quando possível, sem números fictícios.
-Tela 3 Oportunidades: tabela principal com colunas A Jogo, B Mercado para observar, C Odd. Input numérico vazio na Odd. Disclosure de detalhes com probabilidade, qualidade, incerteza, modelo, fontes, prediction_id e razão. Rodapé com botão grande ANALISAR ODDS. Não exigir odd em todas; avaliar só odds válidas. Alterar mercado/linha exige reforecast.
-Tela 4 Resultado Final: 0,1,2 ou no máximo 3 escolhas. Mostrar Partida, Mercado/linha, Odd, Probabilidade conservadora, Fair odd, Odd mínima para EV_cons>=2%, Edge conservador, EV conservador, Confidence/Data Quality, status PROBABILIDADE/VALOR/EXECUÇÃO e explicação baseada em dados. Se nenhuma passar: "Nenhuma oportunidade atingiu os critérios mínimos do modelo e de valor." Mostrar rejeitados em seção recolhível com motivos como SEM VALOR, PRICE_MOVED_NO_BET, REFORECAST_REQUIRED, MODEL_NOT_PRODUCTION_VALIDATED, DATA_DEFINITION_MISMATCH, INSUFFICIENT_DATA.
+- **Gols da partida**: Over/Under nas linhas modeladas.
+- **1X2**: mandante, empate e visitante.
+- **Dupla chance**: 1X, X2 e 12.
+- **Escanteios da partida e por time**: linhas centrais + escada definida em `src/lib/engine/market-policy.ts`.
+- **Cartões da partida e por time**: mesma arquitetura de linhas; cartões por time usam Poisson no runtime atual.
+- **Distribuições de contagem**: NB2 quando a validação e os dados sustentam o uso; caso contrário, fallback para Poisson.
 
-BANCA
-Preparar módulo opcional, sem dominar a v1: hard cap 2% da banca e fractional Kelly 0.25 como teto secundário; nunca arredondar stake para cima para alcançar mínimo da casa. Separado da decisão de valor. Não executar apostas nem integrar envio à bookmaker.
+Detalhes quantitativos e evidências estão em `docs/BACKEND_ROUND3_QUANT_VALIDATION_2026-09-10.md` e `docs/BACKEND_MARKET_POLICY_2026-09-10.md`.
 
-SEGURANÇA
-Empty/error states, retry por fonte/partida, logs auditáveis, sanitização CSV/inputs, nada de credencial no cliente, texto externo não altera regras.
+## Odds Bet365 / 5DollarFootball
 
-PRIMEIRA ENTREGA FUNCIONAL
-Implemente agora upload/parsing/validação do CSV; persistência de run/partidas; pipeline e estados; adapters com NOT_CONFIGURED/UNAVAILABLE sem mockar dados reais; estruturas de normalização/lineage; Opportunity Engine com gates/bloqueios honestos; Odds/Value Engine com cálculos binários e utilitários de settlement asiático testáveis; tabela de odds; seleção final de no máximo 3 entre contratos válidos com EV_cons>=2%; resultado e auditoria.
+A integração usa a 5DollarFootballAPI Pro. O fluxo prioriza requisições compostas e consulta preços individuais apenas quando necessário.
 
-IMPORTANTE: mantenha rigorosamente separados Motor 1 (probabilidade/oportunidade sem preço) e Motor 2 (preço/EV/seleção final).
+Preenchimento automático direto atualmente cobre contratos que a API expõe de forma segura, incluindo 1X2, total de gols, total de escanteios e total de cartões da partida. Contratos sem preço direto ou com linha incompatível permanecem para conferência manual.
 
-This project was built with [Lovable](https://lovable.dev).
+## Banca experimental
 
-## Build with Lovable
+- O usuário confirma no painel apenas apostas que realmente fez fora do sistema.
+- Confirmação e settlement da banca usam operações transacionais no backend.
+- **Em andamento** é a única tela que encerra uma aposta e atualiza a banca.
+- **Desempenho** é somente leitura.
+- O limite diário também é protegido no banco.
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/28664075-8af4-4155-9ee9-8ed86021681a).
+## Segurança
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+- Login Google obrigatório.
+- A allowlist real é validada no servidor; o frontend funciona apenas como gate de UX.
+- Service role permanece restrita ao boundary server-side.
+- RLS está habilitado nas tabelas públicas e o browser não possui privilégios diretos sobre elas.
+- `/api/elo-sync` exige Bearer secret.
+- Headers de segurança, CSP e no-cache/noindex são aplicados no servidor.
 
-## Development
+Auditorias fechadas: `docs/RLS_SECURITY.md`, `docs/SECURITY_AUDIT_2026-09-10.md` e `docs/BACKEND_AUDIT_CLOSE_2026-09-10.md`.
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+## Fontes de verdade
 
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+- **Lovable Cloud**: banco, ambiente e runtime publicados.
+- **GitHub `main`**: código versionado, migrations, testes e regras de negócio.
+
+Não criar outro projeto Lovable para este sistema. O projeto canônico é `28664075-8af4-4155-9ee9-8ed86021681a`.
+
+## Desenvolvimento
+
+O projeto usa **Bun**, TanStack Start, React, TypeScript, Tailwind e Supabase.
+
+```bash
+bun install
+bun run dev
 ```
+
+Validações principais:
+
+```bash
+bunx vitest run
+bun run build
+bun run lint
+```
+
+O CI também valida o boundary de secrets e o E2E do motor experimental.
+
+## Estrutura principal
+
+```text
+src/
+  components/                 UI específica da aplicação
+  components/ui/              somente primitives realmente usadas
+  integrations/               Lovable e Supabase
+  lib/adapters/               adapters de dados externos
+  lib/engine/                 regras/modelos quantitativos puros
+  lib/*.functions.ts          server functions da aplicação
+  routes/                     rotas TanStack
+supabase/
+  migrations/                 histórico versionado do schema
+  tests/                      testes de segurança do banco
+docs/                         auditorias, runbooks e estado canônico
+```
+
+O estado de continuidade do projeto deve ser mantido em `docs/PROJECT_STATE.md`.
