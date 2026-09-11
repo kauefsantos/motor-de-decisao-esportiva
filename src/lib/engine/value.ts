@@ -1,6 +1,6 @@
 // MOTOR 2 — ODDS / VALUE ENGINE + FINAL SELECTION.
-// Recebe SOMENTE odds digitadas para contratos publicados pelo Motor 1.
-// Nunca recalcula probabilidade: se a linha mudou, exige reforecast.
+// Recebe SOMENTE odds para contratos publicados pelo Motor 1.
+// Nunca recalcula a probabilidade esportiva: se a linha mudou, exige reforecast.
 
 import {
   asianEV,
@@ -13,6 +13,11 @@ import type { AsianOutcomeProbabilities, ContractType } from "./types";
 
 export const EV_TARGET = 0.02;
 export const MAX_SELECTIONS = 3;
+
+export type ProbabilityBasis =
+  | "CONSERVATIVE_CALIBRATED"
+  | "RAW_EXPERIMENTAL"
+  | "OUTCOME_DISTRIBUTION";
 
 export type RejectionReason =
   | "SEM_VALOR"
@@ -33,7 +38,15 @@ export interface ValueInput {
   /** linha canônica no momento da digitação, para detectar mudança de linha */
   lineAtEntry: number | null;
   lineCanonical: number | null;
+  /**
+   * Probabilidade binária entregue pelo Motor 1 ao Motor 2.
+   *
+   * Em modelos calibrados deve ser a probabilidade conservadora. No fluxo
+   * experimental legado este campo ainda recebe a probabilidade bruta; nesse
+   * caso probabilityBasis deixa isso explícito e evita chamá-la de calibrada.
+   */
   pCons: number | null;
+  probabilityBasis?: ProbabilityBasis;
   outcomeDistribution: AsianOutcomeProbabilities | null;
   published: boolean;
   modelStatus: string;
@@ -47,6 +60,14 @@ export interface ValueResult {
   impliedProbability: number | null;
   fairOdd: number | null;
   minOddTarget: number | null;
+  /** Probabilidade efetivamente usada para precificar este contrato binário. */
+  decisionProbability: number | null;
+  probabilityBasis: ProbabilityBasis | null;
+  /**
+   * Nomes mantidos por compatibilidade com o ledger/UI. Quando probabilityBasis
+   * é RAW_EXPERIMENTAL, representam edge/EV da probabilidade experimental e não
+   * uma alegação de calibração conservadora.
+   */
   edgeCons: number | null;
   evCons: number | null;
   wEff: number | null;
@@ -59,6 +80,15 @@ export interface ValueResult {
 
 const BOOKMAKER = "bet365_br";
 
+function binaryProbabilityBasis(input: ValueInput): ProbabilityBasis {
+  if (input.probabilityBasis && input.probabilityBasis !== "OUTCOME_DISTRIBUTION") {
+    return input.probabilityBasis;
+  }
+  return input.modelStatus.startsWith("EXPERIMENTAL")
+    ? "RAW_EXPERIMENTAL"
+    : "CONSERVATIVE_CALIBRATED";
+}
+
 export function evaluateValue(input: ValueInput): ValueResult {
   const base: ValueResult = {
     candidateId: input.candidateId,
@@ -67,6 +97,8 @@ export function evaluateValue(input: ValueInput): ValueResult {
     impliedProbability: null,
     fairOdd: null,
     minOddTarget: null,
+    decisionProbability: null,
+    probabilityBasis: null,
     edgeCons: null,
     evCons: null,
     wEff: null,
@@ -97,7 +129,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
     return { ...base, rejectionReason: "REFORECAST_REQUIRED" };
   }
 
-  // Probabilidade aprovada pelo Motor 1; Motor 2 só precifica.
+  // Probabilidade/distribuição aprovada pelo Motor 1; Motor 2 só precifica.
   if (input.contractType === "ASIAN") {
     const dist = input.outcomeDistribution;
     if (!dist) return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
@@ -113,6 +145,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
       impliedProbability: implied,
       fairOdd: fair,
       minOddTarget: minOdd,
+      probabilityBasis: "OUTCOME_DISTRIBUTION",
       edgeCons: w - implied,
       evCons: ev,
       wEff: w,
@@ -125,7 +158,9 @@ export function evaluateValue(input: ValueInput): ValueResult {
   }
 
   const p = input.pCons;
-  if (p === null || !(p > 0)) return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
+  if (p === null || !(p > 0) || p > 1) {
+    return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
+  }
   const implied = 1 / input.odd;
   const ev = p * input.odd - 1;
   const hasValue = ev >= EV_TARGET;
@@ -134,6 +169,8 @@ export function evaluateValue(input: ValueInput): ValueResult {
     impliedProbability: implied,
     fairOdd: 1 / p,
     minOddTarget: (1 + EV_TARGET) / p,
+    decisionProbability: p,
+    probabilityBasis: binaryProbabilityBasis(input),
     edgeCons: p - implied,
     evCons: ev,
     probabilityStatus: "APROVADA",
@@ -145,7 +182,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
 
 /**
  * Seleção final: 0 a no máximo 3. Nunca força 3.
- * Ordena por EV conservador e desempata por edge.
+ * Ordena pelo EV de decisão e desempata por edge.
  */
 export function finalSelection(results: ValueResult[]): ValueResult[] {
   return results
