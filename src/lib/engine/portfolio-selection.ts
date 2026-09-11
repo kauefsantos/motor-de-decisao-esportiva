@@ -1,4 +1,4 @@
-import type { ValueResult } from "./value";
+import { passesModelProbabilityGate, type ValueResult } from "./value";
 
 export type PortfolioCandidate = ValueResult & {
   matchId: string | null;
@@ -21,16 +21,23 @@ function valueOrder<T extends ValueResult>(a: T, b: T) {
 /**
  * Experimental portfolio selector.
  *
- * Value is still decided per contract. This layer only avoids concentrating the
- * automatic final card in the same fixture. Positive-EV rows skipped by this
- * rule remain qualified alternates and can still be inspected/manually chosen.
+ * A linha só chega ao portfólio se já tiver passado pelo gate estrito de
+ * probabilidade (>70%), pelo value com odd real e pela execução. Esta checagem
+ * é repetida aqui como defesa em profundidade para impedir que um resultado
+ * antigo/stale seja promovido apenas por ter EV positivo.
  */
 export function selectExperimentalPortfolio<T extends PortfolioCandidate>(
   results: T[],
   limit: number,
 ): PortfolioSelectionResult<T> {
   const qualified = results
-    .filter((row) => row.valueStatus === "TEM_VALOR" && row.executionStatus === "EXECUTAVEL")
+    .filter(
+      (row) =>
+        row.probabilityStatus === "APROVADA" &&
+        passesModelProbabilityGate(row.decisionProbability) &&
+        row.valueStatus === "TEM_VALOR" &&
+        row.executionStatus === "EXECUTAVEL",
+    )
     .sort(valueOrder);
 
   const selected: T[] = [];
