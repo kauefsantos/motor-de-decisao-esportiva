@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getRun } from "@/lib/analysis.functions";
 import { collectAutomaticBet365Odds } from "@/lib/auto-bet365-odds.functions";
+import { passesExperimentalModelGate } from "@/lib/engine/market-policy";
 import {
   analyzeExperimentalMarketsOdds,
   prepareExperimentalMarketsRun,
@@ -43,6 +44,14 @@ function selectionLimitForDate(isoDate: string | null | undefined) {
   const [year, month, day] = isoDate.split("-").map(Number);
   const weekday = new Date(Date.UTC(year!, month! - 1, day!)).getUTCDay();
   return weekday === 0 || weekday === 6 ? 3 : 2;
+}
+
+export function fallbackEligiblePredictionIds(
+  candidates: Array<{ predictionId: string; probabilityExperimental: number }>,
+) {
+  return candidates
+    .filter((candidate) => passesExperimentalModelGate(candidate.probabilityExperimental))
+    .map((candidate) => candidate.predictionId);
 }
 
 function fallbackBatches(ids: string[], size = 12) {
@@ -134,8 +143,8 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         setOdds((current) => ({ ...current, ...automaticValues }));
       } catch {
         if (!cancelled) {
-          setManualBatches(fallbackBatches(eligible.map((candidate) => candidate.predictionId)));
-          toast.error("A busca automática falhou. As odds manuais foram divididas em lotes menores.");
+          setManualBatches(fallbackBatches(fallbackEligiblePredictionIds(eligible)));
+          toast.error("A busca automática falhou. Apenas opções com chance do modelo >70% seguem para odds manuais.");
         }
       } finally {
         if (!cancelled) setAutoOddsLoading(false);
