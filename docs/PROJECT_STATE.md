@@ -53,6 +53,8 @@ Após a integração do Elo hierárquico, uma rodada adicional corrigiu a semân
 - navegação/mobile/acessibilidade melhorados;
 - telas de acompanhamento e analytics com papéis separados;
 - continuidade de rota após login;
+- interface mobile-first para iPhone com navegação inferior, safe areas do notch/Home Indicator e alvos de toque de 44–48 px;
+- metadados de instalação e `site.webmanifest` para uso em modo standalone ao adicionar a aplicação à Tela de Início do iOS;
 - nenhuma pendência estrutural P0–P2 conhecida.
 
 ### Elo — fechado
