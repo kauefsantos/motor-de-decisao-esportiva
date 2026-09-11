@@ -39,7 +39,7 @@ describe("background analysis contract", () => {
     expect(migration).toContain("dispatch_token uuid");
     expect(migration).toContain("net.http_post");
     expect(migration).toContain("analysis-worker-watch");
-    expect(migration).toContain("for update").not;
+    expect(migration).toContain("locked_at < now() - interval '20 minutes'");
   });
 });
 
