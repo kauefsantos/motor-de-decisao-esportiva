@@ -6,10 +6,12 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { PushNotificationControl } from "@/components/PushNotificationControl";
 import { Button } from "@/components/ui/button";
 import { parseCsv, type CsvParseResult } from "@/lib/csv";
 import { createRun } from "@/lib/analysis.functions";
 import { enqueueAnalysis } from "@/lib/background-analysis.functions";
+import { setAnalysisNotificationTarget } from "@/lib/push.browser";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -73,6 +75,9 @@ function UploadScreen() {
       // Queue the server-side worker before navigation. Once this resolves, the
       // analysis no longer depends on the phone keeping the app in foreground.
       await enqueue({ data: { runId: res.runId } });
+      // Store the deep-link target before leaving the upload screen so a push can
+      // still open the right analysis even if the user closes the app immediately.
+      await setAnalysisNotificationTarget(res.runId);
       navigate({ to: "/run/$runId/processamento", params: { runId: res.runId } });
     } catch {
       toast.error("Não foi possível iniciar a análise. Tente novamente.");
@@ -88,6 +93,8 @@ function UploadScreen() {
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
           Envie o CSV da rodada. Calculamos as chances primeiro e comparamos as odds depois.
         </p>
+
+        <PushNotificationControl />
 
         <div
           onDragOver={(e) => {
