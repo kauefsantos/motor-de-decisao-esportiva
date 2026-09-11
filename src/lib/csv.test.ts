@@ -32,6 +32,16 @@ describe("parseCsv with required Data column", () => {
     expect(result.rows).toHaveLength(1);
   });
 
+  it("repairs common UTF-8 mojibake before persisting competition labels", () => {
+    const result = parseCsv(
+      "Data,Partida,Horário,Campeonato\n11/09/2026,Pisa x Virtus Entella,15:00,Serie B (ItÃ¡lia)",
+    );
+
+    expect(result.invalid).toEqual([]);
+    expect(result.rows[0]?.campeonato).toBe("Serie B (Itália)");
+    expect(result.leagues).toEqual(["Serie B (Itália)"]);
+  });
+
   it("blocks a file with multiple match dates", () => {
     const result = parseCsv(
       [
