@@ -107,7 +107,8 @@ export function crossLeagueGoalForecast(
   const baseAway = (homeBaseAway + awayBaseAway) / 2;
 
   // As forças são relativas à própria liga e o expoente 1/2 reduz dupla contagem.
-  // Não há conversão de Elo entre países aqui: o Elo cross-country continua bloqueado.
+  // Este baseline permanece doméstico; a normalização entre ligas, quando elegível,
+  // é aplicada depois pela camada Elo hierárquica compartilhada.
   const lambdaHome = Math.max(0.05, baseHome * Math.sqrt(hs.attack * as.defense));
   const lambdaAway = Math.max(0.05, baseAway * Math.sqrt(as.attack * hs.defense));
   return {
