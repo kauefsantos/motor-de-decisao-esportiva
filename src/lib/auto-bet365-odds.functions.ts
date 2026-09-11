@@ -247,15 +247,21 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       automaticallyPricedPredictionIds,
     );
 
-    // Standings are diagnostic priors only. Capture at most two cold leagues
-    // per odds pass and reuse same-day snapshots in the database. Historical
-    // runs are skipped to prevent a current table from leaking into old dates.
-    const priorCapture = await captureFiveDollarLeaguePriorsForRun(
-      supabase as unknown as { from: (table: string) => any },
-      data.runId,
-      predictionAtFromRun(run),
-      2,
-    );
+    // Research enrichment is strictly best-effort. It must never make a
+    // successful Bet365 quote pass fail because a standings endpoint/table is
+    // temporarily unavailable.
+    let priorCapture: Awaited<ReturnType<typeof captureFiveDollarLeaguePriorsForRun>> | null = null;
+    try {
+      priorCapture = await captureFiveDollarLeaguePriorsForRun(
+        supabase as unknown as { from: (table: string) => any },
+        data.runId,
+        predictionAtFromRun(run),
+        2,
+      );
+    } catch (error) {
+      console.warn("[5Dollar priors] Captura de pesquisa indisponível", error);
+      priorCapture = null;
+    }
 
     return {
       quotes,
@@ -263,6 +269,6 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       noPrice: count("NO_PRICE"), sourceUnavailable: count("SOURCE_UNAVAILABLE"), fixturesRequested,
       dayPagesRequested: day.fetches.length, manualBatches, manualFieldCount: manualBatches.flat().length,
       automaticallyPricedPredictionIds, priorCapture,
-      message: "Odds automáticas foram avaliadas primeiro; o restante foi organizado em lotes manuais progressivos. Standings de escanteios/cartões são armazenados somente como priors de pesquisa até validação walk-forward.",
+      message: "Odds automáticas foram avaliadas primeiro; o restante foi organizado em lotes manuais progressivos. Standings de escanteios/cartões são pesquisa isolada e nunca bloqueiam a cotação principal.",
     };
   });
