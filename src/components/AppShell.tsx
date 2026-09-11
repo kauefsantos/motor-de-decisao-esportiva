@@ -6,10 +6,10 @@ import { BetConfirmationFlow } from "@/components/BetConfirmationFlow";
 import { supabase } from "@/integrations/supabase/client";
 
 const STAGES = [
-  { key: "upload", label: "1 · Enviar jogos" },
-  { key: "processamento", label: "2 · Preparar" },
-  { key: "oportunidades", label: "3 · Conferir odds" },
-  { key: "resultado", label: "4 · Ver sugestões" },
+  { key: "upload", label: "Enviar jogos", shortLabel: "Enviar" },
+  { key: "processamento", label: "Preparar", shortLabel: "Preparar" },
+  { key: "oportunidades", label: "Conferir odds", shortLabel: "Odds" },
+  { key: "resultado", label: "Ver sugestões", shortLabel: "Sugestões" },
 ] as const;
 
 type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics";
@@ -26,17 +26,17 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur-xl">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/94 backdrop-blur-xl">
         <div className="mx-auto max-w-[1400px] px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-4">
             <Link to="/" className="flex min-h-11 shrink-0 items-center gap-2">
               <span className="num text-sm font-semibold tracking-tight text-primary">BET VALUE ENGINE</span>
-              <span className="num hidden text-[10px] text-muted-foreground sm:inline">V2.1.1</span>
+              <span className="num hidden text-xs text-muted-foreground sm:inline">V2.1.1</span>
             </Link>
             <button
               type="button"
               onClick={() => void signOut()}
-              className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               aria-label="Sair da conta"
             >
               <LogOut className="size-4" aria-hidden />
@@ -44,42 +44,54 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
             </button>
           </div>
 
-          <nav className="-mx-1 mt-2 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mt-0 sm:justify-end">
-            {STAGES.map((s, index) => {
-              const isActive = s.key === stage;
-              const base = "flex min-h-10 shrink-0 items-center rounded-lg px-3 text-[11px] tracking-wide transition-colors";
-              const active = "bg-primary/15 text-primary ring-1 ring-primary/20";
-              const inactive = "text-muted-foreground hover:bg-secondary hover:text-foreground";
-              if (index === 0) {
+          <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+            <ol
+              className="grid grid-cols-4 gap-1"
+              aria-label="Progresso da análise"
+            >
+              {STAGES.map((item, index) => {
+                const isActive = item.key === stage;
                 return (
-                  <Link key={s.key} to="/" className={`${base} ${isActive ? active : inactive}`}>
-                    {s.label}
-                  </Link>
+                  <li
+                    key={item.key}
+                    aria-current={isActive ? "step" : undefined}
+                    className={`flex min-h-10 min-w-0 items-center justify-center rounded-lg px-2 text-center text-xs transition-colors ${
+                      isActive
+                        ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    <span className="mr-1 num text-[0.7rem] opacity-70">{index + 1}</span>
+                    <span className="truncate sm:hidden">{item.shortLabel}</span>
+                    <span className="hidden truncate sm:inline">{item.label}</span>
+                  </li>
                 );
-              }
-              return (
-                <span key={s.key} className={`${base} ${isActive ? active : inactive}`}>
-                  {s.label}
-                </span>
-              );
-            })}
-            <Link
-              to="/open-bets"
-              className={`flex min-h-10 shrink-0 items-center rounded-lg px-3 text-[11px] tracking-wide transition-colors ${
-                stage === "open-bets" ? "bg-primary/15 text-primary ring-1 ring-primary/20" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-              }`}
-            >
-              Em andamento
-            </Link>
-            <Link
-              to="/analytics"
-              className={`flex min-h-10 shrink-0 items-center rounded-lg px-3 text-[11px] tracking-wide transition-colors ${
-                stage === "analytics" ? "bg-primary/15 text-primary ring-1 ring-primary/20" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-              }`}
-            >
-              Desempenho
-            </Link>
-          </nav>
+              })}
+            </ol>
+
+            <nav className="grid grid-cols-2 gap-2 sm:flex" aria-label="Acompanhamento">
+              <Link
+                to="/open-bets"
+                className={`flex min-h-11 items-center justify-center rounded-lg px-4 text-xs font-medium transition-colors ${
+                  stage === "open-bets"
+                    ? "bg-primary/15 text-primary ring-1 ring-primary/20"
+                    : "bg-secondary/35 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                }`}
+              >
+                Em andamento
+              </Link>
+              <Link
+                to="/analytics"
+                className={`flex min-h-11 items-center justify-center rounded-lg px-4 text-xs font-medium transition-colors ${
+                  stage === "analytics"
+                    ? "bg-primary/15 text-primary ring-1 ring-primary/20"
+                    : "bg-secondary/35 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                }`}
+              >
+                Desempenho
+              </Link>
+            </nav>
+          </div>
         </div>
       </header>
 
