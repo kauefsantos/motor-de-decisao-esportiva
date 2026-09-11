@@ -57,9 +57,11 @@ const promoteSchema = z.object({
 
 export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => promoteSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const supabase = supabaseAdmin as any;
+    const { assertRunOwner } = await import("./authorization.server");
+    await assertRunOwner(supabase, context.userId, data.runId);
 
     const [{ data: prediction, error: predictionError }, { data: run, error: runError }] = await Promise.all([
       supabase
