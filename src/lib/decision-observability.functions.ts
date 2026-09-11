@@ -156,13 +156,16 @@ async function buildFunnel(rawDb: { from: (table: string) => any }, run: RunRow)
   };
 }
 
-export const getDecisionObservability = createServerFn({ method: "GET" }).handler(async () => {
+export const getDecisionObservability = createServerFn({ method: "GET" }).handler(async ({ context }) => {
+  const userId = context.userId;
+  if (!userId) throw new Error("Usuário não autenticado.");
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const rawDb = supabaseAdmin as unknown as { from: (table: string) => any };
 
   const { data: runData, error: runError } = await rawDb
     .from("analysis_runs")
     .select("id,target_date,created_at,status,current_step,matches_total,matches_resolved,matches_failed,selections_count")
+    .eq("owner_id", userId)
     .order("created_at", { ascending: false })
     .limit(12);
   if (runError) throw new Error(`Falha ao carregar o funil de decisão: ${runError.message}`);
