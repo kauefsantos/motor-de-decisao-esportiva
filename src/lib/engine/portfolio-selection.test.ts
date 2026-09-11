@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { selectExperimentalPortfolio, type PortfolioCandidate } from "./portfolio-selection";
 
-function candidate(id: string, matchId: string, ev: number): PortfolioCandidate {
+function candidate(id: string, matchId: string, ev: number, decisionProbability = 0.75): PortfolioCandidate {
   return {
     candidateId: id,
     predictionId: id,
@@ -10,13 +10,13 @@ function candidate(id: string, matchId: string, ev: number): PortfolioCandidate 
     impliedProbability: 0.5,
     fairOdd: 1.6,
     minOddTarget: 1.632,
-    decisionProbability: 0.6,
+    decisionProbability,
     probabilityBasis: "RAW_EXPERIMENTAL",
     edgeCons: 0.1,
     evCons: ev,
     wEff: null,
     lEff: null,
-    probabilityStatus: "APROVADA",
+    probabilityStatus: decisionProbability > 0.70 ? "APROVADA" : "BLOQUEADA",
     valueStatus: "TEM_VALOR",
     executionStatus: "EXECUTAVEL",
     rejectionReason: null,
@@ -41,6 +41,14 @@ describe("experimental portfolio selection", () => {
   it("does not force the requested limit", () => {
     const result = selectExperimentalPortfolio([candidate("only", "m1", 0.03)], 3);
     expect(result.selected).toHaveLength(1);
+  });
+
+  it("rejects stale positive-EV rows at or below 70%", () => {
+    const result = selectExperimentalPortfolio(
+      [candidate("seventy", "m1", 0.5, 0.70), candidate("low", "m2", 0.5, 0.33), candidate("good", "m3", 0.08, 0.71)],
+      3,
+    );
+    expect(result.selected.map((row) => row.predictionId)).toEqual(["good"]);
   });
 
   it("keeps correlation filtering separate from value qualification", () => {
