@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Loader2, LockKeyhole } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -159,9 +159,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <div className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background px-4 pt-[calc(2.5rem+env(safe-area-inset-top))] pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.18)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.18)_1px,transparent_1px)] bg-[size:55px_55px]" />
       <main className="panel relative z-10 w-full max-w-md p-6 sm:p-8">
-        <div className="flex size-11 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
-          <LockKeyhole className="size-5" aria-hidden />
-        </div>
+        <img
+          src="/icons/icon-192.png"
+          alt=""
+          className="size-14 rounded-2xl border border-primary/20 shadow-lg shadow-primary/10"
+          aria-hidden
+        />
         <p className="label-eyebrow mt-6">Acesso privado</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           Bet Value Engine
