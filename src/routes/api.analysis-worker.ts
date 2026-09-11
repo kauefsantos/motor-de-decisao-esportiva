@@ -47,53 +47,80 @@ export const Route = createFileRoute("/api/analysis-worker")({
             import("@/lib/pipeline.steps"),
             import("@/lib/pipeline.server"),
           ]);
+          const nextStep = PIPELINE_STEPS.find((step) => !completed.has(step.key));
 
-          for (const step of PIPELINE_STEPS) {
-            if (completed.has(step.key)) continue;
-
+          if (!nextStep) {
             await db
               .from("analysis_jobs")
               .update({
-                current_step: step.key,
-                locked_at: new Date().toISOString(),
+                status: "DONE",
+                current_step: null,
+                completed_at: new Date().toISOString(),
+                locked_at: null,
                 updated_at: new Date().toISOString(),
               })
               .eq("run_id", runId);
-
-            await executeStep(runId, step.key);
-            completed.add(step.key);
-
-            await db
-              .from("analysis_jobs")
-              .update({
-                completed_steps: Array.from(completed),
-                locked_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              })
-              .eq("run_id", runId);
+            return Response.json({ status: "DONE", runId });
           }
 
           await db
             .from("analysis_jobs")
             .update({
-              status: "DONE",
+              current_step: nextStep.key,
+              locked_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("run_id", runId);
+
+          // One pipeline step per HTTP invocation keeps each server request bounded.
+          // pg_net dispatches the next step after this one succeeds.
+          await executeStep(runId, nextStep.key);
+          completed.add(nextStep.key);
+
+          const finished = completed.size === PIPELINE_STEPS.length;
+          if (finished) {
+            await db
+              .from("analysis_jobs")
+              .update({
+                status: "DONE",
+                current_step: null,
+                completed_steps: Array.from(completed),
+                completed_at: new Date().toISOString(),
+                locked_at: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("run_id", runId);
+
+            try {
+              const { sendAnalysisReadyPush } = await import("@/lib/push.server");
+              await sendAnalysisReadyPush(job.user_id);
+            } catch (pushError) {
+              // Notification failure must never roll the completed sports analysis back.
+              console.error("[Analysis worker] push failed", pushError);
+            }
+
+            return Response.json({ status: "DONE", runId, step: nextStep.key });
+          }
+
+          await db
+            .from("analysis_jobs")
+            .update({
+              status: "QUEUED",
               current_step: null,
               completed_steps: Array.from(completed),
-              completed_at: new Date().toISOString(),
               locked_at: null,
               updated_at: new Date().toISOString(),
             })
             .eq("run_id", runId);
 
-          try {
-            const { sendAnalysisReadyPush } = await import("@/lib/push.server");
-            await sendAnalysisReadyPush(job.user_id);
-          } catch (pushError) {
-            // Notification failure must never roll the completed sports analysis back.
-            console.error("[Analysis worker] push failed", pushError);
+          const { error: kickError } = await db.rpc("kick_analysis_worker");
+          if (kickError) {
+            // The minute cron is a backstop, so a failed immediate dispatch does
+            // not invalidate the successfully completed step.
+            console.error("[Analysis worker] next-step dispatch failed", kickError);
           }
 
-          return Response.json({ status: "DONE", runId });
+          return Response.json({ status: "STEP_DONE", runId, step: nextStep.key });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Falha desconhecida no processamento.";
           console.error("[Analysis worker] pipeline failed", error);
