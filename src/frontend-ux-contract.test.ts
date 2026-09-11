@@ -145,3 +145,27 @@ describe("frontend P3 final polish contract", () => {
     expect(root).toContain('role="alert"');
   });
 });
+
+describe("frontend iPhone mobile-first contract", () => {
+  it("respects dynamic viewport and safe areas on the auth flow", () => {
+    const auth = source("./components/AuthGate.tsx");
+    expect(auth).toContain("min-h-[100dvh]");
+    expect(auth).toContain("safe-area-inset-top");
+    expect(auth).toContain("safe-area-inset-bottom");
+  });
+
+  it("uses a bottom navigation and leaves room for the Home Indicator", () => {
+    const shell = source("./components/AppShell.tsx");
+    expect(shell).toContain('aria-label="Navegação principal"');
+    expect(shell).toContain("safe-area-inset-bottom");
+    expect(shell).toContain("fixed inset-x-0 bottom-0");
+  });
+
+  it("keeps manual odds easy to enter on narrow phone layouts", () => {
+    const pilot = source("./components/ExperimentalMarketsPilot.tsx");
+    const styles = source("./styles.css");
+    expect(pilot).toContain('className="num mt-1 w-28"');
+    expect(styles).toContain("input.w-28");
+    expect(styles).toContain("width: 100%");
+  });
+});
