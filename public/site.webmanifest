@@ -1,0 +1,19 @@
+{
+  "name": "Bet Value Engine",
+  "short_name": "Bet Value",
+  "description": "Motor de decisão esportiva para análise de jogos, odds e acompanhamento de resultados.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171823",
+  "theme_color": "#171823",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon",
+      "purpose": "any"
+    }
+  ]
+}
