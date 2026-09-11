@@ -10,7 +10,7 @@ import {
   registerBetValueServiceWorker,
   supportsWebPush,
   urlBase64ToUint8Array,
-} from "@/lib/push.client";
+} from "@/lib/push.browser";
 
 type PushState = "checking" | "available" | "enabled" | "blocked" | "unsupported" | "error";
 
