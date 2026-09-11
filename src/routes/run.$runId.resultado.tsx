@@ -2,13 +2,14 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Button } from "@/components/ui/button";
 import { getResults } from "@/lib/analysis.functions";
+import { getExperimentalBetPlan } from "@/lib/bankroll.functions";
 import { promoteQualifiedExperimentalBet } from "@/lib/qualified-alternates.functions";
 
 export const Route = createFileRoute("/run/$runId/resultado")({
@@ -147,6 +148,22 @@ type ExperimentalStoredResult = {
   referenceAlternatives?: ExperimentalReferenceAlternative[];
 };
 
+type PersistedPlanRow = {
+  id: string;
+  prediction_id: string;
+  match_label: string;
+  competition: string | null;
+  market_label: string;
+  model_probability: number | string;
+  entry_odd: number | string;
+  fair_odd?: number | string | null;
+  min_odd_target?: number | string | null;
+  edge: number | string | null;
+  expected_value: number | string | null;
+  selection_rank: number | null;
+  model_status?: string | null;
+};
+
 function ResultScreen() {
   const { runId } = Route.useParams();
   const { mode } = Route.useSearch();
@@ -176,7 +193,13 @@ function ResultScreen() {
     }
   }, [isExperimental, runId]);
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["results", runId],
     queryFn: () => fetchResults({ data: { runId } }),
     enabled: !isExperimental,
@@ -217,52 +240,70 @@ function ResultScreen() {
           <div className="panel mt-6 flex items-center gap-3 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Conferindo as odds…</div>
         )}
 
-        {!isLoading && selected.length === 0 && (
+        {isError && (
+          <div className="panel mt-6 border-destructive/30 p-5">
+            <div className="flex items-start gap-3">
+              <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
+              <div>
+                <p className="font-medium">Não foi possível carregar o resultado</p>
+                <p className="mt-1 text-sm text-muted-foreground">A falha de carregamento não significa que nenhuma odd tenha compensado.</p>
+                {error instanceof Error && <p className="mt-2 text-xs text-destructive">{error.message}</p>}
+                <Button className="mt-4 min-h-11" variant="outline" onClick={() => void refetch()}>Tentar novamente</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isLoading && !isError && selected.length === 0 && (
           <div className="panel mt-6 p-5"><p className="font-medium">Nenhuma odd compensou nesta rodada.</p><p className="mt-1 text-sm text-muted-foreground">O sistema não força uma sugestão.</p></div>
         )}
 
-        <div className="mt-6 grid gap-4">
-          {selected.map(({ selection, evaluation }) => {
-            const info = labelFor(evaluation.candidate_id);
-            return (
-              <article key={selection.id} className="panel overflow-hidden">
-                <div className="p-4 sm:p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div><p className="label-eyebrow">Sugestão {selection.rank}</p><h2 className="mt-1 text-lg font-semibold sm:text-xl">{info.partida}</h2><p className="text-sm text-muted-foreground">{info.mercado}</p></div>
-                    <div className="grid grid-cols-3 gap-2 text-right sm:min-w-72">
-                      <SummaryMetric label="Odd" value={dec(evaluation.odd)} />
-                      <SummaryMetric label="Chance" value={pct(evaluation.w_eff ?? null, 1)} />
-                      <SummaryMetric label="Retorno" value={pct(evaluation.ev_cons, 1)} highlight />
+        {!isError && (
+          <>
+            <div className="mt-6 grid gap-4">
+              {selected.map(({ selection, evaluation }) => {
+                const info = labelFor(evaluation.candidate_id);
+                return (
+                  <article key={selection.id} className="panel overflow-hidden">
+                    <div className="p-4 sm:p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div><p className="label-eyebrow">Sugestão {selection.rank}</p><h2 className="mt-1 text-lg font-semibold sm:text-xl">{info.partida}</h2><p className="text-sm text-muted-foreground">{info.mercado}</p></div>
+                        <div className="grid grid-cols-3 gap-2 text-right sm:min-w-72">
+                          <SummaryMetric label="Odd" value={dec(evaluation.odd)} />
+                          <SummaryMetric label="Chance" value={pct(evaluation.w_eff ?? null, 1)} />
+                          <SummaryMetric label="Retorno" value={pct(evaluation.ev_cons, 1)} highlight />
+                        </div>
+                      </div>
+                      {selection.explanation && <p className="mt-3 text-sm text-muted-foreground">{selection.explanation}</p>}
                     </div>
-                  </div>
-                  {selection.explanation && <p className="mt-3 text-sm text-muted-foreground">{selection.explanation}</p>}
-                </div>
-                <CollapsiblePanel className="m-3 mt-0 bg-transparent shadow-none sm:m-4 sm:mt-0" title="Ver análise completa" description="Preço de referência, vantagem e situação da sugestão">
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <MetricTile label="Odd de referência" value={dec(evaluation.fair_odd)} />
-                    <MetricTile label="Odd mínima" value={dec(evaluation.min_odd_target)} />
-                    <MetricTile label="Vantagem" value={pct(evaluation.edge_cons)} />
-                    <MetricTile label="Disponibilidade" value={friendlyStatus(evaluation.execution_status)} />
-                  </div>
-                  <p className="mt-3 text-xs text-muted-foreground">Chance: {friendlyStatus(evaluation.probability_status)} · Preço: {friendlyStatus(evaluation.value_status)} · Referência: <span className="num">{info.predictionId}</span></p>
-                </CollapsiblePanel>
-              </article>
-            );
-          })}
-        </div>
+                    <CollapsiblePanel className="m-3 mt-0 bg-transparent shadow-none sm:m-4 sm:mt-0" title="Ver análise completa" description="Preço de referência, vantagem e situação da sugestão">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <MetricTile label="Odd de referência" value={dec(evaluation.fair_odd)} />
+                        <MetricTile label="Odd mínima" value={dec(evaluation.min_odd_target)} />
+                        <MetricTile label="Vantagem" value={pct(evaluation.edge_cons)} />
+                        <MetricTile label="Disponibilidade" value={friendlyStatus(evaluation.execution_status)} />
+                      </div>
+                      <p className="mt-3 text-xs text-muted-foreground">Chance: {friendlyStatus(evaluation.probability_status)} · Preço: {friendlyStatus(evaluation.value_status)} · Referência: <span className="num">{info.predictionId}</span></p>
+                    </CollapsiblePanel>
+                  </article>
+                );
+              })}
+            </div>
 
-        <CollapsiblePanel className="mt-4" title="Outras odds conferidas" description="Opções avaliadas que não entraram nas sugestões" meta={rejected.length}>
-          <ul className="divide-y divide-border">
-            {rejected.map((evaluation) => {
-              const info = labelFor(evaluation.candidate_id);
-              return (
-                <li key={evaluation.id} className="py-3 text-sm sm:grid sm:grid-cols-[1fr_1fr_auto] sm:gap-3">
-                  <span>{info.partida}</span><span className="mt-1 block text-muted-foreground sm:mt-0">{info.mercado} · odd {dec(evaluation.odd)}</span><span className="mt-1 block text-xs text-warning sm:mt-0">{friendlyReason(evaluation.rejection_reason)}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </CollapsiblePanel>
+            <CollapsiblePanel className="mt-4" title="Outras odds conferidas" description="Opções avaliadas que não entraram nas sugestões" meta={rejected.length}>
+              <ul className="divide-y divide-border">
+                {rejected.map((evaluation) => {
+                  const info = labelFor(evaluation.candidate_id);
+                  return (
+                    <li key={evaluation.id} className="py-3 text-sm sm:grid sm:grid-cols-[1fr_1fr_auto] sm:gap-3">
+                      <span>{info.partida}</span><span className="mt-1 block text-muted-foreground sm:mt-0">{info.mercado} · odd {dec(evaluation.odd)}</span><span className="mt-1 block text-xs text-warning sm:mt-0">{friendlyReason(evaluation.rejection_reason)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </CollapsiblePanel>
+          </>
+        )}
 
         <div className="mt-5 flex flex-col gap-2 sm:flex-row">
           <Button asChild variant="outline"><Link to="/">Nova análise</Link></Button>
@@ -279,9 +320,20 @@ function ExperimentalResultScreen({ runId, data, loaded }: {
   loaded: boolean;
 }) {
   const promote = useServerFn(promoteQualifiedExperimentalBet);
+  const loadPlan = useServerFn(getExperimentalBetPlan);
   const queryClient = useQueryClient();
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [promotedIds, setPromotedIds] = useState<Set<string>>(() => new Set());
+  const {
+    data: persistedPlan,
+    isLoading: planLoading,
+    isError: planError,
+    error: planErrorValue,
+    refetch: refetchPlan,
+  } = useQuery({
+    queryKey: ["experimental-bet-plan", runId],
+    queryFn: () => loadPlan({ data: { runId } }),
+  });
 
   async function selectAlternate(evaluation: ExperimentalStoredEvaluation) {
     setPromotingId(evaluation.predictionId);
@@ -304,14 +356,82 @@ function ExperimentalResultScreen({ runId, data, loaded }: {
     }
   }
 
-  if (!loaded) {
+  if (!loaded || (!data && planLoading)) {
     return <AppShell stage="resultado"><div className="panel mx-auto mt-6 flex max-w-5xl items-center gap-3 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando o resultado…</div></AppShell>;
   }
 
-  if (!data) {
+  if (!data && planError) {
     return (
       <AppShell stage="resultado">
-        <div className="mx-auto max-w-5xl"><p className="label-eyebrow">Etapa 4</p><h1 className="page-heading mt-2">Sugestões do modo de teste</h1><div className="panel mt-6 p-5"><p className="font-medium">Não encontrei o resultado desta análise.</p><p className="mt-1 text-sm text-muted-foreground">Volte à tela anterior e compare as odds novamente.</p></div><Button asChild className="mt-4" variant="outline"><Link to="/run/$runId/oportunidades" params={{ runId }}>Voltar às opções</Link></Button></div>
+        <div className="mx-auto max-w-5xl">
+          <p className="label-eyebrow">Etapa 4</p>
+          <h1 className="page-heading mt-2">Sugestões do dia</h1>
+          <div className="panel mt-6 border-destructive/30 p-5">
+            <div className="flex items-start gap-3">
+              <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
+              <div>
+                <p className="font-medium">Não foi possível recuperar o resultado</p>
+                <p className="mt-1 text-sm text-muted-foreground">Isso é uma falha de carregamento, não uma conclusão da análise.</p>
+                {planErrorValue instanceof Error && <p className="mt-2 text-xs text-destructive">{planErrorValue.message}</p>}
+                <Button className="mt-4 min-h-11" variant="outline" onClick={() => void refetchPlan()}>Tentar novamente</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!data) {
+    const recovered = (persistedPlan?.all ?? []) as unknown as PersistedPlanRow[];
+    if (recovered.length > 0) {
+      return (
+        <AppShell stage="resultado">
+          <div className="mx-auto max-w-5xl">
+            <div className="flex flex-wrap items-center gap-2"><p className="label-eyebrow">Etapa 4</p><span className="rounded-full bg-warning/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning">Resultado recuperado</span></div>
+            <h1 className="page-heading mt-2">Sugestões do dia</h1>
+            <p className="mt-2 text-sm text-muted-foreground">O detalhe completo das odds conferidas não estava neste navegador, mas as sugestões registradas no servidor foram recuperadas.</p>
+            <div className="mt-6 grid gap-4">
+              {recovered.map((row, index) => (
+                <article key={row.id} className="panel overflow-hidden border-warning/20">
+                  <div className="p-4 sm:p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div><p className="label-eyebrow text-warning">Sugestão {row.selection_rank ?? index + 1}</p><h2 className="mt-1 text-lg font-semibold sm:text-xl">{row.match_label}</h2><p className="text-sm text-muted-foreground">{row.market_label}</p></div>
+                      <div className="grid grid-cols-3 gap-2 text-right sm:min-w-72">
+                        <SummaryMetric label="Odd" value={dec(row.entry_odd)} />
+                        <SummaryMetric label="Chance" value={pct(row.model_probability, 1)} />
+                        <SummaryMetric label="Retorno" value={pct(row.expected_value, 1)} highlight />
+                      </div>
+                    </div>
+                  </div>
+                  <CollapsiblePanel className="m-3 mt-0 bg-transparent shadow-none sm:m-4 sm:mt-0" title="Ver análise recuperada" description="Informações persistidas da sugestão">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <MetricTile label="Odd de referência" value={dec(row.fair_odd)} />
+                      <MetricTile label="Odd mínima" value={dec(row.min_odd_target)} />
+                      <MetricTile label="Vantagem" value={pct(row.edge)} />
+                      <MetricTile label="Situação" value={friendlyStatus(row.model_status)} />
+                    </div>
+                  </CollapsiblePanel>
+                </article>
+              ))}
+            </div>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row"><Button asChild variant="outline"><Link to="/run/$runId/oportunidades" params={{ runId }}>Voltar às opções</Link></Button><Button asChild><Link to="/analytics">Ver desempenho</Link></Button></div>
+          </div>
+        </AppShell>
+      );
+    }
+
+    return (
+      <AppShell stage="resultado">
+        <div className="mx-auto max-w-5xl">
+          <p className="label-eyebrow">Etapa 4</p>
+          <h1 className="page-heading mt-2">Sugestões do dia</h1>
+          <div className="panel mt-6 p-5">
+            <p className="font-medium">O detalhe desta comparação não está disponível neste navegador.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Também não há sugestões persistidas para recuperar. Volte às opções e analise as odds novamente; não tratamos essa situação como “nenhuma odd compensou”.</p>
+          </div>
+          <Button asChild className="mt-4" variant="outline"><Link to="/run/$runId/oportunidades" params={{ runId }}>Voltar às opções</Link></Button>
+        </div>
       </AppShell>
     );
   }
@@ -329,7 +449,7 @@ function ExperimentalResultScreen({ runId, data, loaded }: {
   return (
     <AppShell stage="resultado">
       <div className="mx-auto max-w-5xl">
-        <div className="flex flex-wrap items-center gap-2"><p className="label-eyebrow">Etapa 4</p><span className="rounded-full bg-warning/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning">Modo de teste</span></div>
+        <div className="flex flex-wrap items-center gap-2"><p className="label-eyebrow">Etapa 4</p><span className="rounded-full bg-warning/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning">Modelo em validação</span></div>
         <h1 className="page-heading mt-2">Sugestões do dia</h1>
         <p className="mt-2 text-sm text-muted-foreground">Até {data.selectionLimit} sugestão(ões); pode haver menos ou nenhuma.</p>
 
