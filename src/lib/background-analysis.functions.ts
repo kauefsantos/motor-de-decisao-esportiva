@@ -8,6 +8,11 @@ async function db() {
   return supabaseAdmin as any;
 }
 
+async function authorizeRun(supabase: any, userId: string | undefined, runId: string) {
+  const { assertRunOwner } = await import("./authorization.server");
+  await assertRunOwner(supabase, userId, runId);
+}
+
 export const enqueueAnalysis = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => runSchema.parse(input))
   .handler(async ({ data, context }) => {
@@ -15,10 +20,12 @@ export const enqueueAnalysis = createServerFn({ method: "POST" })
     if (!userId) throw new Error("Usuário não autenticado.");
 
     const supabase = await db();
+    await authorizeRun(supabase, userId, data.runId);
     const { data: run, error: runError } = await supabase
       .from("analysis_runs")
       .select("id, status")
       .eq("id", data.runId)
+      .eq("owner_id", userId)
       .single();
     if (runError || !run) throw new Error("Análise não encontrada.");
 
@@ -28,6 +35,7 @@ export const enqueueAnalysis = createServerFn({ method: "POST" })
       .from("analysis_jobs")
       .select("status")
       .eq("run_id", data.runId)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (!existing) {
@@ -58,12 +66,14 @@ export const getProcessingStatus = createServerFn({ method: "POST" })
     const userId = context.userId;
     if (!userId) throw new Error("Usuário não autenticado.");
     const supabase = await db();
+    await authorizeRun(supabase, userId, data.runId);
 
     const [{ data: run, error: runError }, { data: job }, { data: logs }] = await Promise.all([
       supabase
         .from("analysis_runs")
         .select("id, status, current_step, updated_at")
         .eq("id", data.runId)
+        .eq("owner_id", userId)
         .single(),
       supabase
         .from("analysis_jobs")
@@ -93,6 +103,7 @@ export const retryBackgroundAnalysis = createServerFn({ method: "POST" })
     const userId = context.userId;
     if (!userId) throw new Error("Usuário não autenticado.");
     const supabase = await db();
+    await authorizeRun(supabase, userId, data.runId);
 
     const { error } = await supabase
       .from("analysis_jobs")
@@ -110,7 +121,8 @@ export const retryBackgroundAnalysis = createServerFn({ method: "POST" })
     await supabase
       .from("analysis_runs")
       .update({ status: "RUNNING", updated_at: new Date().toISOString() })
-      .eq("id", data.runId);
+      .eq("id", data.runId)
+      .eq("owner_id", userId);
 
     const { error: kickError } = await supabase.rpc("kick_analysis_worker");
     if (kickError) throw kickError;
