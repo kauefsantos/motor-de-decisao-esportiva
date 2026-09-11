@@ -30,23 +30,55 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
       active ? "bg-primary/14 text-primary" : "text-muted-foreground active:bg-secondary/70"
     }`;
 
+  const desktopNavClass = (active: boolean) =>
+    `flex min-h-9 items-center justify-center rounded-lg px-3.5 text-xs font-medium transition-colors ${
+      active
+        ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+        : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+    }`;
+
   return (
     <div className="min-h-[100dvh]">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/94 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-        <div className="mx-auto max-w-[1400px] px-3 py-2.5 sm:px-6 sm:py-3 lg:px-8">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+        <div className="mx-auto max-w-[1280px] px-3 py-2.5 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-3">
-            <Link to="/" className="flex min-h-11 min-w-0 items-center gap-2" aria-label="Ir para o início">
-              <img src="/icons/favicon-32.png" alt="" className="size-7 shrink-0 rounded-lg" aria-hidden />
-              <span className="num truncate text-sm font-semibold tracking-tight text-primary">
-                <span className="sm:hidden">BET VALUE</span>
-                <span className="hidden sm:inline">BET VALUE ENGINE</span>
+            <Link to="/" className="flex min-h-11 min-w-0 items-center gap-2.5" aria-label="Ir para o início">
+              <img src="/icons/favicon-32.png" alt="" className="size-8 shrink-0 rounded-xl ring-1 ring-primary/15" aria-hidden />
+              <span className="min-w-0">
+                <span className="num block truncate text-sm font-semibold tracking-tight text-primary">
+                  <span className="sm:hidden">BET VALUE</span>
+                  <span className="hidden sm:inline">BET VALUE ENGINE</span>
+                </span>
+                <span className="hidden text-[10px] uppercase tracking-[0.14em] text-muted-foreground sm:block">
+                  Motor de decisão esportiva
+                </span>
               </span>
-              <span className="num hidden text-xs text-muted-foreground sm:inline">V2.1.1</span>
+              <span className="num hidden rounded-md border border-border bg-secondary/35 px-1.5 py-0.5 text-[10px] text-muted-foreground md:inline">
+                v2.1.1
+              </span>
             </Link>
+
+            <nav className="hidden items-center rounded-xl border border-border bg-secondary/25 p-1 sm:flex" aria-label="Acompanhamento">
+              <Link
+                to="/open-bets"
+                aria-current={stage === "open-bets" ? "page" : undefined}
+                className={desktopNavClass(stage === "open-bets")}
+              >
+                Em andamento
+              </Link>
+              <Link
+                to="/analytics"
+                aria-current={stage === "analytics" ? "page" : undefined}
+                className={desktopNavClass(stage === "analytics")}
+              >
+                Desempenho
+              </Link>
+            </nav>
+
             <button
               type="button"
               onClick={() => void signOut()}
-              className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-3 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:rounded-lg sm:hover:bg-secondary sm:hover:text-foreground"
+              className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-3 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:hover:bg-secondary sm:hover:text-foreground"
               aria-label="Sair da conta"
             >
               <LogOut className="size-4" aria-hidden />
@@ -56,56 +88,67 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
 
           {showAnalysisProgress && (
             <>
-              <ol className="mt-1.5 grid grid-cols-4 gap-1" aria-label="Progresso da análise">
+              <div className="mt-2 hidden grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid">
+                <ol className="grid grid-cols-4 gap-1 rounded-xl border border-border bg-secondary/20 p-1" aria-label="Progresso da análise">
+                  {STAGES.map((item, index) => {
+                    const isActive = item.key === stage;
+                    return (
+                      <li
+                        key={item.key}
+                        aria-current={isActive ? "step" : undefined}
+                        className={`flex min-h-10 min-w-0 items-center justify-center rounded-lg px-2 text-center text-xs transition-colors ${
+                          isActive
+                            ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        <span className="mr-1.5 num text-[0.7rem] opacity-65">{index + 1}</span>
+                        <span className="truncate">{item.label}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                <div className="flex min-h-10 items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.06] px-3 text-[11px] text-muted-foreground">
+                  <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                  <span className="whitespace-nowrap">
+                    <span className="font-medium text-foreground">Regra ativa</span>
+                    <span className="mx-1.5 text-border">·</span>
+                    <strong className="font-semibold text-primary">&gt;70%</strong>
+                    <span className="mx-1.5">·</span>
+                    odd real
+                    <span className="mx-1.5">·</span>
+                    EV ≥ 2%
+                  </span>
+                </div>
+              </div>
+
+              <ol className="mt-1.5 grid grid-cols-4 gap-1 sm:hidden" aria-label="Progresso da análise">
                 {STAGES.map((item, index) => {
                   const isActive = item.key === stage;
                   return (
                     <li
                       key={item.key}
                       aria-current={isActive ? "step" : undefined}
-                      className={`flex min-h-9 min-w-0 items-center justify-center rounded-lg px-1.5 text-center text-[11px] transition-colors sm:min-h-10 sm:px-2 sm:text-xs ${
+                      className={`flex min-h-9 min-w-0 items-center justify-center rounded-lg px-1.5 text-center text-[11px] transition-colors ${
                         isActive
                           ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
                           : "text-muted-foreground"
                       }`}
                     >
-                      <span className="mr-1 num text-[0.65rem] opacity-70 sm:text-[0.7rem]">{index + 1}</span>
-                      <span className="truncate sm:hidden">{item.shortLabel}</span>
-                      <span className="hidden truncate sm:inline">{item.label}</span>
+                      <span className="mr-1 num text-[0.65rem] opacity-70">{index + 1}</span>
+                      <span className="truncate">{item.shortLabel}</span>
                     </li>
                   );
                 })}
               </ol>
-              <p className="mt-1.5 text-center text-[10px] leading-4 text-muted-foreground sm:text-right sm:text-[11px]">
-                Regra atual: chance do modelo <strong className="font-medium text-foreground">&gt; 70%</strong> + odd real + EV mínimo de 2%.
-              </p>
+
+              <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] leading-4 text-muted-foreground sm:hidden">
+                <span className="size-1.5 rounded-full bg-primary" aria-hidden />
+                <span>Regra: <strong className="font-medium text-foreground">&gt;70%</strong> · odd real · EV ≥ 2%</span>
+              </div>
             </>
           )}
-
-          <nav className="mt-2 hidden justify-end gap-2 sm:flex" aria-label="Acompanhamento">
-            <Link
-              to="/open-bets"
-              aria-current={stage === "open-bets" ? "page" : undefined}
-              className={`flex min-h-11 items-center justify-center rounded-lg px-4 text-xs font-medium transition-colors ${
-                stage === "open-bets"
-                  ? "bg-primary/15 text-primary ring-1 ring-primary/20"
-                  : "bg-secondary/35 text-muted-foreground hover:bg-secondary hover:text-foreground"
-              }`}
-            >
-              Em andamento
-            </Link>
-            <Link
-              to="/analytics"
-              aria-current={stage === "analytics" ? "page" : undefined}
-              className={`flex min-h-11 items-center justify-center rounded-lg px-4 text-xs font-medium transition-colors ${
-                stage === "analytics"
-                  ? "bg-primary/15 text-primary ring-1 ring-primary/20"
-                  : "bg-secondary/35 text-muted-foreground hover:bg-secondary hover:text-foreground"
-              }`}
-            >
-              Desempenho
-            </Link>
-          </nav>
         </div>
       </header>
 
