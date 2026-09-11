@@ -93,10 +93,10 @@ function UploadScreen() {
 
   return (
     <AppShell stage="upload">
-      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="mx-auto max-w-4xl">
+      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="mx-auto max-w-3xl">
         <p className="label-eyebrow">Etapa 1</p>
-        <h1 className="page-heading mt-2">Analisar os jogos do dia</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+        <h1 className="page-heading mt-1.5">Analisar os jogos do dia</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:mt-3 sm:text-base">
           Envie o CSV da rodada. Calculamos as chances primeiro e comparamos as odds depois.
         </p>
 
@@ -114,15 +114,17 @@ function UploadScreen() {
             const file = e.dataTransfer.files?.[0];
             if (file) void handleFile(file);
           }}
-          className={`panel mt-5 flex min-h-52 flex-col items-center justify-center gap-4 px-4 py-8 text-center transition-all sm:mt-6 sm:min-h-72 sm:px-8 sm:py-10 ${
+          className={`panel mt-4 flex min-h-44 flex-col items-center justify-center gap-3 border-primary/15 bg-primary/[0.035] px-4 py-6 text-center transition-all sm:mt-6 sm:min-h-64 sm:gap-4 sm:px-8 sm:py-9 ${
             dragging ? "border-primary bg-primary/10 ring-1 ring-primary/30" : ""
           }`}
         >
-          <UploadCloud className="size-9 text-primary" aria-hidden />
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/12 ring-1 ring-primary/15 sm:size-14">
+            <UploadCloud className="size-6 text-primary sm:size-7" aria-hidden />
+          </div>
           <div>
-            <p className="font-medium sm:hidden">Selecione o CSV dos jogos</p>
+            <p className="font-medium sm:hidden">Escolha o CSV dos jogos</p>
             <p className="hidden font-medium sm:block">Arraste o CSV aqui</p>
-            <p className="mt-1 text-sm text-muted-foreground">Data, Partida, Horário e Campeonato · uma data por arquivo</p>
+            <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground sm:text-sm">Data, Partida, Horário e Campeonato · uma data por arquivo</p>
           </div>
           <input
             ref={inputRef}
@@ -136,13 +138,13 @@ function UploadScreen() {
               if (file) void handleFile(file);
             }}
           />
-          <Button className="min-h-11 w-full sm:w-auto" variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
+          <Button className="min-h-12 w-full sm:w-auto sm:min-w-40" variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
             Escolher CSV
           </Button>
         </div>
 
         <CollapsiblePanel
-          className="mt-4"
+          className="mt-3 sm:mt-4"
           title="Como funciona"
           description="Enviar jogos → calcular chances → comparar odds → ver sugestões"
         >
@@ -158,15 +160,20 @@ function UploadScreen() {
           <section className="panel mt-4 overflow-hidden">
             <div className="flex flex-col gap-4 p-4 sm:p-5">
               <div className="flex min-w-0 items-center gap-3">
-                <FileSpreadsheet className="size-5 shrink-0 text-accent" aria-hidden />
-                <span className="truncate font-medium">{filename}</span>
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/10">
+                  <FileSpreadsheet className="size-5 text-accent" aria-hidden />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Arquivo pronto</p>
+                  <span className="block truncate font-medium">{filename}</span>
+                </div>
               </div>
 
               <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Data</dt><dd className="num mt-1 text-lg">{dateLabel(parsed.targetDate)}</dd></div>
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Partidas</dt><dd className="num mt-1 text-lg">{parsed.rows.length}</dd></div>
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Campeonatos</dt><dd className="num mt-1 text-lg">{parsed.leagues.length}</dd></div>
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Ignoradas</dt><dd className="num mt-1 text-lg">{parsed.invalid.length}</dd></div>
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Data</dt><dd className="num mt-1 text-xl font-semibold">{dateLabel(parsed.targetDate)}</dd></div>
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Partidas</dt><dd className="num mt-1 text-xl font-semibold">{parsed.rows.length}</dd></div>
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Campeonatos</dt><dd className="num mt-1 text-xl font-semibold">{parsed.leagues.length}</dd></div>
+                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Ignoradas</dt><dd className="num mt-1 text-xl font-semibold">{parsed.invalid.length}</dd></div>
               </dl>
 
               {(parsed.leagues.length > 0 || parsed.invalid.length > 0) && (
