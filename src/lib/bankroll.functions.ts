@@ -238,11 +238,12 @@ async function captureClosingClv(rawDb: Db, trackingId: string) {
     return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
   }
 
-  const [{ fetchBet365FixtureOdds, matchBet365ClosingPrice }, { calculateClv }] = await Promise.all([
+  const [oddsModule, benchmarkModule, clvModule] = await Promise.all([
     import("./bet365-odds.server"),
+    import("./bet365-benchmark.server"),
     import("./engine/clv"),
   ]);
-  const fetched = await fetchBet365FixtureOdds(fixtureId);
+  const fetched = await oddsModule.fetchBet365FixtureOdds(fixtureId);
   await rawDb.from("source_fetches").insert({
     run_id: bet.run_id,
     match_id: bet.match_id,
@@ -263,12 +264,14 @@ async function captureClosingClv(rawDb: Db, trackingId: string) {
     return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
   }
 
-  const quote = matchBet365ClosingPrice({
+  const candidate = {
     predictionId: String(bet.prediction_id),
     market: String(bet.market),
     side: bet.side === null ? null : String(bet.side),
     lineCanonical: bet.line_canonical === null ? null : Number(bet.line_canonical),
-  }, fetched.payload);
+  };
+  const opening = benchmarkModule.matchBet365OpeningPrice(candidate, fetched.payload);
+  const closing = oddsModule.matchBet365ClosingPrice(candidate, fetched.payload);
 
   const statusMap = {
     MATCHED: null,
@@ -277,25 +280,27 @@ async function captureClosingClv(rawDb: Db, trackingId: string) {
     UNSUPPORTED: "UNSUPPORTED",
     SOURCE_UNAVAILABLE: "SOURCE_UNAVAILABLE",
   } as const;
-  const result = quote.status === "LINE_MISMATCH"
-    ? calculateClv({
+  const result = closing.status === "LINE_MISMATCH"
+    ? clvModule.calculateClv({
         entryOdd: Number(bet.entry_odd),
-        closingOdd: quote.odd,
-        entryLine: bet.line_canonical === null ? null : Number(bet.line_canonical),
-        closingLine: quote.offeredLine,
+        closingOdd: closing.odd,
+        entryLine: candidate.lineCanonical,
+        closingLine: closing.offeredLine,
       })
-    : calculateClv({
+    : clvModule.calculateClv({
         entryOdd: Number(bet.entry_odd),
-        closingOdd: quote.odd,
-        entryLine: bet.line_canonical === null ? null : Number(bet.line_canonical),
-        closingLine: quote.offeredLine,
-        sourceStatus: statusMap[quote.status],
+        closingOdd: closing.odd,
+        entryLine: candidate.lineCanonical,
+        closingLine: closing.offeredLine,
+        sourceStatus: statusMap[closing.status],
       });
 
   await rawDb.from("experimental_bet_tracking").update({
+    opening_odd: opening.status === "MATCHED" ? opening.odd : null,
+    opening_line: opening.offeredLine,
     closing_odd: result.closingOdd,
     closing_line: result.closingLine,
-    closing_stage: quote.stage,
+    closing_stage: closing.stage,
     clv_pct: result.clvPct,
     clv_implied_delta: result.impliedDelta,
     clv_status: result.status,
@@ -304,7 +309,11 @@ async function captureClosingClv(rawDb: Db, trackingId: string) {
     updated_at: new Date().toISOString(),
   }).eq("id", trackingId);
 
-  return result;
+  return {
+    ...result,
+    openingOdd: opening.status === "MATCHED" ? opening.odd : null,
+    openingLine: opening.offeredLine,
+  };
 }
 
 const settleSchema = z.object({
@@ -324,14 +333,14 @@ export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
     const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
     if (!row) throw new Error("O fechamento da aposta não retornou resultado.");
 
-    // Settlement is authoritative even if the external closing benchmark is
-    // unavailable. CLV collection is best-effort and can never roll back or
-    // block the already-settled bet.
+    // Settlement is authoritative even if the external opening/closing benchmark
+    // is unavailable. Benchmark collection is best-effort and can never roll
+    // back or block the already-settled bet.
     let clv = null;
     try {
       clv = await captureClosingClv(rawDb, data.id);
     } catch (error) {
-      console.warn("[CLV] Não foi possível capturar o fechamento Bet365", error);
+      console.warn("[CLV] Não foi possível capturar os snapshots Bet365", error);
     }
 
     return {
