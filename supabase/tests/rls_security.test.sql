@@ -1,6 +1,6 @@
 begin;
 
-select plan(8);
+select plan(14);
 
 select ok(
   not exists (
@@ -42,12 +42,25 @@ select ok(
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname in ('public', 'private')
       and p.prosecdef
-      and (
-        has_function_privilege('anon', p.oid, 'EXECUTE')
-        or has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      and has_function_privilege('anon', p.oid, 'EXECUTE')
+  ),
+  'anon cannot execute SECURITY DEFINER functions'
+);
+
+select ok(
+  not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'private')
+      and p.prosecdef
+      and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      and not (
+        n.nspname = 'private'
+        and p.proname in ('is_authorized_app_user', 'owns_run', 'owns_match')
       )
   ),
-  'browser roles cannot execute SECURITY DEFINER functions'
+  'authenticated can execute only the whitelisted RLS helper SECURITY DEFINER functions'
 );
 
 select ok(
@@ -118,6 +131,80 @@ select ok(
       and has_function_privilege('supabase_auth_admin', p.oid, 'EXECUTE')
   ),
   'supabase_auth_admin can execute the single-user auth trigger function'
+);
+
+select ok(
+  exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'analysis_runs'
+      and column_name = 'owner_id'
+      and is_nullable = 'NO'
+  ),
+  'analysis_runs has a mandatory owner_id'
+);
+
+select ok(
+  (
+    select count(*)
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'analysis_runs'
+      and policyname in (
+        'analysis_runs_owner_select', 'analysis_runs_owner_insert',
+        'analysis_runs_owner_update', 'analysis_runs_owner_delete'
+      )
+  ) = 4,
+  'analysis_runs has complete owner CRUD policies'
+);
+
+select ok(
+  not exists (
+    select 1
+    from unnest(array[
+      'elo_prediction_context','experimental_bet_tracking','experimental_odds_snapshots',
+      'experimental_value_evaluations','experimental_analysis_results','final_selections',
+      'market_candidates','matches','model_predictions','normalized_match_stats','pipeline_logs',
+      'raw_observations','source_fetches','uploaded_files','user_odds','value_evaluations'
+    ]) as expected(table_name)
+    where to_regclass(format('public.%I', expected.table_name)) is not null
+      and (
+        select count(*) from pg_policies p
+        where p.schemaname = 'public'
+          and p.tablename = expected.table_name
+          and p.policyname in ('run_owner_select','run_owner_insert','run_owner_update','run_owner_delete')
+      ) <> 4
+  ),
+  'every run-scoped relation has complete inherited owner CRUD policies'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where not t.tgisinternal
+      and n.nspname = 'public'
+      and c.relname = 'analysis_jobs'
+      and t.tgname = 'enforce_analysis_job_owner'
+  ),
+  'analysis_jobs cannot be attached to a user different from its run owner'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where not t.tgisinternal
+      and n.nspname = 'public'
+      and c.relname = 'push_subscriptions'
+      and t.tgname = 'prevent_push_endpoint_owner_transfer'
+  ),
+  'push endpoint ownership cannot be transferred by privileged upsert'
 );
 
 select * from finish();

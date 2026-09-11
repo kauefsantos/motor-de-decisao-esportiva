@@ -131,9 +131,13 @@ export async function persistExperimentalResult(
 
 export const getPersistedExperimentalResult = createServerFn({ method: "GET" })
   .inputValidator((input: unknown) => loadSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: row, error } = await supabaseAdmin
+    const { assertRunOwner } = await import("./authorization.server");
+    const rawDb = supabaseAdmin as unknown as Db;
+    await assertRunOwner(rawDb, context.userId, data.runId);
+
+    const { data: row, error } = await rawDb
       .from("experimental_analysis_results")
       .select("result_payload, analyzed_at")
       .eq("run_id", data.runId)
