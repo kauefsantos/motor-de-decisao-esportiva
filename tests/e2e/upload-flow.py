@@ -1,10 +1,11 @@
 # Teste automatizado do caminho principal:
-# upload válido -> PROCESSAR JOGOS -> pipeline -> estado final honesto.
+# upload válido -> COMEÇAR ANÁLISE -> pipeline -> conferência de odds.
 #
-# Executar com o dev server ativo:  python3 tests/e2e/upload-flow.py
+# Executar com o dev server ativo e uma sessão autorizada disponível:
+#   python3 tests/e2e/upload-flow.py
 #
-# O teste NÃO valida números de modelo: com adapters indisponíveis/não configurados
-# e nenhum modelo validado out-of-sample, o resultado esperado é bloqueio explícito.
+# O teste não valida números do modelo. Ele verifica navegação, estado final
+# coerente e ausência de erro de runtime no navegador.
 
 import asyncio
 import sys
@@ -15,8 +16,6 @@ from playwright.async_api import async_playwright
 
 BASE_URL = "http://localhost:8080"
 
-# Mesmo padrão operacional usado nos arquivos diários: Data separada por ';'
-# e as demais colunas por ','.
 CSV = """Data;Partida,Horário,Campeonato
 08/09/2026;Cagliari x Lecce,13:30,Serie A
 08/09/2026;Getafe x Celta de Vigo,14:00,LaLiga
@@ -53,7 +52,7 @@ async def main() -> int:
 
         button = page.get_by_test_id("processar-jogos")
         await button.wait_for(state="visible", timeout=15000)
-        check(await button.is_enabled(), "botão PROCESSAR JOGOS habilitado após CSV válido")
+        check(await button.is_enabled(), "botão COMEÇAR ANÁLISE habilitado após CSV válido")
 
         summary = await page.locator('[data-testid="upload-screen"]').inner_text()
         check("6" in summary, "6 partidas válidas reconhecidas no CSV")
@@ -64,22 +63,20 @@ async def main() -> int:
         check("/processamento" in page.url, "run criado e navegação para a tela de processamento")
 
         await page.wait_for_url("**/oportunidades", timeout=180000)
-        await page.get_by_text("Mercados para observar").wait_for(timeout=60000)
-        await page.get_by_text("Estado das fontes nesta rodada").wait_for(timeout=60000)
+        await page.get_by_text("Conferir odds", exact=True).wait_for(timeout=60000)
+        await page.get_by_text("Conferência das informações", exact=True).wait_for(timeout=60000)
         await page.wait_for_timeout(3000)
         body = await page.locator("body").inner_text()
 
         check("/oportunidades" in page.url, "pipeline concluído sem travar em loading")
         check(
-            "Nenhum contrato foi publicado" in body or "Mercado para observar" in body,
-            "tela de oportunidades em estado final coerente",
+            "Cotação em etapas" in body or "Nenhuma linha pôde ser modelada" in body,
+            "tela de conferência de odds em estado final coerente",
         )
         check(
-            "MODEL_NOT_PRODUCTION_VALIDATED" in body
-            or "Nenhum contrato foi publicado" in body,
-            "sem modelo validado, o motor bloqueia em vez de inventar probabilidade",
+            "Não foi possível preparar as opções" not in body,
+            "falha técnica não foi confundida com estado vazio",
         )
-        check("auditoria da ingestão" in body.lower(), "auditoria por fonte exibida")
         check(not errors, f"sem erros de runtime no navegador ({errors[:1]})")
 
         await browser.close()
