@@ -95,9 +95,11 @@ function predictionAtFromRun(run: { notes?: unknown; created_at?: string | null 
 
 export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => inputSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const supabase = supabaseAdmin;
+    const { assertRunOwner } = await import("./authorization.server");
+    await assertRunOwner(supabase as unknown as { from: (table: string) => any }, context.userId, data.runId);
 
     const [{ data: predictions }, { data: matches }, { data: run }] = await Promise.all([
       supabase
