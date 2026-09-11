@@ -84,7 +84,10 @@ export function getVapidPublicKey() {
 
 export async function sendAnalysisReadyPush(userId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: subscriptions, error } = await supabaseAdmin
+  // Generated Database types are refreshed separately from migrations. Keep this
+  // new server-only table behind the service-role boundary until that refresh.
+  const db = supabaseAdmin as any;
+  const { data: subscriptions, error } = await db
     .from("push_subscriptions")
     .select("id, endpoint")
     .eq("user_id", userId);
@@ -114,7 +117,7 @@ export async function sendAnalysisReadyPush(userId: string) {
       }
 
       if (response.status === 404 || response.status === 410) {
-        await supabaseAdmin.from("push_subscriptions").delete().eq("id", subscription.id);
+        await db.from("push_subscriptions").delete().eq("id", subscription.id);
         removed += 1;
         continue;
       }
