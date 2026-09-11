@@ -9,6 +9,7 @@ import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Button } from "@/components/ui/button";
 import { parseCsv, type CsvParseResult } from "@/lib/csv";
 import { createRun } from "@/lib/analysis.functions";
+import { enqueueAnalysis } from "@/lib/background-analysis.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -32,6 +33,7 @@ function dateLabel(iso: string | null) {
 function UploadScreen() {
   const navigate = useNavigate();
   const create = useServerFn(createRun);
+  const enqueue = useServerFn(enqueueAnalysis);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
@@ -68,6 +70,9 @@ function UploadScreen() {
           rows: parsed.rows,
         },
       });
+      // Queue the server-side worker before navigation. Once this resolves, the
+      // analysis no longer depends on the phone keeping the app in foreground.
+      await enqueue({ data: { runId: res.runId } });
       navigate({ to: "/run/$runId/processamento", params: { runId: res.runId } });
     } catch {
       toast.error("Não foi possível iniciar a análise. Tente novamente.");
