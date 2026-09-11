@@ -13,7 +13,7 @@ import {
   getProcessingStatus,
   retryBackgroundAnalysis,
 } from "@/lib/background-analysis.functions";
-import { setAnalysisNotificationTarget } from "@/lib/push.client";
+import { setAnalysisNotificationTarget } from "@/lib/push.browser";
 import { PIPELINE_STEPS, type PipelineStepKey } from "@/lib/pipeline.steps";
 
 export const Route = createFileRoute("/run/$runId/processamento")({
