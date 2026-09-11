@@ -82,7 +82,7 @@ A principal decisão de arquitetura foi não deixar a lógica crítica presa ao 
 - Resolução e normalização de partidas.
 - Integração com dados esportivos e odds da Bet365.
 - Modelos para gols, escanteios e cartões.
-- Elo hierárquico como feature auxiliar.
+- Elo hierárquico point-in-time como feature auxiliar para comparações domésticas e cross-league.
 - Probabilidade, fair odd, edge e EV calculados no backend.
 - Funil progressivo de odds manuais quando a API não possui preço seguro.
 - Seleção com controle de correlação entre apostas do mesmo jogo.
@@ -133,7 +133,7 @@ Install dependencies
 → Production build
 ```
 
-As mudanças relevantes passaram por auditorias separadas de **RLS, Segurança, Backend e Frontend**, seguidas por uma rodada específica de limpeza de código.
+As mudanças relevantes passaram por auditorias separadas de **RLS, Segurança, Backend e Frontend**, seguidas por validação específica da integração Elo e uma rodada de limpeza de código/documentação.
 
 ---
 
@@ -180,9 +180,11 @@ supabase/
 
 docs/
   CASE_STUDY.md             leitura de portfólio
-  ARCHITECTURE.md            arquitetura e decisões
-  README.md                  índice da documentação técnica
-  PROJECT_STATE.md           estado operacional canônico
+  ARCHITECTURE.md           arquitetura e decisões
+  ELO.md                    arquitetura canônica do Elo
+  ELO_RUNBOOK.md            operação do Elo
+  README.md                 índice da documentação técnica
+  PROJECT_STATE.md          estado operacional canônico
 ```
 
 ---
@@ -214,6 +216,8 @@ bun run lint
 | [Arquitetura](docs/ARCHITECTURE.md) | fluxo técnico, boundaries e fontes de verdade |
 | [Índice técnico](docs/README.md) | mapa da documentação existente |
 | [Estado do projeto](docs/PROJECT_STATE.md) | continuidade operacional do sistema |
+| [Elo](docs/ELO.md) | arquitetura atual, point-in-time e integração cross-league |
+| [Runbook Elo](docs/ELO_RUNBOOK.md) | jobs, auditoria e troubleshooting |
 | [Política de mercados](docs/BACKEND_MARKET_POLICY_2026-09-10.md) | contratos e linhas experimentais |
 | [Validação quantitativa](docs/BACKEND_ROUND3_QUANT_VALIDATION_2026-09-10.md) | evidências e políticas dos modelos de contagem |
 | [Auditoria de segurança](docs/SECURITY_AUDIT_2026-09-10.md) | hardening e riscos residuais |
