@@ -1,11 +1,13 @@
-// MODELO 1 — ESCANTEIOS (corners-baseline-v1).
+// MODELO 1 — ESCANTEIOS (corners-negbin-v2).
 // Determinístico, puro e testável. Nenhuma odd de casa entra aqui (Motor 1).
-// Técnica realmente implementada e testada:
+// Técnica implementada e testada:
 //   - taxas de ataque/defesa por time com encolhimento (shrinkage) para a média da competição;
-//   - distribuição de contagem via pmf de Poisson com lambda estimado;
-//   - validação temporal (split cronológico) com Brier, log loss, calibração e MAE.
+//   - lambda condicional preservado do baseline;
+//   - dispersão NB2 estimada apenas no treino (Var[Y|mu] ~= mu + alpha*mu²);
+//   - distribuição Binomial Negativa quando alpha>0, Poisson como limite alpha≈0;
+//   - validação temporal com Brier, log loss, calibração e MAE.
 
-export const CORNERS_MODEL_VERSION = "corners-baseline-v1";
+export const CORNERS_MODEL_VERSION = "corners-negbin-v2";
 export const MIN_TRAIN_MATCHES = 200;
 export const MIN_TEST_MATCHES = 60;
 /** força do encolhimento em "partidas equivalentes" da média da competição */
@@ -33,6 +35,8 @@ export interface CornersModelParams {
   defense: Record<string, { home: number; away: number }>;
   sampleSizes: Record<string, number>;
   trainMatches: number;
+  /** NB2 alpha: variance = mu + alpha*mu². Zero is the Poisson limit. */
+  dispersionAlpha: number;
 }
 
 export interface CalibrationBin {
@@ -92,6 +96,52 @@ export function temporalSplit(rows: CornerMatchRow[], trainRatio = 0.7) {
   return { train: sorted.slice(0, cut), test: sorted.slice(cut) };
 }
 
+function factor(agg: { sum: number; n: number } | undefined, base: number): number {
+  if (!agg || agg.n === 0 || base <= 0) return 1;
+  const observed = agg.sum;
+  const expected = agg.n * base;
+  return (observed + SHRINKAGE_K * base) / (expected + SHRINKAGE_K * base);
+}
+
+function mean(xs: number[]) {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+}
+
+function predictLambdas(
+  params: Omit<CornersModelParams, "dispersionAlpha"> & { dispersionAlpha?: number },
+  input: { league: string; homeTeam: string; awayTeam: string },
+) {
+  const kh = teamKey(input.league, input.homeTeam);
+  const ka = teamKey(input.league, input.awayTeam);
+  const baseHome = params.leagueMeanHome[input.league] ?? params.globalMeanHome;
+  const baseAway = params.leagueMeanAway[input.league] ?? params.globalMeanAway;
+  const lambdaHome = Math.max(0.05, baseHome * (params.attack[kh]?.home ?? 1) * (params.defense[ka]?.away ?? 1));
+  const lambdaAway = Math.max(0.05, baseAway * (params.attack[ka]?.away ?? 1) * (params.defense[kh]?.home ?? 1));
+  return { kh, ka, lambdaHome, lambdaAway, lambdaTotal: lambdaHome + lambdaAway };
+}
+
+/**
+ * Pearson-style NB2 dispersion estimate using training rows only.
+ * Positive residual excess variance is accumulated conservatively; alpha=0 is
+ * the Poisson limit. No held-out outcome enters this estimate.
+ */
+export function estimateDispersionAlpha(
+  train: CornerMatchRow[],
+  params: Omit<CornersModelParams, "dispersionAlpha"> & { dispersionAlpha?: number },
+): number {
+  let numerator = 0;
+  let denominator = 0;
+  for (const row of train) {
+    const mu = predictLambdas(params, row).lambdaTotal;
+    const actual = row.homeCorners + row.awayCorners;
+    numerator += Math.max(0, (actual - mu) ** 2 - mu);
+    denominator += mu ** 2;
+  }
+  if (!(denominator > 0)) return 0;
+  const alpha = numerator / denominator;
+  return Number.isFinite(alpha) ? Math.max(0, alpha) : 0;
+}
+
 export function fitBaseline(train: CornerMatchRow[]): CornersModelParams {
   const leagueHome = new Map<string, { sum: number; n: number }>();
   const leagueAway = new Map<string, { sum: number; n: number }>();
@@ -111,9 +161,9 @@ export function fitBaseline(train: CornerMatchRow[]): CornersModelParams {
     bump(leagueHome, r.league, r.homeCorners);
     bump(leagueAway, r.league, r.awayCorners);
     bump(forHome, teamKey(r.league, r.homeTeam), r.homeCorners);
-    bump(agHome, teamKey(r.league, r.awayTeam), r.homeCorners); // concedidos pelo visitante
+    bump(agHome, teamKey(r.league, r.awayTeam), r.homeCorners);
     bump(forAway, teamKey(r.league, r.awayTeam), r.awayCorners);
-    bump(agAway, teamKey(r.league, r.homeTeam), r.awayCorners); // concedidos pelo mandante
+    bump(agAway, teamKey(r.league, r.homeTeam), r.awayCorners);
   }
 
   const globalMeanHome = mean(train.map((r) => r.homeCorners));
@@ -138,14 +188,13 @@ export function fitBaseline(train: CornerMatchRow[]): CornersModelParams {
       away: factor(forAway.get(key), baseAway),
     };
     defense[key] = {
-      home: factor(agAway.get(key), baseAway), // mandante concede escanteios ao visitante
-      away: factor(agHome.get(key), baseHome), // visitante concede escanteios ao mandante
+      home: factor(agAway.get(key), baseAway),
+      away: factor(agHome.get(key), baseHome),
     };
-    sampleSizes[key] =
-      (forHome.get(key)?.n ?? 0) + (forAway.get(key)?.n ?? 0);
+    sampleSizes[key] = (forHome.get(key)?.n ?? 0) + (forAway.get(key)?.n ?? 0);
   }
 
-  return {
+  const baseParams = {
     modelVersion: CORNERS_MODEL_VERSION,
     leagueMeanHome,
     leagueMeanAway,
@@ -156,17 +205,8 @@ export function fitBaseline(train: CornerMatchRow[]): CornersModelParams {
     sampleSizes,
     trainMatches: train.length,
   };
-}
-
-function factor(agg: { sum: number; n: number } | undefined, base: number): number {
-  if (!agg || agg.n === 0 || base <= 0) return 1;
-  const observed = agg.sum;
-  const expected = agg.n * base;
-  return (observed + SHRINKAGE_K * base) / (expected + SHRINKAGE_K * base);
-}
-
-function mean(xs: number[]) {
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+  const dispersionAlpha = estimateDispersionAlpha(train, baseParams);
+  return { ...baseParams, dispersionAlpha };
 }
 
 export interface CornersPrediction {
@@ -174,27 +214,24 @@ export interface CornersPrediction {
   lambdaAway: number;
   lambdaTotal: number;
   sampleSize: number;
+  dispersionAlpha: number;
 }
 
 export function predict(
   params: CornersModelParams,
   input: { league: string; homeTeam: string; awayTeam: string },
 ): CornersPrediction {
-  const kh = teamKey(input.league, input.homeTeam);
-  const ka = teamKey(input.league, input.awayTeam);
-  const baseHome = params.leagueMeanHome[input.league] ?? params.globalMeanHome;
-  const baseAway = params.leagueMeanAway[input.league] ?? params.globalMeanAway;
-  const lambdaHome = Math.max(0.05, baseHome * (params.attack[kh]?.home ?? 1) * (params.defense[ka]?.away ?? 1));
-  const lambdaAway = Math.max(0.05, baseAway * (params.attack[ka]?.away ?? 1) * (params.defense[kh]?.home ?? 1));
+  const values = predictLambdas(params, input);
   return {
-    lambdaHome,
-    lambdaAway,
-    lambdaTotal: lambdaHome + lambdaAway,
-    sampleSize: Math.min(params.sampleSizes[kh] ?? 0, params.sampleSizes[ka] ?? 0),
+    lambdaHome: values.lambdaHome,
+    lambdaAway: values.lambdaAway,
+    lambdaTotal: values.lambdaTotal,
+    sampleSize: Math.min(params.sampleSizes[values.kh] ?? 0, params.sampleSizes[values.ka] ?? 0),
+    dispersionAlpha: Math.max(0, params.dispersionAlpha ?? 0),
   };
 }
 
-/** pmf de Poisson truncada, renormalizada; implementação explícita e testada. */
+/** pmf de Poisson truncada, renormalizada; mantida como baseline/limite. */
 export function poissonDistribution(lambda: number, maxCount = 40): Map<number, number> {
   const dist = new Map<number, number>();
   let term = Math.exp(-lambda);
@@ -206,6 +243,38 @@ export function poissonDistribution(lambda: number, maxCount = 40): Map<number, 
   }
   if (total > 0) for (const [k, p] of dist) dist.set(k, p / total);
   return dist;
+}
+
+/** NB2 pmf with the same conditional mean lambda and variance lambda+alpha*lambda². */
+export function negativeBinomialDistribution(
+  lambda: number,
+  alpha: number,
+  maxCount = 60,
+): Map<number, number> {
+  if (!(alpha > 1e-8) || !(lambda > 0)) return poissonDistribution(lambda, maxCount);
+  const r = 1 / alpha;
+  const p = r / (r + lambda);
+  const q = 1 - p;
+  const dist = new Map<number, number>();
+  let term = p ** r;
+  let total = 0;
+  for (let k = 0; k <= maxCount; k += 1) {
+    if (k > 0) term = term * ((k - 1 + r) / k) * q;
+    dist.set(k, term);
+    total += term;
+  }
+  if (total > 0) for (const [k, value] of dist) dist.set(k, value / total);
+  return dist;
+}
+
+export function countDistribution(
+  lambda: number,
+  dispersionAlpha: number | null | undefined,
+  maxCount = 60,
+): Map<number, number> {
+  return dispersionAlpha && dispersionAlpha > 1e-8
+    ? negativeBinomialDistribution(lambda, dispersionAlpha, maxCount)
+    : poissonDistribution(lambda, maxCount);
 }
 
 export function probabilityOver(dist: Map<number, number>, line: number): number {
@@ -238,7 +307,7 @@ export function validateTemporally(rows: CornerMatchRow[], trainRatio = 0.7): Tr
   const preds: { p: number; pBase: number; lambda: number; actual: number }[] = [];
   for (const r of test) {
     const pr = predict(params, r);
-    const dist = poissonDistribution(pr.lambdaTotal);
+    const dist = countDistribution(pr.lambdaTotal, pr.dispersionAlpha);
     const leagueBase =
       (params.leagueMeanHome[r.league] ?? params.globalMeanHome) +
       (params.leagueMeanAway[r.league] ?? params.globalMeanAway);
