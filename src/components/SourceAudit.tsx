@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ChevronDown } from "lucide-react";
 
@@ -134,6 +135,15 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
             );
           })}
         </ul>
+      </div>
+
+      <div className="mt-4 border-t border-border pt-3">
+        <Link
+          to="/diagnostico"
+          className="flex min-h-11 items-center justify-center rounded-xl bg-secondary/35 px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+        >
+          Ver funil de decisão
+        </Link>
       </div>
     </CollapsiblePanel>
   );
