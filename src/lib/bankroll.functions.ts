@@ -56,16 +56,29 @@ function operationalMaxStake(bankroll: number, maxStakePct: number, minStakeBrl:
   return Math.min(bankroll, Math.max(minStakeBrl, proportional));
 }
 
-async function bankrollSnapshot(rawDb: Db) {
+async function ownedIds(rawDb: Db, userId: string) {
+  const { ownedRunIds } = await import("./authorization.server");
+  return ownedRunIds(rawDb, userId);
+}
+
+async function bankrollSnapshot(rawDb: Db, userId: string) {
+  const runIds = await ownedIds(rawDb, userId);
+  const configQuery = rawDb
+    .from("experimental_bankroll_config")
+    .select("initial_bankroll,max_stake_pct,fractional_kelly,min_stake_brl")
+    .eq("id", "main")
+    .eq("owner_id", userId)
+    .single();
+  const rowsQuery = runIds.length
+    ? rawDb
+        .from("experimental_bet_tracking")
+        .select("bet_status,stake_brl,profit_brl,result")
+        .in("run_id", runIds)
+    : Promise.resolve({ data: [], error: null });
+
   const [{ data: config, error: configError }, { data: rows, error: rowsError }] = await Promise.all([
-    rawDb
-      .from("experimental_bankroll_config")
-      .select("initial_bankroll,max_stake_pct,fractional_kelly,min_stake_brl")
-      .eq("id", "main")
-      .single(),
-    rawDb
-      .from("experimental_bet_tracking")
-      .select("bet_status,stake_brl,profit_brl,result"),
+    configQuery,
+    rowsQuery,
   ]);
   if (configError || !config) throw new Error(`Não foi possível carregar a banca: ${configError?.message ?? "configuração ausente"}`);
   if (rowsError) throw new Error(`Não foi possível calcular o saldo: ${rowsError.message}`);
@@ -126,9 +139,13 @@ const planSchema = z.object({ runId: z.string().uuid() });
 
 export const getExperimentalBetPlan = createServerFn({ method: "GET" })
   .inputValidator((input: unknown) => planSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+    if (!userId) throw new Error("Usuário não autenticado.");
     const rawDb = await db();
-    const snapshot = await bankrollSnapshot(rawDb);
+    const { assertRunOwner } = await import("./authorization.server");
+    await assertRunOwner(rawDb, userId, data.runId);
+    const snapshot = await bankrollSnapshot(rawDb, userId);
     const { data: rows, error } = await rawDb
       .from("experimental_bet_tracking")
       .select("*")
@@ -169,8 +186,12 @@ const confirmSchema = z.object({
 
 export const confirmExperimentalBet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => confirmSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+    if (!userId) throw new Error("Usuário não autenticado.");
     const rawDb = await db();
+    const { assertTrackingOwner } = await import("./authorization.server");
+    await assertTrackingOwner(rawDb, userId, data.id);
     const { data: rpcRows, error } = await rawDb.rpc("confirm_experimental_bet_atomic", {
       p_id: data.id,
       p_stake_brl: floorCents(data.stakeBrl),
@@ -188,12 +209,17 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
     };
   });
 
-export const getOpenExperimentalBets = createServerFn({ method: "GET" }).handler(async () => {
+export const getOpenExperimentalBets = createServerFn({ method: "GET" }).handler(async ({ context }) => {
+  const userId = context.userId;
+  if (!userId) throw new Error("Usuário não autenticado.");
   const rawDb = await db();
-  const snapshot = await bankrollSnapshot(rawDb);
+  const snapshot = await bankrollSnapshot(rawDb, userId);
+  const runIds = await ownedIds(rawDb, userId);
+  if (!runIds.length) return { rows: [] as TrackingRow[], bankroll: snapshot };
   const { data: rows, error } = await rawDb
     .from("experimental_bet_tracking")
     .select("*")
+    .in("run_id", runIds)
     .eq("bet_status", "OPEN")
     .eq("result", "PENDING")
     .order("target_date", { ascending: true })
@@ -323,8 +349,12 @@ const settleSchema = z.object({
 
 export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => settleSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+    if (!userId) throw new Error("Usuário não autenticado.");
     const rawDb = await db();
+    const { assertTrackingOwner } = await import("./authorization.server");
+    await assertTrackingOwner(rawDb, userId, data.id);
     const { data: rpcRows, error } = await rawDb.rpc("settle_experimental_bet_atomic", {
       p_id: data.id,
       p_outcome: data.outcome,
