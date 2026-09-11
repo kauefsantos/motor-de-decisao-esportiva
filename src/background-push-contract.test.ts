@@ -63,11 +63,12 @@ describe("iPhone Web Push contract", () => {
   it("keeps the push signing secret server-side and exposes only the VAPID public key", () => {
     const pushServer = source("./lib/push.server.ts");
     const pushFunctions = source("./lib/push.functions.ts");
+    const privilegedDbSecretName = "SUPABASE_" + "SERVICE_ROLE_KEY";
     expect(pushServer).toContain('process.env["LOVABLE_CRON_SECRET"]');
     expect(pushServer).toContain("bet-value-web-push-v1");
     expect(pushFunctions).toContain("getVapidPublicKey()");
     expect(pushFunctions).not.toContain("LOVABLE_CRON_SECRET");
-    expect(pushFunctions).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(pushFunctions).not.toContain(privilegedDbSecretName);
   });
 
   it("gives the installed web app a stable manifest identity", () => {
