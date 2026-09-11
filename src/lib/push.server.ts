@@ -63,7 +63,7 @@ function makeVapidAuthorization(endpoint: string) {
       JSON.stringify({
         aud: audience,
         exp: now + 12 * 60 * 60,
-        sub: "mailto:kauefsantos3@gmail.com",
+        sub: "https://quant-football-insights.lovable.app",
       }),
     ),
   );
