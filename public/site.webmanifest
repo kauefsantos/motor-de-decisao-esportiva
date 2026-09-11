@@ -4,6 +4,7 @@
   "description": "Motor de decisão esportiva para análise de jogos, odds e acompanhamento de resultados.",
   "start_url": "/",
   "scope": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#171823",
   "theme_color": "#171823",
