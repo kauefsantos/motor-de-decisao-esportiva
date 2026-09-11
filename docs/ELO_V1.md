@@ -1,19 +1,16 @@
-# Elo v1
+# Elo v1 — referência histórica
 
-O Elo é uma feature auxiliar do modelo de gols existente; não é um segundo motor.
+Este documento descrevia a primeira versão do Elo de times e **não é mais a referência canônica da arquitetura atual**.
 
-- Fonte: 5DollarFootballAPI, somente partidas encerradas.
-- Bootstrap: até 365 dias acessíveis no plano atual.
-- Persistência: Supabase (`elo_fixtures`, `elo_fixture_history`, `elo_team_ratings`).
-- Atualização: rotina protegida `/api/elo-sync`, agendada para 05:00 America/Sao_Paulo.
-- Rating inicial: 1500.
-- K: 20.
-- Mando: entra apenas na expectativa usada para atualizar o Elo; o rating armazenado é neutro.
-- O mando é estimado da própria liga quando há pelo menos 30 partidas anteriores, com fallback conservador de 60 pontos e limite de 120.
-- Na previsão, a consulta usa o último rating estritamente anterior a `prediction_at`.
-- O Elo redistribui o `lambdaTotal` do modelo de gols entre mandante e visitante; não altera o total esperado de gols.
-- Diferença Elo usada no ajuste é limitada a ±300 pontos e recebe peso 0,20 na versão experimental.
-- Se não houver Elo pré-jogo para os dois times na mesma liga, o modelo mantém o baseline sem Elo.
-- Todo ajuste aplicado fica registrado em `elo_prediction_context`.
+O sistema evoluiu para incluir Elo de ligas, comparação cross-league hierárquica, reconstrução point-in-time e integração validada com o fluxo experimental de decisão.
 
-Status: experimental / não validado para produção. A ativação não altera o Motor 2, gates de valor ou regras de banca.
+Use:
+
+- [ELO.md](ELO.md) — arquitetura vigente;
+- [ELO_RUNBOOK.md](ELO_RUNBOOK.md) — operação diária;
+- [ELO_AUDIT_2026-09-08.md](ELO_AUDIT_2026-09-08.md) — histórico da auditoria hierárquica;
+- [ELO_P1_HIERARCHICAL_INTEGRATION_2026-09-11.md](ELO_P1_HIERARCHICAL_INTEGRATION_2026-09-11.md) — integração cross-league;
+- [ELO_P2_POINT_IN_TIME_2026-09-11.md](ELO_P2_POINT_IN_TIME_2026-09-11.md) — reprodução histórica;
+- [ELO_DECISION_HARDENING_2026-09-11.md](ELO_DECISION_HARDENING_2026-09-11.md) — revisão das regras de decisão após o Elo.
+
+O arquivo é mantido apenas para não quebrar links históricos de PRs e auditorias anteriores.
