@@ -217,6 +217,12 @@
     font-size: 1rem;
   }
 
+  /* The manual Bet365 quote field is intentionally compact on desktop, but
+   * it should use the available row width on phones for easier one-hand input. */
+  input.w-28 {
+    width: 100%;
+  }
+
   button,
   [role="button"],
   summary {
