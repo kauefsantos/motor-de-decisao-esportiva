@@ -105,3 +105,43 @@ describe("frontend P2 usability and performance contract", () => {
     expect(analytics).toContain("A linha tracejada marca o saldo inicial");
   });
 });
+
+describe("frontend P3 final polish contract", () => {
+  it("returns the user to the route they requested after Google login", () => {
+    const auth = source("./components/AuthGate.tsx");
+    expect(auth).toContain("window.location.pathname");
+    expect(auth).toContain("window.location.search");
+    expect(auth).toContain("redirect_uri: currentReturnUrl()");
+    expect(auth).not.toContain('redirect_uri: `${window.location.origin}/`');
+  });
+
+  it("hides analysis progress outside the analysis journey and exposes current pages", () => {
+    const shell = source("./components/AppShell.tsx");
+    expect(shell).toContain("showAnalysisProgress");
+    expect(shell).toContain("{showAnalysisProgress && (");
+    expect(shell).toContain('aria-current={stage === "open-bets" ? "page" : undefined}');
+    expect(shell).toContain('aria-current={stage === "analytics" ? "page" : undefined}');
+  });
+
+  it("shows an explicit retry state when open bets fail to load", () => {
+    const openBets = source("./routes/open-bets.tsx");
+    expect(openBets).toContain("isError");
+    expect(openBets).toContain("Não foi possível carregar as apostas em andamento");
+    expect(openBets).toContain("Tentar novamente");
+    expect(openBets).toContain("openBetCountLabel");
+  });
+
+  it("keeps source detail disclosures accessible and labels metrics clearly", () => {
+    const audit = source("./components/SourceAudit.tsx");
+    expect(audit).toContain("aria-controls={detailsId}");
+    expect(audit).toContain('role="region"');
+    expect(audit).toContain("Jogos encontrados");
+    expect(audit).toContain("Dados aproveitados");
+  });
+
+  it("keeps fallback actions comfortably tappable", () => {
+    const root = source("./routes/__root.tsx");
+    expect(root).toContain("min-h-11");
+    expect(root).toContain('role="alert"');
+  });
+});
