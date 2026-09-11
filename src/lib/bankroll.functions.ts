@@ -202,6 +202,111 @@ export const getOpenExperimentalBets = createServerFn({ method: "GET" }).handler
   return { rows: (rows ?? []) as TrackingRow[], bankroll: snapshot };
 });
 
+async function captureClosingClv(rawDb: Db, trackingId: string) {
+  const { data: bet, error: betError } = await rawDb
+    .from("experimental_bet_tracking")
+    .select("id,run_id,match_id,prediction_id,market,side,line_canonical,entry_odd")
+    .eq("id", trackingId)
+    .single();
+  if (betError || !bet) return null;
+
+  const supported = new Set(["1x2", "goals_match_total", "corners_match_total", "cards_match_total"]);
+  if (!supported.has(String(bet.market))) {
+    await rawDb.from("experimental_bet_tracking").update({
+      clv_status: "UNSUPPORTED",
+      closing_source: "five_dollar_bet365",
+      closing_fetched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", trackingId);
+    return { status: "UNSUPPORTED", clvPct: null, impliedDelta: null };
+  }
+
+  const { data: externalId } = await rawDb
+    .from("match_external_ids")
+    .select("external_id")
+    .eq("match_id", bet.match_id)
+    .eq("source", "five_dollar_fixture")
+    .maybeSingle();
+  const fixtureId = Number(externalId?.external_id);
+  if (!Number.isFinite(fixtureId)) {
+    await rawDb.from("experimental_bet_tracking").update({
+      clv_status: "SOURCE_UNAVAILABLE",
+      closing_source: "five_dollar_bet365",
+      closing_fetched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", trackingId);
+    return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
+  }
+
+  const [{ fetchBet365FixtureOdds, matchBet365ClosingPrice }, { calculateClv }] = await Promise.all([
+    import("./bet365-odds.server"),
+    import("./engine/clv"),
+  ]);
+  const fetched = await fetchBet365FixtureOdds(fixtureId);
+  await rawDb.from("source_fetches").insert({
+    run_id: bet.run_id,
+    match_id: bet.match_id,
+    source: "five_dollar_bet365_closing",
+    status: fetched.status === "OK" ? "OK" : fetched.status === "RATE_LIMITED" ? "RATE_LIMITED" : "SOURCE_UNAVAILABLE",
+    http_status: fetched.httpStatus,
+    error_message: fetched.errorMessage,
+    fetched_at: fetched.fetchedAt,
+  });
+
+  if (fetched.status !== "OK" || fetched.payload === null) {
+    await rawDb.from("experimental_bet_tracking").update({
+      clv_status: "SOURCE_UNAVAILABLE",
+      closing_source: "five_dollar_bet365",
+      closing_fetched_at: fetched.fetchedAt,
+      updated_at: new Date().toISOString(),
+    }).eq("id", trackingId);
+    return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
+  }
+
+  const quote = matchBet365ClosingPrice({
+    predictionId: String(bet.prediction_id),
+    market: String(bet.market),
+    side: bet.side === null ? null : String(bet.side),
+    lineCanonical: bet.line_canonical === null ? null : Number(bet.line_canonical),
+  }, fetched.payload);
+
+  const statusMap = {
+    MATCHED: null,
+    LINE_MISMATCH: null,
+    NO_PRICE: "NO_CLOSING_PRICE",
+    UNSUPPORTED: "UNSUPPORTED",
+    SOURCE_UNAVAILABLE: "SOURCE_UNAVAILABLE",
+  } as const;
+  const result = quote.status === "LINE_MISMATCH"
+    ? calculateClv({
+        entryOdd: Number(bet.entry_odd),
+        closingOdd: quote.odd,
+        entryLine: bet.line_canonical === null ? null : Number(bet.line_canonical),
+        closingLine: quote.offeredLine,
+      })
+    : calculateClv({
+        entryOdd: Number(bet.entry_odd),
+        closingOdd: quote.odd,
+        entryLine: bet.line_canonical === null ? null : Number(bet.line_canonical),
+        closingLine: quote.offeredLine,
+        sourceStatus: statusMap[quote.status],
+      });
+
+  await rawDb.from("experimental_bet_tracking").update({
+    closing_odd: result.closingOdd,
+    closing_line: result.closingLine,
+    closing_stage: quote.stage,
+    clv_pct: result.clvPct,
+    clv_implied_delta: result.impliedDelta,
+    clv_status: result.status,
+    closing_fetched_at: fetched.fetchedAt,
+    closing_source: "five_dollar_bet365",
+    updated_at: new Date().toISOString(),
+  }).eq("id", trackingId);
+
+  return result;
+}
+
 const settleSchema = z.object({
   id: z.string().uuid(),
   outcome: z.enum(["WIN", "LOSS"]),
@@ -218,5 +323,21 @@ export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
     if (!row) throw new Error("O fechamento da aposta não retornou resultado.");
-    return { ok: true, profitBrl: num(row.profit_brl), profitUnits: num(row.profit_units) };
+
+    // Settlement is authoritative even if the external closing benchmark is
+    // unavailable. CLV collection is best-effort and can never roll back or
+    // block the already-settled bet.
+    let clv = null;
+    try {
+      clv = await captureClosingClv(rawDb, data.id);
+    } catch (error) {
+      console.warn("[CLV] Não foi possível capturar o fechamento Bet365", error);
+    }
+
+    return {
+      ok: true,
+      profitBrl: num(row.profit_brl),
+      profitUnits: num(row.profit_units),
+      clv,
+    };
   });
