@@ -13,6 +13,7 @@ import {
 import { familyForMarket } from "./engine/experimental-goal-markets";
 import { filterQuoteAnchorPredictions } from "./engine/market-policy";
 import { buildManualQuoteBatches } from "./engine/quote-funnel";
+import { captureFiveDollarLeaguePriorsForRun } from "./five-dollar-priors.server";
 
 const inputSchema = z.object({ runId: z.string().uuid() });
 const EXPERIMENTAL_STATUS = "EXPERIMENTAL_CURRENT_SEASON";
@@ -83,6 +84,15 @@ function lineMismatch(row: PredictionRow, offeredLine: number): AutoOddsMatch {
   };
 }
 
+function predictionAtFromRun(run: { notes?: unknown; created_at?: string | null } | null | undefined) {
+  const notes = typeof run?.notes === "object" && run.notes !== null
+    ? run.notes as { prediction_at?: unknown }
+    : null;
+  const stored = notes?.prediction_at;
+  if (typeof stored === "string" && Number.isFinite(Date.parse(stored))) return stored;
+  return run?.created_at ?? new Date().toISOString();
+}
+
 export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data }) => {
@@ -96,7 +106,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
         .eq("run_id", data.runId)
         .eq("model_status", EXPERIMENTAL_STATUS),
       supabase.from("matches").select("id,raw_partida,home_team,away_team").eq("run_id", data.runId),
-      supabase.from("analysis_runs").select("target_date").eq("id", data.runId).single(),
+      supabase.from("analysis_runs").select("target_date,notes,created_at").eq("id", data.runId).single(),
     ]);
 
     const eligible = filterQuoteAnchorPredictions((predictions ?? []) as PredictionRow[]);
@@ -106,7 +116,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
         quotes: [] as QuoteWithMatch[], matched: 0, lineMismatch: 0, unsupported: 0, noPrice: 0,
         sourceUnavailable: 0, fixturesRequested: 0, dayPagesRequested: 0,
         manualBatches: [] as string[][], manualFieldCount: 0,
-        automaticallyPricedPredictionIds: [] as string[],
+        automaticallyPricedPredictionIds: [] as string[], priorCapture: null,
         message: "Nenhuma linha de cotação experimental disponível para buscar preço.",
       };
     }
@@ -237,12 +247,22 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       automaticallyPricedPredictionIds,
     );
 
+    // Standings are diagnostic priors only. Capture at most two cold leagues
+    // per odds pass and reuse same-day snapshots in the database. Historical
+    // runs are skipped to prevent a current table from leaking into old dates.
+    const priorCapture = await captureFiveDollarLeaguePriorsForRun(
+      supabase as unknown as { from: (table: string) => any },
+      data.runId,
+      predictionAtFromRun(run),
+      2,
+    );
+
     return {
       quotes,
       matched: count("MATCHED"), lineMismatch: count("LINE_MISMATCH"), unsupported: count("UNSUPPORTED"),
       noPrice: count("NO_PRICE"), sourceUnavailable: count("SOURCE_UNAVAILABLE"), fixturesRequested,
       dayPagesRequested: day.fetches.length, manualBatches, manualFieldCount: manualBatches.flat().length,
-      automaticallyPricedPredictionIds,
-      message: "Odds automáticas foram avaliadas primeiro; o restante foi organizado em lotes manuais progressivos, sem excluir oportunidades por probabilidade bruta.",
+      automaticallyPricedPredictionIds, priorCapture,
+      message: "Odds automáticas foram avaliadas primeiro; o restante foi organizado em lotes manuais progressivos. Standings de escanteios/cartões são armazenados somente como priors de pesquisa até validação walk-forward.",
     };
   });
