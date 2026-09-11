@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EXPERIMENTAL_MARKET_POLICY_VERSION,
   EXPERIMENTAL_QUOTE_CANDIDATES_PER_COMPLETE_MATCH,
   EXPERIMENTAL_TOTAL_MARKET_POLICY,
   expectedQuoteCandidateCount,
+  experimentalPredictionId,
   filterQuoteAnchorPredictions,
+  isAllowedExperimentalContract,
   isQuoteAnchorPrediction,
   referenceLinesFor,
 } from "./market-policy";
@@ -48,6 +51,7 @@ describe("experimental market policy", () => {
       for (const side of ["OVER", "UNDER"] as const) {
         for (const line of referenceLinesFor(market, side)) {
           expect(isQuoteAnchorPrediction({ market, side, lineCanonical: line })).toBe(false);
+          expect(isAllowedExperimentalContract({ market, side, lineCanonical: line })).toBe(true);
         }
         expect(isQuoteAnchorPrediction({ market, side, lineCanonical: policy.anchor })).toBe(true);
       }
@@ -65,5 +69,22 @@ describe("experimental market policy", () => {
     ];
 
     expect(filterQuoteAnchorPredictions(rows)).toEqual([rows[0], rows[1], rows[3], rows[4]]);
+  });
+
+  it("uses policy-versioned exact-contract IDs instead of ordinals", () => {
+    const base = {
+      runId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      matchId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      family: "CORNERS",
+      market: "corners_match_total",
+      participant: null,
+      side: "OVER",
+      lineCanonical: 9.5,
+    };
+    const id = experimentalPredictionId(base);
+    expect(id).toContain(`EXP-${EXPERIMENTAL_MARKET_POLICY_VERSION}-CORNERS-`);
+    expect(experimentalPredictionId(base)).toBe(id);
+    expect(experimentalPredictionId({ ...base, lineCanonical: 10.5 })).not.toBe(id);
+    expect(experimentalPredictionId({ ...base, side: "UNDER" })).not.toBe(id);
   });
 });

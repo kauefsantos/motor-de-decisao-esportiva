@@ -45,6 +45,12 @@ function selectionLimitForDate(isoDate: string | null | undefined) {
   return weekday === 0 || weekday === 6 ? 3 : 2;
 }
 
+function fallbackBatches(ids: string[], size = 12) {
+  const batches: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) batches.push(ids.slice(index, index + size));
+  return batches;
+}
+
 export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const prepare = useServerFn(prepareExperimentalMarketsRun);
@@ -56,12 +62,15 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [autoOddsLoading, setAutoOddsLoading] = useState(false);
   const [autoQuotes, setAutoQuotes] = useState<Record<string, AutoQuote>>({});
+  const [manualBatches, setManualBatches] = useState<string[][]>([]);
+  const [visibleBatchCount, setVisibleBatchCount] = useState(1);
   const [autoSummary, setAutoSummary] = useState<{
     matched: number;
     lineMismatch: number;
     unsupported: number;
     noPrice: number;
     sourceUnavailable: number;
+    manualFieldCount: number;
   } | null>(null);
   const autoStartedForRun = useRef<string | null>(null);
 
@@ -77,9 +86,16 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     staleTime: 5 * 60 * 1000,
   });
 
-  // The backend now returns quote anchors only. Do not filter by raw model
-  // probability: value is decided only after probability and bookmaker price meet.
   const eligible = useMemo(() => data?.candidates ?? [], [data]);
+
+  useEffect(() => {
+    setVisibleBatchCount(1);
+    setManualBatches([]);
+    setAutoQuotes({});
+    setAutoSummary(null);
+    setOdds({});
+    autoStartedForRun.current = null;
+  }, [runId]);
 
   useEffect(() => {
     if (eligible.length === 0 || autoStartedForRun.current === runId) return;
@@ -100,23 +116,20 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           }
         }
         setAutoQuotes(byPrediction);
+        setManualBatches(result.manualBatches ?? []);
         setAutoSummary({
           matched: result.matched,
           lineMismatch: result.lineMismatch,
           unsupported: result.unsupported,
           noPrice: result.noPrice,
           sourceUnavailable: result.sourceUnavailable,
+          manualFieldCount: result.manualFieldCount ?? 0,
         });
-        setOdds((current) => {
-          const next = { ...current };
-          for (const [predictionId, odd] of Object.entries(automaticValues)) {
-            if (!next[predictionId]?.trim()) next[predictionId] = odd;
-          }
-          return next;
-        });
+        setOdds((current) => ({ ...current, ...automaticValues }));
       } catch {
         if (!cancelled) {
-          toast.error("Não foi possível buscar as odds automaticamente. Você ainda pode preencher manualmente.");
+          setManualBatches(fallbackBatches(eligible.map((candidate) => candidate.predictionId)));
+          toast.error("A busca automática falhou. As odds manuais foram divididas em lotes menores.");
         }
       } finally {
         if (!cancelled) setAutoOddsLoading(false);
@@ -124,17 +137,25 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     }
 
     void runAutomaticOdds();
-    return () => {
-      cancelled = true;
-    };
-  }, [collectAutoOdds, eligible.length, runId]);
+    return () => { cancelled = true; };
+  }, [collectAutoOdds, eligible, runId]);
+
+  const visibleManualIds = useMemo(
+    () => new Set(manualBatches.slice(0, visibleBatchCount).flat()),
+    [manualBatches, visibleBatchCount],
+  );
+  const visibleCandidates = useMemo(
+    () => eligible.filter((candidate) => visibleManualIds.has(candidate.predictionId)),
+    [eligible, visibleManualIds],
+  );
+  const remainingManual = Math.max(
+    0,
+    manualBatches.slice(visibleBatchCount).reduce((sum, batch) => sum + batch.length, 0),
+  );
 
   const groupedByMatch = useMemo(() => {
-    const groups = new Map<
-      string,
-      { matchId: string; matchLabel: string; competition: string; rows: typeof eligible }
-    >();
-    for (const candidate of eligible) {
+    const groups = new Map<string, { matchId: string; matchLabel: string; competition: string; rows: typeof visibleCandidates }>();
+    for (const candidate of visibleCandidates) {
       const current = groups.get(candidate.matchId) ?? {
         matchId: candidate.matchId,
         matchLabel: candidate.matchLabel,
@@ -153,18 +174,15 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         return a.marketLabel.localeCompare(b.marketLabel, "pt-BR");
       }),
     }));
-  }, [eligible]);
+  }, [visibleCandidates]);
 
   async function evaluate() {
     const entries = eligible
-      .map((candidate) => {
-        const odd = Number((odds[candidate.predictionId] ?? "").replace(",", "."));
-        return {
-          predictionId: candidate.predictionId,
-          odd,
-          lineAtEntry: candidate.lineCanonical,
-        };
-      })
+      .map((candidate) => ({
+        predictionId: candidate.predictionId,
+        odd: Number((odds[candidate.predictionId] ?? "").replace(",", ".")),
+        lineAtEntry: candidate.lineCanonical,
+      }))
       .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1);
 
     if (entries.length === 0) {
@@ -175,15 +193,11 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
     setSubmitting(true);
     try {
       const evaluated = await analyze({ data: { runId, entries } });
-      const targetDate =
-        evaluated.targetDate ?? runData?.run?.target_date ?? data?.predictionAt?.slice(0, 10) ?? null;
+      const targetDate = evaluated.targetDate ?? runData?.run?.target_date ?? data?.predictionAt?.slice(0, 10) ?? null;
       const selectionLimit = evaluated.selectionLimit ?? selectionLimitForDate(targetDate);
       const limitedSelections = evaluated.selections;
       const selectedIds = new Set(limitedSelections.map((selection) => selection.predictionId));
-      const candidateByPrediction = new Map(
-        eligible.map((candidate) => [candidate.predictionId, candidate]),
-      );
-
+      const candidateByPrediction = new Map(eligible.map((candidate) => [candidate.predictionId, candidate]));
       const enrichedEvaluations = evaluated.evaluations.map((evaluation) => {
         const candidate = candidateByPrediction.get(evaluation.predictionId);
         return {
@@ -199,8 +213,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
           lineCanonical: candidate?.lineCanonical ?? evaluation.lineCanonical ?? null,
         };
       });
-
-      const payload = {
+      localStorage.setItem(`experimental-result:${runId}`, JSON.stringify({
         runId,
         analyzedAt: new Date().toISOString(),
         targetDate,
@@ -212,14 +225,9 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         selectionOrder: limitedSelections.map((selection) => selection.predictionId),
         directionAssessments: evaluated.directionAssessments,
         referenceAlternatives: evaluated.referenceAlternatives,
-      };
-
-      localStorage.setItem(`experimental-result:${runId}`, JSON.stringify(payload));
-      navigate({
-        to: "/run/$runId/resultado",
-        params: { runId },
-        search: { mode: "experimental" },
-      });
+        correlatedAlternates: evaluated.correlatedAlternates ?? [],
+      }));
+      navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } });
     } catch {
       toast.error("Não foi possível comparar as odds agora. Tente novamente.");
       setSubmitting(false);
@@ -237,111 +245,68 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
             <span className="rounded-full bg-warning/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning">Modo de teste</span>
             <span className="text-xs text-muted-foreground">até {selectionLimit} sugestão(ões)</span>
           </div>
-          <h2 className="mt-2 text-lg font-semibold">Linhas para comparar com a Bet365</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Poucas linhas de referência; valor só é decidido depois que existe uma odd real.</p>
+          <h2 className="mt-2 text-lg font-semibold">Cotação em etapas</h2>
+          <p className="mt-1 text-xs text-muted-foreground">A API é usada primeiro; você só preenche um lote pequeno do que ficou sem preço.</p>
         </div>
         {autoOddsLoading ? (
           <span className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Buscando odds</span>
         ) : autoSummary ? (
-          <span className="text-xs text-muted-foreground">{autoSummary.matched} odd(s) preenchida(s)</span>
+          <span className="text-xs text-muted-foreground">{autoSummary.matched} automática(s) · {visibleCandidates.length} neste lote</span>
         ) : null}
       </div>
 
-      <CollapsiblePanel
-        className="m-4 mb-0 border-warning/20 bg-transparent shadow-none sm:m-5 sm:mb-0"
-        title="Entender o modo de teste"
-        description="Como as odds são buscadas e como o sistema usa as linhas de referência"
-      >
-        <p className="text-sm text-muted-foreground">
-          O sistema calcula primeiro a chance das linhas centrais e só depois busca ou recebe a odd da Bet365. Linhas mais altas ou mais baixas ficam como referências internas e só podem ser chamadas de valor quando houver uma odd real para comparar.
-        </p>
-        {autoSummary && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            {autoSummary.matched} preenchidas · {autoSummary.lineMismatch} com linha diferente · {autoSummary.unsupported} manuais · {autoSummary.noPrice} sem preço.
-          </p>
-        )}
+      <CollapsiblePanel className="m-4 mb-0 border-warning/20 bg-transparent shadow-none sm:m-5 sm:mb-0" title="Como funciona" description="Preço automático primeiro, lotes manuais depois">
+        <p className="text-sm text-muted-foreground">O sistema calcula as linhas centrais, tenta obter o preço real da Bet365 e retira da fila tudo que conseguiu preencher sozinho. O restante é priorizado apenas para organizar o trabalho — não é um corte de value. As opções que não aparecem no primeiro lote continuam disponíveis nos próximos.</p>
+        {autoSummary && <p className="mt-2 text-xs text-muted-foreground">{autoSummary.matched} automáticas · {autoSummary.manualFieldCount} manuais no total · {autoSummary.lineMismatch} com linha diferente · {autoSummary.unsupported} sem contrato direto na API · {autoSummary.noPrice} sem preço.</p>}
       </CollapsiblePanel>
 
-      {isLoading ? (
-        <div className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando as opções…</div>
+      {isLoading || autoOddsLoading ? (
+        <div className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Organizando as cotações…</div>
       ) : eligible.length === 0 ? (
         <div className="p-5 text-sm text-muted-foreground">Nenhuma linha pôde ser modelada com os dados disponíveis nesta rodada.</div>
       ) : (
         <>
-          <div className="divide-y divide-border/70">
-            {groupedByMatch.map((group) => (
-              <article key={group.matchId} className="px-4 py-4 sm:px-5">
-                <div className="mb-3">
-                  <h3 className="text-sm font-semibold sm:text-base">{group.matchLabel}</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{group.competition}</p>
-                </div>
-
-                <div className="hidden overflow-hidden rounded-lg border border-border md:block">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-secondary/20 text-left">
-                        <th className="px-4 py-2.5 text-xs text-muted-foreground">Opção</th>
-                        <th className="px-4 py-2.5 text-xs text-muted-foreground">Chance</th>
-                        <th className="px-4 py-2.5 text-xs text-muted-foreground">Odd bet365</th>
-                        <th className="px-4 py-2.5"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
+          {visibleCandidates.length === 0 ? (
+            <div className="p-5 text-sm text-muted-foreground">Não há odd manual neste lote. As odds disponíveis foram preenchidas automaticamente.</div>
+          ) : (
+            <div className="divide-y divide-border/70">
+              {groupedByMatch.map((group) => (
+                <article key={group.matchId} className="px-4 py-4 sm:px-5">
+                  <div className="mb-3"><h3 className="text-sm font-semibold sm:text-base">{group.matchLabel}</h3><p className="mt-0.5 text-xs text-muted-foreground">{group.competition}</p></div>
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <div className="divide-y divide-border/70">
                       {group.rows.map((candidate) => {
                         const quote = autoQuotes[candidate.predictionId];
                         const isOpen = Boolean(details[candidate.predictionId]);
                         return (
-                          <tr key={candidate.predictionId} className="border-b border-border/60 last:border-b-0">
-                            <td className="px-4 py-3">
-                              <p className="font-medium">{candidate.marketLabel}</p>
-                              <p className="mt-0.5 text-[11px] text-muted-foreground">{FAMILY_LABELS[candidate.family] ?? candidate.family}</p>
-                              {isOpen && <p className="mt-2 text-xs text-muted-foreground">Odd justa do modelo {dec(candidate.fairOddExperimental)} · {candidate.sampleSize} jogos do time · {candidate.trainingMatches} da liga</p>}
-                            </td>
-                            <td className="num px-4 py-3">{pct(candidate.probabilityExperimental)}</td>
-                            <td className="px-4 py-3">
-                              <Input inputMode="decimal" value={odds[candidate.predictionId] ?? ""} onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))} className="num w-28" aria-label={`Odd bet365 para ${group.matchLabel} — ${candidate.marketLabel}`} />
-                              {quote?.status === "MATCHED" && <p className="mt-1 text-[10px] text-success">Automática</p>}
-                              {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-[10px] text-muted-foreground">Linha Bet365: {quote.offeredLine ?? "—"}</p>}
-                            </td>
-                            <td className="px-4 py-3">
-                              <button type="button" onClick={() => setDetails((current) => ({ ...current, [candidate.predictionId]: !isOpen }))} className="inline-flex min-h-10 items-center gap-1 text-xs text-accent"><Info className="size-3" /> {isOpen ? "Ocultar" : "Detalhes"}</button>
-                            </td>
-                          </tr>
+                          <div key={candidate.predictionId} className="grid gap-3 p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:p-4">
+                            <div>
+                              <p className="text-sm font-medium">{candidate.marketLabel}</p>
+                              <p className="mt-0.5 text-[11px] text-muted-foreground">{FAMILY_LABELS[candidate.family] ?? candidate.family} · chance {pct(candidate.probabilityExperimental)}</p>
+                              {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-[10px] text-warning">A Bet365 está em {quote.offeredLine ?? "—"}; confira a odd manualmente.</p>}
+                              {isOpen && <p className="mt-2 text-xs text-muted-foreground">Odd justa {dec(candidate.fairOddExperimental)} · {candidate.sampleSize} jogos do time · {candidate.trainingMatches} da liga</p>}
+                            </div>
+                            <label className="text-[11px] text-muted-foreground">Odd bet365<Input inputMode="decimal" value={odds[candidate.predictionId] ?? ""} onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))} className="num mt-1 w-28" aria-label={`Odd bet365 para ${group.matchLabel} — ${candidate.marketLabel}`} /></label>
+                            <button type="button" onClick={() => setDetails((current) => ({ ...current, [candidate.predictionId]: !isOpen }))} className="inline-flex min-h-10 items-center gap-1 text-xs text-accent"><Info className="size-3" /> {isOpen ? "Ocultar" : "Detalhes"}</button>
+                          </div>
                         );
                       })}
-                    </tbody>
-                  </table>
-                </div>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
 
-                <div className="divide-y divide-border rounded-lg border border-border md:hidden">
-                  {group.rows.map((candidate) => {
-                    const quote = autoQuotes[candidate.predictionId];
-                    const isOpen = Boolean(details[candidate.predictionId]);
-                    return (
-                      <div key={candidate.predictionId} className="p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div><p className="text-sm font-medium">{candidate.marketLabel}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{FAMILY_LABELS[candidate.family] ?? candidate.family}</p></div>
-                          <p className="num text-base">{pct(candidate.probabilityExperimental)}</p>
-                        </div>
-                        <div className="mt-3 flex items-end justify-between gap-3">
-                          <label className="text-[11px] text-muted-foreground">Odd bet365<Input inputMode="decimal" value={odds[candidate.predictionId] ?? ""} onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))} className="num mt-1 w-28" /></label>
-                          <button type="button" onClick={() => setDetails((current) => ({ ...current, [candidate.predictionId]: !isOpen }))} className="inline-flex min-h-10 items-center gap-1 text-xs text-accent"><Info className="size-3" /> {isOpen ? "Ocultar" : "Ver detalhes"}</button>
-                        </div>
-                        {quote?.status === "MATCHED" && <p className="mt-1 text-[10px] text-success">Odd preenchida automaticamente</p>}
-                        {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-[10px] text-muted-foreground">A Bet365 oferece a linha {quote.offeredLine ?? "—"}; confira manualmente.</p>}
-                        {isOpen && <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">Odd justa do modelo {dec(candidate.fairOddExperimental)} · {candidate.sampleSize} jogos do time · {candidate.trainingMatches} da liga</p>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <div className="border-t border-border p-4 sm:p-5">
-            <Button className="min-h-11 w-full sm:w-auto" onClick={() => void evaluate()} disabled={submitting || autoOddsLoading}>
-              {submitting ? "Comparando…" : autoOddsLoading ? "Buscando odds…" : "COMPARAR ODDS"}
+          <div className="flex flex-col gap-2 border-t border-border p-4 sm:flex-row sm:items-center sm:p-5">
+            <Button className="min-h-11" onClick={() => void evaluate()} disabled={submitting}>
+              {submitting ? "Comparando…" : "COMPARAR ODDS DESTE LOTE"}
             </Button>
+            {remainingManual > 0 && (
+              <Button type="button" variant="outline" className="min-h-11" onClick={() => setVisibleBatchCount((count) => Math.min(manualBatches.length, count + 1))}>
+                MOSTRAR PRÓXIMO LOTE ({remainingManual} restantes)
+              </Button>
+            )}
           </div>
         </>
       )}

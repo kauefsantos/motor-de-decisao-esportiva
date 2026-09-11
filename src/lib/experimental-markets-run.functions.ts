@@ -22,19 +22,27 @@ import {
 } from "./engine/experimental-goal-markets";
 import {
   MODEL_LEAN_THRESHOLD,
+  experimentalPredictionId,
   filterQuoteAnchorPredictions,
   formatBookmakerLine,
   quoteAnchorFor,
   referenceLinesFor,
 } from "./engine/market-policy";
-import { CARDS_MODEL_VERSION, fitCardsBaseline, predictCards, type CardMatchRow } from "./engine/cards";
+import {
+  CARD_SETTLEMENT_PROXY_CAVEAT,
+  CARDS_MODEL_VERSION,
+  bet365CardPointsProxy,
+  fitCardsBaseline,
+  predictCards,
+  type CardMatchRow,
+} from "./engine/cards";
 import {
   EV_TARGET,
   evaluateValue,
-  finalSelection,
   type ValueInput,
   type ValueResult,
 } from "./engine/value";
+import { selectExperimentalPortfolio } from "./engine/portfolio-selection";
 import type { ContractType } from "./engine/types";
 import { eloAdjustGoalForecast } from "./elo-feature.server";
 import { isCrossLeagueCompetitionName, isCrossLeagueLeagueKey } from "./competition-kind";
@@ -155,10 +163,6 @@ function leagueFromExternalMatchId(externalMatchId: string): string {
   return externalMatchId.split(":")[0] ?? "";
 }
 
-function predictionId(runId: string, matchId: string, family: string, ordinal: number) {
-  return `EXP-${family}-${runId.slice(0, 6)}-${matchId.slice(0, 6)}-${String(ordinal).padStart(2, "0")}`;
-}
-
 function selectionLimitForDate(isoDate: string | null): number {
   if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
   const [year, month, day] = isoDate.split("-").map(Number);
@@ -210,15 +214,12 @@ function buildDatasets(observations: RawValue[]) {
 
     const homeTeam = side === "HOME" ? teamId : opponentId;
     const awayTeam = side === "HOME" ? opponentId : teamId;
-
     const metric = String(rv["metricLabelRaw"] ?? rv["sourceLabel"] ?? "");
     const cardValue = finiteNumber(rv["value"]);
     if (
       cardValue !== null &&
-      (metric === "cards.home.yellow" ||
-        metric === "cards.home.red" ||
-        metric === "cards.away.yellow" ||
-        metric === "cards.away.red")
+      (metric === "cards.home.yellow" || metric === "cards.home.red" ||
+        metric === "cards.away.yellow" || metric === "cards.away.red")
     ) {
       const part = cardParts.get(externalMatchId) ?? { date, league, homeTeam, awayTeam };
       part.date = date;
@@ -239,49 +240,19 @@ function buildDatasets(observations: RawValue[]) {
     const awayGoals = finiteNumber(raw["goalsAway"]);
 
     if (homeCorners !== null && awayCorners !== null) {
-      const next: CornerMatchRow = {
-        date,
-        league,
-        homeTeam,
-        awayTeam,
-        homeCorners,
-        awayCorners,
-      };
+      const next: CornerMatchRow = { date, league, homeTeam, awayTeam, homeCorners, awayCorners };
       const prev = corners.get(externalMatchId);
-      if (
-        prev &&
-        (prev.homeTeam !== next.homeTeam ||
-          prev.awayTeam !== next.awayTeam ||
-          prev.homeCorners !== next.homeCorners ||
-          prev.awayCorners !== next.awayCorners)
-      ) {
+      if (prev && (prev.homeTeam !== next.homeTeam || prev.awayTeam !== next.awayTeam || prev.homeCorners !== next.homeCorners || prev.awayCorners !== next.awayCorners)) {
         conflicts.add(externalMatchId);
-      } else {
-        corners.set(externalMatchId, next);
-      }
+      } else corners.set(externalMatchId, next);
     }
 
     if (homeGoals !== null && awayGoals !== null) {
-      const next: GoalMatchRow = {
-        date,
-        league,
-        homeTeam,
-        awayTeam,
-        homeGoals,
-        awayGoals,
-      };
+      const next: GoalMatchRow = { date, league, homeTeam, awayTeam, homeGoals, awayGoals };
       const prev = goals.get(externalMatchId);
-      if (
-        prev &&
-        (prev.homeTeam !== next.homeTeam ||
-          prev.awayTeam !== next.awayTeam ||
-          prev.homeGoals !== next.homeGoals ||
-          prev.awayGoals !== next.awayGoals)
-      ) {
+      if (prev && (prev.homeTeam !== next.homeTeam || prev.awayTeam !== next.awayTeam || prev.homeGoals !== next.homeGoals || prev.awayGoals !== next.awayGoals)) {
         conflicts.add(externalMatchId);
-      } else {
-        goals.set(externalMatchId, next);
-      }
+      } else goals.set(externalMatchId, next);
     }
   }
 
@@ -289,21 +260,14 @@ function buildDatasets(observations: RawValue[]) {
   for (const [id, part] of cardParts) {
     if (conflicts.has(id)) continue;
     if (!part.date || !part.league || !part.homeTeam || !part.awayTeam) continue;
-    if (
-      part.homeYellow === undefined ||
-      part.homeRed === undefined ||
-      part.awayYellow === undefined ||
-      part.awayRed === undefined
-    ) {
-      continue;
-    }
+    if (part.homeYellow === undefined || part.homeRed === undefined || part.awayYellow === undefined || part.awayRed === undefined) continue;
     cards.push({
       date: part.date,
       league: part.league,
       homeTeam: part.homeTeam,
       awayTeam: part.awayTeam,
-      homeCards: part.homeYellow + part.homeRed,
-      awayCards: part.awayYellow + part.awayRed,
+      homeCards: bet365CardPointsProxy(part.homeYellow, part.homeRed),
+      awayCards: bet365CardPointsProxy(part.awayYellow, part.awayRed),
     });
   }
 
@@ -314,43 +278,16 @@ function buildDatasets(observations: RawValue[]) {
   return { corners: [...corners.values()], goals: [...goals.values()], cards };
 }
 
-function labelFor(
-  market: string,
-  participant: string | null,
-  side: string | null,
-  lineRaw: string | null,
-) {
+function labelFor(market: string, participant: string | null, side: string | null, lineRaw: string | null) {
   const numericLine = lineRaw === null ? null : finiteNumber(lineRaw);
   const lineLabel = numericLine === null ? "" : formatBookmakerLine(numericLine);
-  if (market === "corners_match_total") {
-    return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
-  }
-  if (market === "corners_team_total") {
-    return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
-  }
-  if (market === "cards_match_total") {
-    return `Cartões da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
-  }
-  if (market === "cards_team_total") {
-    return `Cartões ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
-  }
-  if (market === "goals_match_total") {
-    return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
-  }
-  if (market === "1x2") {
-    return side === "HOME"
-      ? "Vitória mandante"
-      : side === "AWAY"
-        ? "Vitória visitante"
-        : "Empate";
-  }
-  if (market === "double_chance") {
-    return side === "1X"
-      ? "Dupla chance: 1X"
-      : side === "X2"
-        ? "Dupla chance: X2"
-        : "Dupla chance: 12";
-  }
+  if (market === "corners_match_total") return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+  if (market === "corners_team_total") return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+  if (market === "cards_match_total") return `Cartões da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+  if (market === "cards_team_total") return `Cartões ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+  if (market === "goals_match_total") return `Gols da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
+  if (market === "1x2") return side === "HOME" ? "Vitória mandante" : side === "AWAY" ? "Vitória visitante" : "Empate";
+  if (market === "double_chance") return side === "1X" ? "Dupla chance: 1X" : side === "X2" ? "Dupla chance: X2" : "Dupla chance: 12";
   return market;
 }
 
@@ -367,19 +304,24 @@ function addTotalQuotePair(input: {
   trainingMatches: number;
   modelVersion: string;
   predictionAt: string;
-  startOrdinal: number;
   predictionRows: Record<string, unknown>[];
   candidates: ExperimentalCandidate[];
-}): number {
+}) {
   const anchor = quoteAnchorFor(input.market);
-  if (anchor === null) return input.startOrdinal;
+  if (anchor === null) return;
   const dist = poissonDistribution(input.lambda);
-  let ordinal = input.startOrdinal;
 
   for (const side of ["OVER", "UNDER"] as const) {
-    ordinal += 1;
     const probability = absoluteCountProbability(dist, anchor, side);
-    const id = predictionId(input.runId, input.matchId, input.family, ordinal);
+    const id = experimentalPredictionId({
+      runId: input.runId,
+      matchId: input.matchId,
+      family: input.family,
+      market: input.market,
+      participant: input.participant,
+      side,
+      lineCanonical: anchor,
+    });
     input.predictionRows.push({
       run_id: input.runId,
       match_id: input.matchId,
@@ -423,8 +365,6 @@ function addTotalQuotePair(input: {
       dataStatus: "OK",
     });
   }
-
-  return ordinal;
 }
 
 const prepareSchema = z.object({ runId: z.string().uuid() });
@@ -433,77 +373,36 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => prepareSchema.parse(input))
   .handler(async ({ data }) => {
     const supabase = await db();
-    const { data: run } = await supabase
-      .from("analysis_runs")
-      .select("notes, created_at")
-      .eq("id", data.runId)
-      .single();
+    const { data: run } = await supabase.from("analysis_runs").select("notes, created_at").eq("id", data.runId).single();
     const storedPredictionAt = (run?.notes as { prediction_at?: unknown } | null)?.prediction_at;
-    const predictionAt =
-      typeof storedPredictionAt === "string" && Number.isFinite(Date.parse(storedPredictionAt))
-        ? storedPredictionAt
-        : run?.created_at ?? new Date().toISOString();
+    const predictionAt = typeof storedPredictionAt === "string" && Number.isFinite(Date.parse(storedPredictionAt)) ? storedPredictionAt : run?.created_at ?? new Date().toISOString();
     const predictionDate = predictionAt.slice(0, 10);
 
-    const { data: matches } = await supabase
-      .from("matches")
-      .select("id, raw_partida, home_team, away_team, competition, kickoff_local")
-      .eq("run_id", data.runId)
-      .order("kickoff_local", { ascending: true });
+    const { data: matches } = await supabase.from("matches").select("id, raw_partida, home_team, away_team, competition, kickoff_local").eq("run_id", data.runId).order("kickoff_local", { ascending: true });
     const matchIds = (matches ?? []).map((m) => m.id);
-    if (matchIds.length === 0) {
-      return {
-        candidates: [] as ExperimentalCandidate[],
-        issues: ["Nenhuma partida encontrada na run."],
-        predictionAt,
-      };
-    }
+    if (matchIds.length === 0) return { candidates: [] as ExperimentalCandidate[], issues: ["Nenhuma partida encontrada na run."], predictionAt };
 
     const [{ data: externalIds }, runRaws, historicalRaws] = await Promise.all([
-      supabase
-        .from("match_external_ids")
-        .select("match_id, source, external_id")
-        .in("match_id", matchIds),
+      supabase.from("match_external_ids").select("match_id, source, external_id").in("match_id", matchIds),
       loadRunFiveDollarRawValues(supabase, data.runId),
       loadFiveDollarRawValues(supabase, predictionAt, 365),
     ]);
+    const datasets = buildDatasets(historicalRaws.map((r) => asRecord(r.raw_value)).filter((r): r is RawValue => Boolean(r)));
 
-    const datasets = buildDatasets(
-      historicalRaws
-        .map((r) => asRecord(r.raw_value))
-        .filter((r): r is RawValue => Boolean(r)),
-    );
-
-    await supabase
-      .from("model_predictions")
-      .delete()
-      .eq("run_id", data.runId)
-      .eq("model_status", EXPERIMENTAL_MARKETS_STATUS);
+    await supabase.from("model_predictions").delete().eq("run_id", data.runId).eq("model_status", EXPERIMENTAL_MARKETS_STATUS);
 
     const predictionRows: Record<string, unknown>[] = [];
     const candidates: ExperimentalCandidate[] = [];
     const issues: string[] = [];
+    if (datasets.cards.length > 0) issues.push(`Cartões experimentais: ${CARD_SETTLEMENT_PROXY_CAVEAT}`);
 
     for (const match of matches ?? []) {
-      const homeId = (externalIds ?? []).find(
-        (x) => x.match_id === match.id && x.source === "five_dollar_team_home",
-      )?.external_id;
-      const awayId = (externalIds ?? []).find(
-        (x) => x.match_id === match.id && x.source === "five_dollar_team_away",
-      )?.external_id;
-      const leagueIdRaw = (externalIds ?? []).find(
-        (x) => x.match_id === match.id && x.source === "five_dollar_league",
-      )?.external_id;
-      const leagueId =
-        leagueIdRaw && Number.isFinite(Number(leagueIdRaw)) ? Number(leagueIdRaw) : null;
-      const league = mostFrequentLeague(
-        runRaws as { match_id: string | null; raw_value: unknown }[],
-        match.id,
-      );
-      const matchLabel =
-        match.home_team && match.away_team
-          ? `${match.home_team} x ${match.away_team}`
-          : match.raw_partida;
+      const homeId = (externalIds ?? []).find((x) => x.match_id === match.id && x.source === "five_dollar_team_home")?.external_id;
+      const awayId = (externalIds ?? []).find((x) => x.match_id === match.id && x.source === "five_dollar_team_away")?.external_id;
+      const leagueIdRaw = (externalIds ?? []).find((x) => x.match_id === match.id && x.source === "five_dollar_league")?.external_id;
+      const leagueId = leagueIdRaw && Number.isFinite(Number(leagueIdRaw)) ? Number(leagueIdRaw) : null;
+      const league = mostFrequentLeague(runRaws as { match_id: string | null; raw_value: unknown }[], match.id);
+      const matchLabel = match.home_team && match.away_team ? `${match.home_team} x ${match.away_team}` : match.raw_partida;
       const competition = match.competition ?? "";
 
       if (!homeId || !awayId || !league) {
@@ -511,200 +410,63 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         continue;
       }
 
-      const rollingStartDate = new Date(
-        Date.parse(predictionDate + "T00:00:00Z") - 365 * 86400_000,
-      )
-        .toISOString()
-        .slice(0, 10);
-      const crossLeague =
-        isCrossLeagueCompetitionName(match.competition) || isCrossLeagueLeagueKey(league);
+      const rollingStartDate = new Date(Date.parse(predictionDate + "T00:00:00Z") - 365 * 86400_000).toISOString().slice(0, 10);
+      const crossLeague = isCrossLeagueCompetitionName(match.competition) || isCrossLeagueLeagueKey(league);
 
-      const rollingCorners = datasets.corners.filter(
-        (r) => r.date < predictionDate && r.date >= rollingStartDate,
-      );
-      let cornerForecast: {
-        lambdaHome: number;
-        lambdaAway: number;
-        lambdaTotal: number;
-        sampleSize: number;
-      } | null = null;
+      const rollingCorners = datasets.corners.filter((r) => r.date < predictionDate && r.date >= rollingStartDate);
+      let cornerForecast: { lambdaHome: number; lambdaAway: number; lambdaTotal: number; sampleSize: number } | null = null;
       let cornerTrainingMatches = 0;
       let cornerModelVersion = CORNERS_MODEL_VERSION;
-
       if (crossLeague) {
-        const forecast = crossLeagueCornersForecast(rollingCorners, {
-          homeTeam: String(homeId),
-          awayTeam: String(awayId),
-        });
+        const forecast = crossLeagueCornersForecast(rollingCorners, { homeTeam: String(homeId), awayTeam: String(awayId) });
         if (forecast) {
           cornerForecast = forecast;
           cornerTrainingMatches = forecast.trainingMatches;
           cornerModelVersion = `${CORNERS_MODEL_VERSION}+${CROSS_LEAGUE_MODEL_SUFFIX}`;
-        } else {
-          issues.push(`${matchLabel}: escanteios continentais sem amostra doméstica suficiente para os dois clubes.`);
-        }
+        } else issues.push(`${matchLabel}: escanteios continentais sem amostra doméstica suficiente para os dois clubes.`);
       } else {
         const training = rollingCorners.filter((r) => r.league === league);
         if (training.length >= MIN_EXPERIMENTAL_MATCHES) {
-          const params = fitCornersBaseline(training);
-          const forecast = predictCorners(params, {
-            league,
-            homeTeam: String(homeId),
-            awayTeam: String(awayId),
-          });
+          const forecast = predictCorners(fitCornersBaseline(training), { league, homeTeam: String(homeId), awayTeam: String(awayId) });
           if (forecast.sampleSize > 0) {
             cornerForecast = forecast;
             cornerTrainingMatches = training.length;
           }
         }
       }
-
       if (cornerForecast && cornerForecast.sampleSize > 0) {
-        let ordinal = 0;
-        ordinal = addTotalQuotePair({
-          runId: data.runId,
-          matchId: match.id,
-          matchLabel,
-          competition,
-          family: "CORNERS",
-          market: "corners_match_total",
-          participant: null,
-          lambda: cornerForecast.lambdaTotal,
-          sampleSize: cornerForecast.sampleSize,
-          trainingMatches: cornerTrainingMatches,
-          modelVersion: cornerModelVersion,
-          predictionAt,
-          startOrdinal: ordinal,
-          predictionRows,
-          candidates,
-        });
-        ordinal = addTotalQuotePair({
-          runId: data.runId,
-          matchId: match.id,
-          matchLabel,
-          competition,
-          family: "CORNERS",
-          market: "corners_team_total",
-          participant: match.home_team ?? "Mandante",
-          lambda: cornerForecast.lambdaHome,
-          sampleSize: cornerForecast.sampleSize,
-          trainingMatches: cornerTrainingMatches,
-          modelVersion: cornerModelVersion,
-          predictionAt,
-          startOrdinal: ordinal,
-          predictionRows,
-          candidates,
-        });
-        addTotalQuotePair({
-          runId: data.runId,
-          matchId: match.id,
-          matchLabel,
-          competition,
-          family: "CORNERS",
-          market: "corners_team_total",
-          participant: match.away_team ?? "Visitante",
-          lambda: cornerForecast.lambdaAway,
-          sampleSize: cornerForecast.sampleSize,
-          trainingMatches: cornerTrainingMatches,
-          modelVersion: cornerModelVersion,
-          predictionAt,
-          startOrdinal: ordinal,
-          predictionRows,
-          candidates,
-        });
+        for (const spec of [
+          { market: "corners_match_total" as const, participant: null, lambda: cornerForecast.lambdaTotal },
+          { market: "corners_team_total" as const, participant: match.home_team ?? "Mandante", lambda: cornerForecast.lambdaHome },
+          { market: "corners_team_total" as const, participant: match.away_team ?? "Visitante", lambda: cornerForecast.lambdaAway },
+        ]) addTotalQuotePair({ runId: data.runId, matchId: match.id, matchLabel, competition, family: "CORNERS", ...spec, sampleSize: cornerForecast.sampleSize, trainingMatches: cornerTrainingMatches, modelVersion: cornerModelVersion, predictionAt, predictionRows, candidates });
       }
 
-      const rollingCards = datasets.cards.filter(
-        (r) => r.date < predictionDate && r.date >= rollingStartDate,
-      );
+      const rollingCards = datasets.cards.filter((r) => r.date < predictionDate && r.date >= rollingStartDate);
       if (crossLeague) {
         issues.push(`${matchLabel}: cartões continentais aguardam normalização entre ligas; mercado não publicado nesta partida.`);
       } else {
         const cardTraining = rollingCards.filter((r) => r.league === league);
         if (cardTraining.length >= MIN_EXPERIMENTAL_MATCHES) {
-          const params = fitCardsBaseline(cardTraining);
-          const forecast = predictCards(params, {
-            league,
-            homeTeam: String(homeId),
-            awayTeam: String(awayId),
-          });
+          const forecast = predictCards(fitCardsBaseline(cardTraining), { league, homeTeam: String(homeId), awayTeam: String(awayId) });
           if (forecast.sampleSize > 0) {
-            let ordinal = 0;
-            ordinal = addTotalQuotePair({
-              runId: data.runId,
-              matchId: match.id,
-              matchLabel,
-              competition,
-              family: "CARDS",
-              market: "cards_match_total",
-              participant: null,
-              lambda: forecast.lambdaTotal,
-              sampleSize: forecast.sampleSize,
-              trainingMatches: cardTraining.length,
-              modelVersion: CARDS_MODEL_VERSION,
-              predictionAt,
-              startOrdinal: ordinal,
-              predictionRows,
-              candidates,
-            });
-            ordinal = addTotalQuotePair({
-              runId: data.runId,
-              matchId: match.id,
-              matchLabel,
-              competition,
-              family: "CARDS",
-              market: "cards_team_total",
-              participant: match.home_team ?? "Mandante",
-              lambda: forecast.lambdaHome,
-              sampleSize: forecast.sampleSize,
-              trainingMatches: cardTraining.length,
-              modelVersion: CARDS_MODEL_VERSION,
-              predictionAt,
-              startOrdinal: ordinal,
-              predictionRows,
-              candidates,
-            });
-            addTotalQuotePair({
-              runId: data.runId,
-              matchId: match.id,
-              matchLabel,
-              competition,
-              family: "CARDS",
-              market: "cards_team_total",
-              participant: match.away_team ?? "Visitante",
-              lambda: forecast.lambdaAway,
-              sampleSize: forecast.sampleSize,
-              trainingMatches: cardTraining.length,
-              modelVersion: CARDS_MODEL_VERSION,
-              predictionAt,
-              startOrdinal: ordinal,
-              predictionRows,
-              candidates,
-            });
+            for (const spec of [
+              { market: "cards_match_total" as const, participant: null, lambda: forecast.lambdaTotal },
+              { market: "cards_team_total" as const, participant: match.home_team ?? "Mandante", lambda: forecast.lambdaHome },
+              { market: "cards_team_total" as const, participant: match.away_team ?? "Visitante", lambda: forecast.lambdaAway },
+            ]) addTotalQuotePair({ runId: data.runId, matchId: match.id, matchLabel, competition, family: "CARDS", ...spec, sampleSize: forecast.sampleSize, trainingMatches: cardTraining.length, modelVersion: CARDS_MODEL_VERSION, predictionAt, predictionRows, candidates });
           }
         }
       }
 
-      const rollingGoals = datasets.goals.filter(
-        (r) => r.date < predictionDate && r.date >= rollingStartDate,
-      );
-      let goalForecast: {
-        lambdaHome: number;
-        lambdaAway: number;
-        lambdaTotal: number;
-        sampleSize: number;
-      } | null = null;
+      const rollingGoals = datasets.goals.filter((r) => r.date < predictionDate && r.date >= rollingStartDate);
+      let goalForecast: { lambdaHome: number; lambdaAway: number; lambdaTotal: number; sampleSize: number } | null = null;
       let goalTrainingMatches = 0;
       let adjustedLambdaHome = 0;
       let adjustedLambdaAway = 0;
       let goalModelVersion = GOALS_MODEL_VERSION;
-
       if (crossLeague) {
-        const forecast = crossLeagueGoalForecast(rollingGoals, {
-          homeTeam: String(homeId),
-          awayTeam: String(awayId),
-          referenceDate: predictionDate,
-        });
+        const forecast = crossLeagueGoalForecast(rollingGoals, { homeTeam: String(homeId), awayTeam: String(awayId), referenceDate: predictionDate });
         if (!forecast) {
           issues.push(`${matchLabel}: gols continentais sem pelo menos ${MIN_EXPERIMENTAL_MATCHES} partidas domésticas válidas para cada clube nos últimos 365 dias.`);
           continue;
@@ -721,131 +483,55 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
           issues.push(`${matchLabel}: gols com ${goalTraining.length} partida(s) nos últimos 365 dias; mínimo experimental ${MIN_EXPERIMENTAL_MATCHES}.`);
           continue;
         }
-        const goalParams = fitGoalsBaseline(goalTraining, predictionDate);
-        goalForecast = predictGoals(goalParams, {
-          league,
-          homeTeam: String(homeId),
-          awayTeam: String(awayId),
-        });
+        goalForecast = predictGoals(fitGoalsBaseline(goalTraining, predictionDate), { league, homeTeam: String(homeId), awayTeam: String(awayId) });
         goalTrainingMatches = goalTraining.length;
         if (goalForecast.sampleSize < 1) {
           issues.push(`${matchLabel}: pelo menos um time não possui partida própria de gols nos últimos 365 dias.`);
           continue;
         }
-
-        const eloForecast = await eloAdjustGoalForecast({
-          runId: data.runId,
-          matchId: match.id,
-          leagueKey: league,
-          leagueId,
-          homeTeamId: Number(homeId),
-          awayTeamId: Number(awayId),
-          predictionAt,
-          lambdaHome: goalForecast.lambdaHome,
-          lambdaAway: goalForecast.lambdaAway,
-        });
+        const eloForecast = await eloAdjustGoalForecast({ runId: data.runId, matchId: match.id, leagueKey: league, leagueId, homeTeamId: Number(homeId), awayTeamId: Number(awayId), predictionAt, lambdaHome: goalForecast.lambdaHome, lambdaAway: goalForecast.lambdaAway });
         adjustedLambdaHome = eloForecast.lambdaHome;
         adjustedLambdaAway = eloForecast.lambdaAway;
-        if (!eloForecast.applied) {
-          issues.push(`${matchLabel}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
-        } else if (eloForecast.modelVersionSuffix) {
-          goalModelVersion = `${GOALS_MODEL_VERSION}+${eloForecast.modelVersionSuffix}`;
-        }
+        if (!eloForecast.applied) issues.push(`${matchLabel}: ${eloForecast.reason} Mantido o baseline de gols sem ajuste Elo.`);
+        else if (eloForecast.modelVersionSuffix) goalModelVersion = `${GOALS_MODEL_VERSION}+${eloForecast.modelVersionSuffix}`;
       }
-
       if (!goalForecast) continue;
 
-      const projections = buildGoalMarketProjections({
-        homeTeam: match.home_team ?? "Mandante",
-        awayTeam: match.away_team ?? "Visitante",
-        lambdaHome: adjustedLambdaHome,
-        lambdaAway: adjustedLambdaAway,
-      });
-      const familyOrdinals = new Map<ExperimentalMarketFamily, number>();
-
+      const projections = buildGoalMarketProjections({ homeTeam: match.home_team ?? "Mandante", awayTeam: match.away_team ?? "Visitante", lambdaHome: adjustedLambdaHome, lambdaAway: adjustedLambdaAway });
       for (const projection of projections) {
-        const ordinal = (familyOrdinals.get(projection.family) ?? 0) + 1;
-        familyOrdinals.set(projection.family, ordinal);
-        const id = predictionId(data.runId, match.id, projection.family, ordinal);
+        const id = experimentalPredictionId({ runId: data.runId, matchId: match.id, family: projection.family, market: projection.market, participant: projection.participant, side: projection.side, lineCanonical: projection.lineCanonical });
         const isGoalTotal = projection.market === "goals_match_total";
         predictionRows.push({
-          run_id: data.runId,
-          match_id: match.id,
-          prediction_id: id,
-          market: projection.market,
-          participant: projection.participant,
-          side: projection.side,
-          line_raw: projection.lineRaw,
-          line_canonical: projection.lineCanonical,
-          model_probability: projection.probability,
-          p_cal: null,
+          run_id: data.runId, match_id: match.id, prediction_id: id, market: projection.market,
+          participant: projection.participant, side: projection.side, line_raw: projection.lineRaw,
+          line_canonical: projection.lineCanonical, model_probability: projection.probability, p_cal: null,
           conservative_probability: null,
-          outcome_distribution: isGoalTotal
-            ? { lambda: adjustedLambdaHome + adjustedLambdaAway }
-            : {},
-          model_version: goalModelVersion,
-          calibration_version: null,
-          model_status: EXPERIMENTAL_MARKETS_STATUS,
-          data_status: "OK",
-          prediction_at: predictionAt,
+          outcome_distribution: isGoalTotal ? { lambda: adjustedLambdaHome + adjustedLambdaAway } : {},
+          model_version: goalModelVersion, calibration_version: null, model_status: EXPERIMENTAL_MARKETS_STATUS,
+          data_status: "OK", prediction_at: predictionAt,
         });
         candidates.push({
-          predictionId: id,
-          matchId: match.id,
-          matchLabel,
-          competition,
-          family: projection.family,
-          market: projection.market,
-          marketLabel: projection.marketLabel,
-          participant: projection.participant,
-          side: projection.side,
-          lineRaw: projection.lineRaw,
-          lineCanonical: projection.lineCanonical,
-          contractType: projection.contractType,
-          probabilityExperimental: projection.probability,
-          fairOddExperimental: projection.fairOdd,
-          sampleSize: goalForecast.sampleSize,
-          trainingMatches: goalTrainingMatches,
-          quoteAnchor: true,
-          modelVersion: goalModelVersion,
-          modelStatus: EXPERIMENTAL_MARKETS_STATUS,
-          productionStatus: PRODUCTION_STATUS,
-          dataStatus: "OK",
+          predictionId: id, matchId: match.id, matchLabel, competition, family: projection.family,
+          market: projection.market, marketLabel: projection.marketLabel, participant: projection.participant,
+          side: projection.side, lineRaw: projection.lineRaw, lineCanonical: projection.lineCanonical,
+          contractType: projection.contractType, probabilityExperimental: projection.probability,
+          fairOddExperimental: projection.fairOdd, sampleSize: goalForecast.sampleSize,
+          trainingMatches: goalTrainingMatches, quoteAnchor: true, modelVersion: goalModelVersion,
+          modelStatus: EXPERIMENTAL_MARKETS_STATUS, productionStatus: PRODUCTION_STATUS, dataStatus: "OK",
         });
       }
     }
 
     for (let i = 0; i < predictionRows.length; i += 200) {
-      const { error } = await supabase
-        .from("model_predictions")
-        .insert(predictionRows.slice(i, i + 200) as never[]);
-      if (error) {
-        throw new Error(`Falha ao gravar model_predictions experimentais: ${error.message}`);
-      }
+      const { error } = await supabase.from("model_predictions").insert(predictionRows.slice(i, i + 200) as never[]);
+      if (error) throw new Error(`Falha ao gravar model_predictions experimentais: ${error.message}`);
     }
-
-    return {
-      candidates,
-      issues,
-      predictionAt,
-      modelStatus: EXPERIMENTAL_MARKETS_STATUS,
-      productionStatus: PRODUCTION_STATUS,
-      calibrationVersion: null,
-    };
+    return { candidates, issues, predictionAt, modelStatus: EXPERIMENTAL_MARKETS_STATUS, productionStatus: PRODUCTION_STATUS, calibrationVersion: null };
   });
 
 const oddsSchema = z.object({
   runId: z.string().uuid(),
-  entries: z
-    .array(
-      z.object({
-        predictionId: z.string().min(1).max(180),
-        odd: z.number().finite().gt(1).lt(1000),
-        lineAtEntry: z.number().finite().nullable(),
-      }),
-    )
-    .min(1)
-    .max(1000),
+  entries: z.array(z.object({ predictionId: z.string().min(1).max(180), odd: z.number().finite().gt(1).lt(1000), lineAtEntry: z.number().finite().nullable() })).min(1).max(1000),
 });
 
 type EnrichedValueResult = ValueResult & {
@@ -867,19 +553,10 @@ function lambdaFromPrediction(row: PredictionForAnalysis): number | null {
   return finiteNumber(distribution?.["lambda"]);
 }
 
-function buildDirectionAssessments(
-  predictions: PredictionForAnalysis[],
-  evaluations: EnrichedValueResult[],
-): DirectionAssessment[] {
-  const totals = predictions.filter(
-    (row) =>
-      row.match_id &&
-      quoteAnchorFor(row.market) !== null &&
-      (row.side === "OVER" || row.side === "UNDER"),
-  );
+function buildDirectionAssessments(predictions: PredictionForAnalysis[], evaluations: EnrichedValueResult[]): DirectionAssessment[] {
+  const totals = predictions.filter((row) => row.match_id && quoteAnchorFor(row.market) !== null && (row.side === "OVER" || row.side === "UNDER"));
   const resultByPrediction = new Map(evaluations.map((row) => [row.predictionId, row]));
   const groups = new Map<string, PredictionForAnalysis[]>();
-
   for (const row of totals) {
     const key = `${row.match_id}|${row.market}|${row.participant ?? "MATCH"}`;
     const group = groups.get(key) ?? [];
@@ -894,34 +571,23 @@ function buildDirectionAssessments(
     if (!over || !under || !over.match_id) continue;
     const anchor = quoteAnchorFor(over.market);
     if (anchor === null) continue;
-
     const overProbability = finiteNumber(over.model_probability) ?? 0;
     const underProbability = finiteNumber(under.model_probability) ?? 0;
-    const evaluated = [
-      resultByPrediction.get(over.prediction_id),
-      resultByPrediction.get(under.prediction_id),
-    ].filter((row): row is EnrichedValueResult => Boolean(row));
-    const valueRows = evaluated
-      .filter((row) => row.valueStatus === "TEM_VALOR" && row.executionStatus === "EXECUTAVEL")
-      .sort((a, b) => (b.evCons ?? -Infinity) - (a.evCons ?? -Infinity));
+    const evaluated = [resultByPrediction.get(over.prediction_id), resultByPrediction.get(under.prediction_id)].filter((row): row is EnrichedValueResult => Boolean(row));
+    const valueRows = evaluated.filter((row) => row.valueStatus === "TEM_VALOR" && row.executionStatus === "EXECUTAVEL").sort((a, b) => (b.evCons ?? -Infinity) - (a.evCons ?? -Infinity));
 
     let direction: DirectionAssessment["direction"] = "NEUTRAL";
     let basis: DirectionAssessment["basis"] = "NEUTRAL";
     let selectedSide: "OVER" | "UNDER" | null = null;
     const bestValue = valueRows[0] ?? null;
-
     if (bestValue && (bestValue.side === "OVER" || bestValue.side === "UNDER")) {
       selectedSide = bestValue.side;
       direction = selectedSide === "OVER" ? "VALUE_OVER" : "VALUE_UNDER";
       basis = "VALUE";
     } else if (overProbability >= MODEL_LEAN_THRESHOLD) {
-      selectedSide = "OVER";
-      direction = "MODEL_LEAN_OVER";
-      basis = "MODEL_ONLY";
+      selectedSide = "OVER"; direction = "MODEL_LEAN_OVER"; basis = "MODEL_ONLY";
     } else if (underProbability >= MODEL_LEAN_THRESHOLD) {
-      selectedSide = "UNDER";
-      direction = "MODEL_LEAN_UNDER";
-      basis = "MODEL_ONLY";
+      selectedSide = "UNDER"; direction = "MODEL_LEAN_UNDER"; basis = "MODEL_ONLY";
     }
 
     const source = selectedSide === "OVER" ? over : selectedSide === "UNDER" ? under : null;
@@ -932,35 +598,16 @@ function buildDirectionAssessments(
       for (const line of referenceLinesFor(source.market, selectedSide)) {
         const probability = absoluteCountProbability(dist, line, selectedSide);
         referenceAlternatives.push({
-          matchId: over.match_id,
-          market: source.market,
-          participant: source.participant,
-          side: selectedSide,
-          lineCanonical: line,
-          marketLabel: labelFor(source.market, source.participant, selectedSide, String(line)),
-          probabilityExperimental: probability,
-          fairOdd: probability > 0 ? 1 / probability : null,
+          matchId: over.match_id, market: source.market, participant: source.participant, side: selectedSide,
+          lineCanonical: line, marketLabel: labelFor(source.market, source.participant, selectedSide, String(line)),
+          probabilityExperimental: probability, fairOdd: probability > 0 ? 1 / probability : null,
           minOddTarget: probability > 0 ? (1 + EV_TARGET) / probability : null,
-          requiresRealOdd: true,
-          valueStatus: "NAO_AVALIADO",
+          requiresRealOdd: true, valueStatus: "NAO_AVALIADO",
         });
       }
     }
-
-    assessments.push({
-      matchId: over.match_id,
-      market: over.market,
-      participant: over.participant,
-      anchorLine: anchor,
-      direction,
-      basis,
-      overProbability,
-      underProbability,
-      bestValuePredictionId: bestValue?.predictionId ?? null,
-      referenceAlternatives,
-    });
+    assessments.push({ matchId: over.match_id, market: over.market, participant: over.participant, anchorLine: anchor, direction, basis, overProbability, underProbability, bestValuePredictionId: bestValue?.predictionId ?? null, referenceAlternatives });
   }
-
   return assessments;
 }
 
@@ -969,19 +616,10 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const supabase = await db();
     const [{ data: predictions }, { data: run }] = await Promise.all([
-      supabase
-        .from("model_predictions")
-        .select(
-          "prediction_id, market, participant, side, line_raw, line_canonical, model_probability, outcome_distribution, model_status, data_status, match_id, model_version",
-        )
-        .eq("run_id", data.runId)
-        .eq("model_status", EXPERIMENTAL_MARKETS_STATUS),
+      supabase.from("model_predictions").select("prediction_id, market, participant, side, line_raw, line_canonical, model_probability, outcome_distribution, model_status, data_status, match_id, model_version").eq("run_id", data.runId).eq("model_status", EXPERIMENTAL_MARKETS_STATUS),
       supabase.from("analysis_runs").select("target_date").eq("id", data.runId).single(),
     ]);
-
-    const quotePredictions = filterQuoteAnchorPredictions(
-      (predictions ?? []) as PredictionForAnalysis[],
-    );
+    const quotePredictions = filterQuoteAnchorPredictions((predictions ?? []) as PredictionForAnalysis[]);
     const byId = new Map(quotePredictions.map((p) => [p.prediction_id, p]));
     const results: EnrichedValueResult[] = [];
 
@@ -989,101 +627,54 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
       const p = byId.get(entry.predictionId);
       if (!p) continue;
       const modelProbability = finiteNumber(p.model_probability) ?? 0;
-      const input: ValueInput = {
-        candidateId: p.prediction_id,
-        predictionId: p.prediction_id,
-        contractType: "BINARY",
-        bookmaker: "bet365_br",
-        odd: entry.odd,
-        lineAtEntry: entry.lineAtEntry,
-        lineCanonical: p.line_canonical === null ? null : Number(p.line_canonical),
-        pCons: modelProbability,
-        outcomeDistribution: null,
-        // Experimental quotes are eligible for pricing whenever the experimental
-        // probability exists. A raw probability threshold must not pre-block EV.
-        published: true,
-        modelStatus: EXPERIMENTAL_MARKETS_STATUS,
-        dataStatus: p.data_status,
-      };
-      const result = evaluateValue(input);
+      const result = evaluateValue({
+        candidateId: p.prediction_id, predictionId: p.prediction_id, contractType: "BINARY", bookmaker: "bet365_br",
+        odd: entry.odd, lineAtEntry: entry.lineAtEntry,
+        lineCanonical: p.line_canonical === null ? null : Number(p.line_canonical), pCons: modelProbability,
+        outcomeDistribution: null, published: true, modelStatus: EXPERIMENTAL_MARKETS_STATUS, dataStatus: p.data_status,
+      });
       results.push({
-        ...result,
-        matchId: p.match_id,
-        market: p.market,
-        marketLabel: labelFor(p.market, p.participant, p.side, p.line_raw),
-        participant: p.participant,
-        side: p.side,
-        lineCanonical: p.line_canonical === null ? null : Number(p.line_canonical),
-        probabilityExperimental: modelProbability,
-        modelVersion: p.model_version,
-        family: familyForMarket(p.market),
-        modelStatus: EXPERIMENTAL_MARKETS_STATUS,
-        productionStatus: PRODUCTION_STATUS,
+        ...result, matchId: p.match_id, market: p.market, marketLabel: labelFor(p.market, p.participant, p.side, p.line_raw),
+        participant: p.participant, side: p.side, lineCanonical: p.line_canonical === null ? null : Number(p.line_canonical),
+        probabilityExperimental: modelProbability, modelVersion: p.model_version, family: familyForMarket(p.market),
+        modelStatus: EXPERIMENTAL_MARKETS_STATUS, productionStatus: PRODUCTION_STATUS,
       });
     }
 
     const targetDate = run?.target_date ?? null;
     const selectionLimit = selectionLimitForDate(targetDate);
-    const selected = finalSelection(results).slice(0, selectionLimit) as EnrichedValueResult[];
+    const portfolio = selectExperimentalPortfolio(results, selectionLimit);
+    const selected = portfolio.selected as EnrichedValueResult[];
 
     if (selected.length > 0) {
-      const selectedMatchIds = selected
-        .map((r) => r.matchId)
-        .filter((id): id is string => Boolean(id));
-      const { data: matches } = await supabase
-        .from("matches")
-        .select("id, raw_partida, home_team, away_team, competition")
-        .in("id", selectedMatchIds);
+      const selectedMatchIds = selected.map((r) => r.matchId).filter((id): id is string => Boolean(id));
+      const { data: matches } = await supabase.from("matches").select("id, raw_partida, home_team, away_team, competition").in("id", selectedMatchIds);
       const matchById = new Map((matches ?? []).map((m) => [m.id, m]));
       const trackingRows = selected.map((r) => {
         const match = r.matchId ? matchById.get(r.matchId) : null;
-        const matchLabel = match
-          ? match.home_team && match.away_team
-            ? `${match.home_team} x ${match.away_team}`
-            : match.raw_partida
-          : "—";
+        const matchLabel = match ? match.home_team && match.away_team ? `${match.home_team} x ${match.away_team}` : match.raw_partida : "—";
         return {
-          run_id: data.runId,
-          match_id: r.matchId,
-          prediction_id: r.predictionId,
-          target_date: targetDate,
-          match_label: matchLabel,
-          competition: match?.competition ?? null,
-          market_family: r.family,
-          market: r.market,
-          market_label: r.marketLabel,
-          participant: r.participant,
-          side: r.side,
-          line_canonical: r.lineCanonical,
-          model_version: r.modelVersion ?? "unknown",
-          model_status: EXPERIMENTAL_MARKETS_STATUS,
-          model_probability: r.probabilityExperimental,
-          fair_odd: r.fairOdd,
-          entry_odd: r.odd,
-          min_odd_target: r.minOddTarget,
-          edge: r.edgeCons,
-          expected_value: r.evCons,
-          result: "PENDING",
+          run_id: data.runId, match_id: r.matchId, prediction_id: r.predictionId, target_date: targetDate,
+          match_label: matchLabel, competition: match?.competition ?? null, market_family: r.family, market: r.market,
+          market_label: r.marketLabel, participant: r.participant, side: r.side, line_canonical: r.lineCanonical,
+          model_version: r.modelVersion ?? "unknown", model_status: EXPERIMENTAL_MARKETS_STATUS,
+          model_probability: r.probabilityExperimental, fair_odd: r.fairOdd, entry_odd: r.odd,
+          min_odd_target: r.minOddTarget, edge: r.edgeCons, expected_value: r.evCons, result: "PENDING",
           updated_at: new Date().toISOString(),
         };
       });
-      const { error } = await trackingTable(supabase).upsert(trackingRows, {
-        onConflict: "run_id,prediction_id",
-      });
+      const { error } = await trackingTable(supabase).upsert(trackingRows, { onConflict: "run_id,prediction_id" });
       if (error) throw new Error(`Falha ao registrar ledger experimental: ${error.message}`);
     }
 
     const selectedIds = new Set(selected.map((r) => r.predictionId));
     const directionAssessments = buildDirectionAssessments(quotePredictions, results);
-    const referenceAlternatives = directionAssessments.flatMap(
-      (assessment) => assessment.referenceAlternatives,
-    );
-
     return {
       evaluations: results.map((r) => ({ ...r, selected: selectedIds.has(r.predictionId) })),
       selections: selected,
+      correlatedAlternates: portfolio.correlatedAlternates,
       directionAssessments,
-      referenceAlternatives,
+      referenceAlternatives: directionAssessments.flatMap((assessment) => assessment.referenceAlternatives),
       selectionLimit,
       targetDate,
       modelStatus: EXPERIMENTAL_MARKETS_STATUS,

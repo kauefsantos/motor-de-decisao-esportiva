@@ -13,6 +13,8 @@ export type TotalsPolicy = {
   under: readonly number[];
 };
 
+export const EXPERIMENTAL_MARKET_POLICY_VERSION = "MP2";
+
 export const EXPERIMENTAL_TOTAL_MARKET_POLICY: Record<TotalsMarket, TotalsPolicy> = {
   corners_match_total: {
     anchor: 9.5,
@@ -75,6 +77,22 @@ export function referenceLinesFor(market: string, side: string | null): readonly
   return ladderFor(market, side).filter((line) => Math.abs(line - policy.anchor) > 1e-9);
 }
 
+export function isAllowedExperimentalContract(input: {
+  market: string;
+  side: string | null;
+  lineCanonical: number | null;
+}): boolean {
+  const outcomeSides = OUTCOME_SIDES[input.market];
+  if (outcomeSides) {
+    return input.lineCanonical === null && input.side !== null && outcomeSides.includes(input.side);
+  }
+  if (input.side !== "OVER" && input.side !== "UNDER") return false;
+  if (input.lineCanonical === null) return false;
+  return ladderFor(input.market, input.side).some(
+    (line) => Math.abs(line - input.lineCanonical!) <= 1e-9,
+  );
+}
+
 export function isQuoteAnchorPrediction(input: {
   market: string;
   side: string | null;
@@ -102,6 +120,37 @@ export function filterQuoteAnchorPredictions<T extends {
       lineCanonical: row.line_canonical === null ? null : Number(row.line_canonical),
     }),
   );
+}
+
+function fnv1a64(value: string): string {
+  let hash = 14695981039346656037n;
+  const prime = 1099511628211n;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= BigInt(value.charCodeAt(i));
+    hash = BigInt.asUintN(64, hash * prime);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+/** Immutable experimental identity: policy version + exact contract, never ordinal. */
+export function experimentalPredictionId(input: {
+  runId: string;
+  matchId: string;
+  family: string;
+  market: string;
+  participant: string | null;
+  side: string | null;
+  lineCanonical: number | null;
+}): string {
+  const contractKey = [
+    EXPERIMENTAL_MARKET_POLICY_VERSION,
+    input.family,
+    input.market,
+    input.participant ?? "MATCH",
+    input.side ?? "NONE",
+    input.lineCanonical === null ? "NO_LINE" : input.lineCanonical.toFixed(4),
+  ].join("|");
+  return `EXP-${EXPERIMENTAL_MARKET_POLICY_VERSION}-${input.family}-${input.runId.slice(0, 6)}-${input.matchId.slice(0, 6)}-${fnv1a64(contractKey)}`;
 }
 
 export function formatBookmakerLine(line: number): string {
