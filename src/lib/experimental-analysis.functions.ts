@@ -204,9 +204,11 @@ function buildDirectionAssessments(predictions: PredictionForAnalysis[], evaluat
 
 export const analyzeExperimentalMarketsOddsPersisted = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => oddsSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const supabase = supabaseAdmin as any;
+    const { assertRunOwner } = await import("./authorization.server");
+    await assertRunOwner(supabase, context.userId, data.runId);
 
     const [{ data: predictions }, { data: run }, { data: matches }] = await Promise.all([
       supabase.from("model_predictions")
