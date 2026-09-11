@@ -1,7 +1,9 @@
 -- Backend quantitative/API round 3.
--- Persist closing-line evidence and diagnostic 5Dollar corner/card standings.
+-- Persist opening/closing evidence and diagnostic 5Dollar corner/card standings.
 
 ALTER TABLE public.experimental_bet_tracking
+  ADD COLUMN IF NOT EXISTS opening_odd numeric,
+  ADD COLUMN IF NOT EXISTS opening_line numeric,
   ADD COLUMN IF NOT EXISTS closing_line numeric,
   ADD COLUMN IF NOT EXISTS closing_stage text,
   ADD COLUMN IF NOT EXISTS clv_pct numeric,
@@ -10,6 +12,10 @@ ALTER TABLE public.experimental_bet_tracking
   ADD COLUMN IF NOT EXISTS closing_fetched_at timestamptz,
   ADD COLUMN IF NOT EXISTS closing_source text;
 
+COMMENT ON COLUMN public.experimental_bet_tracking.opening_odd IS
+  'Bet365 opening price for the same contract when the Pro snapshot exposes it; diagnostic only.';
+COMMENT ON COLUMN public.experimental_bet_tracking.opening_line IS
+  'Bet365 opening line for the market. Never compare its price to another total line as if it were the same contract.';
 COMMENT ON COLUMN public.experimental_bet_tracking.clv_pct IS
   'Closing-line value as entry_odd / closing_odd - 1. Positive means the accepted price beat the same-contract Bet365 closing price.';
 COMMENT ON COLUMN public.experimental_bet_tracking.clv_implied_delta IS
