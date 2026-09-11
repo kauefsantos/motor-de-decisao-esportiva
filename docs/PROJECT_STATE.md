@@ -57,6 +57,8 @@ Após a integração do Elo hierárquico, uma rodada adicional corrigiu a semân
 - autenticação mobile/standalone persiste a sessão e exige nova autenticação após 30 dias; esse temporizador é apenas UX e não substitui a validação Google/allowlist e das server functions;
 - identidade visual instalada com ícones próprios do Bet Value em 32, 180, 192 e 512 px, incluindo `apple-touch-icon` e manifest;
 - metadados de instalação e `site.webmanifest` para uso em modo standalone ao adicionar a aplicação à Tela de Início do iOS;
+- a etapa de preparação não depende mais da aba permanecer aberta: o telefone enfileira o job e a tela apenas acompanha o estado persistido no servidor;
+- Web Push no PWA instalado pode avisar quando a preparação termina; a permissão só é pedida por ação explícita do usuário e negar avisos não bloqueia a análise;
 - mojibake comum de UTF-8 é reparado na ingestão de CSV e também na exibição de competições históricas, evitando textos como `ItÃ¡lia`;
 - nenhuma pendência estrutural P0–P2 conhecida.
 
@@ -172,6 +174,22 @@ A fonte agregada da 5Dollar não permite reproduzir perfeitamente exclusões de 
 - limite diário protegido também no banco;
 - `DECLINED` libera slot;
 - apostas históricas não são recalculadas retroativamente quando o modelo evolui.
+
+## Análise em segundo plano e notificações
+
+A preparação `RESOLVE → COLLECT → CLEAN → FEATURES → PROBABILITY → GATES → MARKETS` é persistida em `analysis_jobs` e executada no servidor. O upload cria o run, enfileira o job e só depois navega para a tela de processamento.
+
+- PostgreSQL/`pg_net` dispara `/api/analysis-worker` usando um `dispatch_token` aleatório por job, mantido fora do browser;
+- cada chamada do worker executa no máximo uma etapa e re-enfileira a seguinte, reduzindo risco de timeout de uma requisição longa;
+- `analysis-worker-watch` em `pg_cron` roda a cada minuto como backstop para jobs enfileirados ou travados;
+- jobs `RUNNING` sem heartbeat por 20 minutos podem ser retomados; etapas já registradas em `completed_steps` não são repetidas;
+- a tela de processamento consulta `analysis_runs`, `analysis_jobs` e `pipeline_logs`; ao reabrir o app, reconstrói o progresso real e segue para odds quando o run chega a `READY_FOR_ODDS`;
+- subscriptions Web Push ficam em `push_subscriptions`, com RLS por `auth.uid()`; entrega é feita somente no servidor;
+- o service worker `public/sw.js` recebe o evento `push`, exibe uma notificação visível e abre a análise ao toque;
+- a chave VAPID privada é derivada apenas no servidor a partir de segredo já existente, com separação de domínio; somente a chave pública é enviada ao browser;
+- Web Push é um complemento: falha, bloqueio ou recusa de notificação não altera o resultado da análise.
+
+Nenhuma regra quantitativa, Elo, mercado, cálculo de value ou regra de banca é executada de forma diferente por causa dessa camada operacional.
 
 ## Elo operacional
 
