@@ -79,10 +79,10 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
       meta={`${resolvedEvents}/${audit.matches.length} jogos`}
     >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Encontrados</p><p className="num mt-1 text-lg">{resolvedEvents}</p></div>
-        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Enviados</p><p className="num mt-1 text-lg">{audit.matches.length}</p></div>
-        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Recebidos</p><p className="num mt-1 text-lg">{audit.rawObservations}</p></div>
-        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Aproveitados</p><p className="num mt-1 text-lg">{audit.normalizedObservations}</p></div>
+        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Jogos encontrados</p><p className="num mt-1 text-lg">{resolvedEvents}</p></div>
+        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Jogos enviados</p><p className="num mt-1 text-lg">{audit.matches.length}</p></div>
+        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Dados recebidos</p><p className="num mt-1 text-lg">{audit.rawObservations}</p></div>
+        <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Dados aproveitados</p><p className="num mt-1 text-lg">{audit.normalizedObservations}</p></div>
       </div>
 
       <ul className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -100,32 +100,39 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
       </ul>
 
       <div className="mt-4 border-t border-border pt-3">
-        <p className="text-xs text-muted-foreground">Toque em um jogo apenas se quiser entender como ele foi identificado.</p>
+        <p className="text-xs text-muted-foreground">Abra um jogo apenas se quiser entender como ele foi identificado.</p>
         <ul className="mt-2 divide-y divide-border">
-          {audit.matches.map((match) => (
-            <li key={match.id}>
-              <button
-                type="button"
-                aria-expanded={open === match.id}
-                onClick={() => setOpen(open === match.id ? null : match.id)}
-                className="flex min-h-11 w-full items-center justify-between gap-3 py-2 text-left text-sm"
-              >
-                <span className="min-w-0 truncate">
-                  {match.home_team && match.away_team ? `${match.home_team} x ${match.away_team}` : match.raw_partida}
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="hidden text-xs text-muted-foreground sm:inline">{RESOLUTION_LABEL[match.resolution_status] ?? "Em conferência"}</span>
-                  <ChevronDown className={`size-4 transition-transform ${open === match.id ? "rotate-180" : ""}`} aria-hidden />
-                </span>
-              </button>
-              {open === match.id && (
-                <div className="pb-3 text-xs leading-relaxed text-muted-foreground">
-                  <p>{match.externalIds.length > 0 ? "Jogo relacionado às informações encontradas nas fontes disponíveis." : "Não foi possível relacionar este jogo a uma partida das fontes disponíveis."}</p>
-                  <p className="mt-1">Certeza na identificação: {match.resolver_confidence === null ? "—" : `${(Number(match.resolver_confidence) * 100).toFixed(0)}%`} · Informações aproveitadas: {match.normalized.length}</p>
-                </div>
-              )}
-            </li>
-          ))}
+          {audit.matches.map((match) => {
+            const isOpen = open === match.id;
+            const buttonId = `source-audit-button-${match.id}`;
+            const detailsId = `source-audit-details-${match.id}`;
+            return (
+              <li key={match.id}>
+                <button
+                  id={buttonId}
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={detailsId}
+                  onClick={() => setOpen(isOpen ? null : match.id)}
+                  className="flex min-h-11 w-full items-center justify-between gap-3 py-2 text-left text-sm"
+                >
+                  <span className="min-w-0 truncate">
+                    {match.home_team && match.away_team ? `${match.home_team} x ${match.away_team}` : match.raw_partida}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="hidden text-xs text-muted-foreground sm:inline">{RESOLUTION_LABEL[match.resolution_status] ?? "Em conferência"}</span>
+                    <ChevronDown className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden />
+                  </span>
+                </button>
+                {isOpen && (
+                  <div id={detailsId} role="region" aria-labelledby={buttonId} className="pb-3 text-xs leading-relaxed text-muted-foreground">
+                    <p>{match.externalIds.length > 0 ? "Jogo relacionado às informações encontradas nas fontes disponíveis." : "Não foi possível relacionar este jogo a uma partida das fontes disponíveis."}</p>
+                    <p className="mt-1">Certeza na identificação: {match.resolver_confidence === null ? "—" : `${(Number(match.resolver_confidence) * 100).toFixed(0)}%`} · Informações aproveitadas: {match.normalized.length}</p>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </CollapsiblePanel>

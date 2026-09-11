@@ -6,6 +6,11 @@ import { supabase } from "@/integrations/supabase/client";
 
 type AuthState = "loading" | "signed-out" | "authorized";
 
+function currentReturnUrl() {
+  const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  return new URL(destination || "/", window.location.origin).toString();
+}
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>("loading");
   const [signingIn, setSigningIn] = useState(false);
@@ -67,7 +72,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       // evaluates createLovableAuth() while rendering the login screen.
       const { lovable } = await import("@/integrations/lovable");
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: `${window.location.origin}/`,
+        redirect_uri: currentReturnUrl(),
         extraParams: { prompt: "select_account" },
       });
 
@@ -86,7 +91,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (state === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status" aria-live="polite">
           <Loader2 className="size-4 animate-spin" aria-hidden />
           Verificando acesso…
         </div>
@@ -110,7 +115,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </p>
 
         {message && (
-          <div className="mt-5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+          <div className="mt-5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning" role="alert">
             {message}
           </div>
         )}
