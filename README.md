@@ -1,87 +1,200 @@
 # Value Bet Finder
 
-Aplicação privada para análise quantitativa pré-jogo de futebol, comparação de odds da Bet365 e acompanhamento de uma banca experimental.
+> **Case de produto low-code com engenharia de dados, regras quantitativas, integrações externas e governança de software.**
 
-## Fluxo atual
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111)
+![TanStack Start](https://img.shields.io/badge/TanStack-Start-FF4154?logo=reactquery&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3FCF8E?logo=supabase&logoColor=white)
+![Lovable](https://img.shields.io/badge/Lovable-Low--code-6C5CE7)
+![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
+
+O **Value Bet Finder** é uma aplicação full-stack para análise pré-jogo de futebol. O projeto começou com uma abordagem low-code e foi evoluindo até se tornar um produto versionado, testado e auditável, com backend próprio, banco PostgreSQL/Supabase, integrações com API esportiva, regras de negócio determinísticas, autenticação, CI e controles de segurança.
+
+A proposta de portfólio aqui não é apenas mostrar uma interface criada com low-code, mas demonstrar como **low-code + código tradicional** podem trabalhar juntos: rapidez de prototipação onde faz sentido e engenharia explícita nos pontos em que confiabilidade, dados, segurança e regras de negócio importam.
+
+**Acesso à aplicação publicada é restrito por autenticação.** O repositório documenta a arquitetura, as decisões e a evolução técnica do produto.
+
+[Ver case de portfólio](docs/CASE_STUDY.md) · [Ver arquitetura](docs/ARCHITECTURE.md) · [Índice técnico](docs/README.md)
+
+---
+
+## O problema que o projeto resolve
+
+Analisar uma lista de jogos exige combinar informações de várias fontes, padronizar partidas e competições, modelar probabilidades, comparar essas probabilidades com preços reais e ainda manter rastreabilidade sobre o que foi calculado.
+
+O sistema transforma esse processo em um fluxo guiado:
 
 1. **Enviar jogos** — upload de CSV com `Data`, `Partida`, `Horário` e `Campeonato`.
-2. **Preparar** — resolução das partidas, coleta/higienização dos dados e cálculo das probabilidades.
-3. **Conferir odds** — o sistema tenta preencher odds Bet365 automaticamente; o usuário completa apenas o que ficou sem preço seguro.
-4. **Ver sugestões** — o motor de valor avalia as odds disponíveis e pode retornar zero, uma ou mais sugestões dentro do limite operacional da rodada.
-5. **Em andamento** — registro do resultado das apostas realmente feitas pelo usuário.
-6. **Desempenho** — histórico e acompanhamento da banca em modo somente leitura.
+2. **Preparar análise** — resolução das partidas, coleta e higienização dos dados e geração das probabilidades.
+3. **Conferir odds** — preenchimento automático quando existe preço seguro; conferência manual apenas quando necessário.
+4. **Analisar valor** — comparação entre probabilidade modelada e odd disponível.
+5. **Ver sugestões** — seleção final limitada por critérios de valor e correlação.
+6. **Acompanhar banca** — registro das apostas realmente feitas fora do sistema e leitura do desempenho.
 
-O sistema **não executa apostas** e não força seleções quando os critérios não são atendidos.
+O produto **não executa apostas** e não força seleções quando os critérios não são atendidos.
 
-## Regras centrais
+---
 
-- Probabilidade e preço permanecem separados: o preço da casa não é usado como feature do modelo.
-- Nunca usar informação posterior ao `prediction_at`.
-- Bookmaker operacional: **Bet365 Brasil**.
-- Timezone operacional: **America/Sao_Paulo**.
-- EV mínimo experimental: **2%**.
-- Limite de sugestões: **2 em dias úteis e 3 no fim de semana**.
-- A linha de referência nunca é tratada como value sem uma odd real compatível.
-- Cartões usam proxy agregado compatível com a informação disponível na API; não tratar esse settlement como exato.
-- Mercados/modelos permanecem experimentais quando ainda não possuem validação suficiente para produção.
+## Arquitetura do produto
 
-## Modelos e mercados
+```mermaid
+flowchart LR
+    A[CSV de jogos] --> B[Match Resolver]
+    B --> C[Coleta e normalização]
+    C --> D[Feature Engine]
+    D --> E[Probability Engine]
+    E --> F[Opportunity Engine]
+    F --> G[Odds Bet365]
+    G --> H[Value Engine]
+    H --> I[Portfolio Selection]
+    I --> J[Banca e Analytics]
 
-O backend contém modelos de gols, escanteios, cartões, Elo e seleção de portfólio, além de validação temporal e métricas de acompanhamento.
+    K[(Supabase / PostgreSQL)] --- B
+    K --- C
+    K --- E
+    K --- H
+    K --- J
+```
 
-Política experimental atual:
+A separação entre **probabilidade** e **preço** é uma regra estrutural do sistema: a odd da casa não entra como feature no modelo de probabilidade. Primeiro o sistema estima o cenário esportivo; só depois compara esse cenário com o preço disponível.
 
-- **Gols da partida**: Over/Under nas linhas modeladas.
-- **1X2**: mandante, empate e visitante.
-- **Dupla chance**: 1X, X2 e 12.
-- **Escanteios da partida e por time**: linhas centrais + escada definida em `src/lib/engine/market-policy.ts`.
-- **Cartões da partida e por time**: mesma arquitetura de linhas; cartões por time usam Poisson no runtime atual.
-- **Distribuições de contagem**: NB2 quando a validação e os dados sustentam o uso; caso contrário, fallback para Poisson.
+---
 
-Detalhes quantitativos e evidências estão em `docs/BACKEND_ROUND3_QUANT_VALIDATION_2026-09-10.md` e `docs/BACKEND_MARKET_POLICY_2026-09-10.md`.
+## Onde entra o low-code
 
-## Odds Bet365 / 5DollarFootball
+| Camada | Abordagem | Papel no projeto |
+| --- | --- | --- |
+| Interface e iteração rápida | **Lovable + React/Tailwind** | Prototipação, refinamento visual e velocidade de entrega |
+| Regras de negócio | **TypeScript versionado** | Probabilidade, EV, seleção, banca e contratos de mercado |
+| Dados | **Supabase / PostgreSQL** | Persistência, transações, RLS e auditoria |
+| Integrações | **APIs externas + adapters** | Coleta esportiva e odds Bet365 via 5DollarFootballAPI |
+| Qualidade | **Vitest + GitHub Actions** | Testes, build e validações automatizadas |
+| Segurança | **Auth + RLS + server boundary** | Controle de acesso e isolamento de credenciais |
 
-A integração usa a 5DollarFootballAPI Pro. O fluxo prioriza requisições compostas e consulta preços individuais apenas quando necessário.
+A principal decisão de arquitetura foi não deixar a lógica crítica presa ao construtor visual. A interface pode evoluir rapidamente no Lovable, enquanto regras quantitativas, migrations, testes e contratos permanecem versionados no GitHub.
 
-Preenchimento automático direto atualmente cobre contratos que a API expõe de forma segura, incluindo 1X2, total de gols, total de escanteios e total de cartões da partida. Contratos sem preço direto ou com linha incompatível permanecem para conferência manual.
+---
 
-## Banca experimental
+## Destaques funcionais
 
-- O usuário confirma no painel apenas apostas que realmente fez fora do sistema.
-- Confirmação e settlement da banca usam operações transacionais no backend.
-- **Em andamento** é a única tela que encerra uma aposta e atualiza a banca.
-- **Desempenho** é somente leitura.
-- O limite diário também é protegido no banco.
+- Upload e validação de CSV.
+- Resolução e normalização de partidas.
+- Integração com dados esportivos e odds da Bet365.
+- Modelos para gols, escanteios e cartões.
+- Elo hierárquico como feature auxiliar.
+- Probabilidade, fair odd, edge e EV calculados no backend.
+- Funil progressivo de odds manuais quando a API não possui preço seguro.
+- Seleção com controle de correlação entre apostas do mesmo jogo.
+- Limite operacional de sugestões por dia.
+- Banca experimental com confirmação e settlement transacionais.
+- Analytics somente leitura com histórico de performance.
+- CLV e métricas de acompanhamento para evolução quantitativa.
 
-## Segurança
+---
 
-- Login Google obrigatório.
-- A allowlist real é validada no servidor; o frontend funciona apenas como gate de UX.
-- Service role permanece restrita ao boundary server-side.
-- RLS está habilitado nas tabelas públicas e o browser não possui privilégios diretos sobre elas.
-- `/api/elo-sync` exige Bearer secret.
-- Headers de segurança, CSP e no-cache/noindex são aplicados no servidor.
+## Destaques de engenharia
 
-Auditorias fechadas: `docs/RLS_SECURITY.md`, `docs/SECURITY_AUDIT_2026-09-10.md` e `docs/BACKEND_AUDIT_CLOSE_2026-09-10.md`.
+### Separação de responsabilidades
 
-## Fontes de verdade
+O projeto possui dois estágios distintos:
 
-- **Lovable Cloud**: banco, ambiente e runtime publicados.
-- **GitHub `main`**: código versionado, migrations, testes e regras de negócio.
+**Motor de probabilidade**
 
-Não criar outro projeto Lovable para este sistema. O projeto canônico é `28664075-8af4-4155-9ee9-8ed86021681a`.
+- trabalha sem conhecer a odd da casa;
+- usa somente dados disponíveis antes do momento da previsão;
+- bloqueia mercados quando os dados não sustentam uma previsão confiável.
 
-## Desenvolvimento
+**Motor de valor**
 
-O projeto usa **Bun**, TanStack Start, React, TypeScript, Tailwind e Supabase.
+- recebe a odd real depois da previsão;
+- calcula preço justo, edge e valor esperado;
+- só seleciona uma aposta quando os critérios continuam válidos.
+
+### Integridade e segurança
+
+- Google login com autorização validada no servidor.
+- Service role restrita ao backend.
+- RLS habilitado nas tabelas públicas.
+- Browser sem privilégios diretos sobre o banco operacional.
+- Operações de banca serializadas no banco.
+- Limite diário protegido também no banco, não apenas na interface.
+- Headers de segurança, CSP e políticas de cache configurados no servidor.
+
+### Qualidade contínua
+
+O GitHub Actions executa:
+
+```text
+Install dependencies
+→ Server secret boundary
+→ Experimental engine E2E
+→ Unit tests
+→ Production build
+```
+
+As mudanças relevantes passaram por auditorias separadas de **RLS, Segurança, Backend e Frontend**, seguidas por uma rodada específica de limpeza de código.
+
+---
+
+## Stack
+
+**Frontend**
+
+- React 19
+- TanStack Start / Router
+- TypeScript
+- Tailwind CSS
+- Lovable
+
+**Backend e dados**
+
+- TanStack server functions
+- Supabase / PostgreSQL
+- PostgreSQL RPCs, triggers e migrations versionadas
+- 5DollarFootballAPI Pro
+
+**Qualidade e entrega**
+
+- Vitest
+- GitHub Actions
+- Bun
+- Lovable Cloud
+
+---
+
+## Estrutura do repositório
+
+```text
+src/
+  components/               UI específica da aplicação
+  integrations/             Lovable e Supabase
+  lib/adapters/             integrações e normalização de dados
+  lib/engine/               regras e modelos quantitativos
+  lib/*.functions.ts        server functions
+  routes/                   rotas TanStack
+
+supabase/
+  migrations/               evolução versionada do banco
+  tests/                    testes de segurança/RLS
+
+docs/
+  CASE_STUDY.md             leitura de portfólio
+  ARCHITECTURE.md            arquitetura e decisões
+  README.md                  índice da documentação técnica
+  PROJECT_STATE.md           estado operacional canônico
+```
+
+---
+
+## Rodando localmente
 
 ```bash
 bun install
 bun run dev
 ```
 
-Validações principais:
+Validação completa:
 
 ```bash
 bunx vitest run
@@ -89,23 +202,34 @@ bun run build
 bun run lint
 ```
 
-O CI também valida o boundary de secrets e o E2E do motor experimental.
+> O ambiente completo depende de variáveis de integração e banco. Credenciais não ficam versionadas no repositório.
 
-## Estrutura principal
+---
 
-```text
-src/
-  components/                 UI específica da aplicação
-  components/ui/              somente primitives realmente usadas
-  integrations/               Lovable e Supabase
-  lib/adapters/               adapters de dados externos
-  lib/engine/                 regras/modelos quantitativos puros
-  lib/*.functions.ts          server functions da aplicação
-  routes/                     rotas TanStack
-supabase/
-  migrations/                 histórico versionado do schema
-  tests/                      testes de segurança do banco
-docs/                         auditorias, runbooks e estado canônico
-```
+## Documentação
 
-O estado de continuidade do projeto deve ser mantido em `docs/PROJECT_STATE.md`.
+| Documento | Conteúdo |
+| --- | --- |
+| [Case Study](docs/CASE_STUDY.md) | problema, abordagem low-code, decisões e aprendizados |
+| [Arquitetura](docs/ARCHITECTURE.md) | fluxo técnico, boundaries e fontes de verdade |
+| [Índice técnico](docs/README.md) | mapa da documentação existente |
+| [Estado do projeto](docs/PROJECT_STATE.md) | continuidade operacional do sistema |
+| [Política de mercados](docs/BACKEND_MARKET_POLICY_2026-09-10.md) | contratos e linhas experimentais |
+| [Validação quantitativa](docs/BACKEND_ROUND3_QUANT_VALIDATION_2026-09-10.md) | evidências e políticas dos modelos de contagem |
+| [Auditoria de segurança](docs/SECURITY_AUDIT_2026-09-10.md) | hardening e riscos residuais |
+
+---
+
+## O que este projeto demonstra
+
+Este repositório foi estruturado para mostrar competências que vão além da construção de telas:
+
+- transformar uma ideia em produto funcional usando low-code de forma pragmática;
+- traduzir regras de negócio em software versionado;
+- integrar APIs e dados externos com normalização e rastreabilidade;
+- modelar dados e regras transacionais em PostgreSQL;
+- criar uma camada de segurança coerente com o risco do produto;
+- evoluir UX com auditorias e testes de regressão;
+- usar IA e ferramentas low-code como aceleradores, sem abrir mão de governança técnica.
+
+O resultado é um **case de product engineering low-code**, em que velocidade de construção e controle técnico coexistem no mesmo fluxo de desenvolvimento.
