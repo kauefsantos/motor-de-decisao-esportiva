@@ -168,4 +168,30 @@ describe("frontend iPhone mobile-first contract", () => {
     expect(styles).toContain("input.w-28");
     expect(styles).toContain("width: 100%");
   });
+
+  it("keeps the mobile session for 30 days while preserving server auth", () => {
+    const auth = source("./components/AuthGate.tsx");
+    expect(auth).toContain("MOBILE_AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000");
+    expect(auth).toContain("supabase.auth.signOut()");
+    expect(auth).toContain("Seu acesso mobile de 30 dias terminou");
+    expect(auth).toContain("A sessão continua sendo validada no servidor");
+  });
+
+  it("uses branded icons for the installed app and in-app identity", () => {
+    const root = source("./routes/__root.tsx");
+    const shell = source("./components/AppShell.tsx");
+    const manifest = source("../public/site.webmanifest");
+    expect(root).toContain("/icons/apple-touch-icon.png");
+    expect(root).toContain("/icons/favicon-32.png");
+    expect(shell).toContain("/icons/favicon-32.png");
+    expect(manifest).toContain("/icons/icon-192.png");
+    expect(manifest).toContain("/icons/icon-512.png");
+  });
+
+  it("repairs legacy mojibake in visible competition labels", () => {
+    const openBets = source("./routes/open-bets.tsx");
+    const csv = source("./lib/csv.ts");
+    expect(openBets).toContain("repairMojibake(row.competition)");
+    expect(csv).toContain("repairMojibake(");
+  });
 });

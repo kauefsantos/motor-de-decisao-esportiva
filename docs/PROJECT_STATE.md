@@ -54,7 +54,10 @@ Após a integração do Elo hierárquico, uma rodada adicional corrigiu a semân
 - telas de acompanhamento e analytics com papéis separados;
 - continuidade de rota após login;
 - interface mobile-first para iPhone com navegação inferior, safe areas do notch/Home Indicator e alvos de toque de 44–48 px;
+- autenticação mobile/standalone persiste a sessão e exige nova autenticação após 30 dias; esse temporizador é apenas UX e não substitui a validação Google/allowlist e das server functions;
+- identidade visual instalada com ícones próprios do Bet Value em 32, 180, 192 e 512 px, incluindo `apple-touch-icon` e manifest;
 - metadados de instalação e `site.webmanifest` para uso em modo standalone ao adicionar a aplicação à Tela de Início do iOS;
+- mojibake comum de UTF-8 é reparado na ingestão de CSV e também na exibição de competições históricas, evitando textos como `ItÃ¡lia`;
 - nenhuma pendência estrutural P0–P2 conhecida.
 
 ### Elo — fechado

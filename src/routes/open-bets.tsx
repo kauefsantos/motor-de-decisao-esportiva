@@ -12,6 +12,7 @@ import {
   getOpenExperimentalBets,
   settleOpenExperimentalBet,
 } from "@/lib/bankroll.functions";
+import { repairMojibake } from "@/lib/text";
 
 export const Route = createFileRoute("/open-bets")({
   head: () => ({ meta: [{ title: "Apostas em andamento · Bet Value Engine" }] }),
@@ -123,7 +124,7 @@ function OpenBetsScreen() {
                 <article key={row.id} className="panel p-4 sm:p-5">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground">{date(row.target_date)} · {row.competition ?? ""}</p>
+                      <p className="text-xs text-muted-foreground">{date(row.target_date)} · {repairMojibake(row.competition)}</p>
                       <h2 className="mt-1 text-lg font-semibold">{row.match_label}</h2>
                       <p className="text-sm text-muted-foreground">{row.market_label}</p>
                     </div>

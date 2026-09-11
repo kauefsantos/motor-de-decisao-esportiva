@@ -3,6 +3,8 @@
 // Aceita CSV convencional separado por vírgula/ponto e vírgula e também o
 // formato operacional atual: Data;Partida,Horário,Campeonato.
 
+import { repairMojibake } from "./text";
+
 export interface CsvRow {
   data: string; // ISO YYYY-MM-DD
   partida: string;
@@ -34,9 +36,9 @@ function norm(s: string) {
     .toLowerCase();
 }
 
-/** Sanitização básica: remove control chars e prefixos de fórmula. */
+/** Sanitização básica: remove control chars, corrige mojibake comum e prefixos de fórmula. */
 function sanitize(v: string) {
-  const clean = v.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  const clean = repairMojibake(v.replace(/[\u0000-\u001f\u007f]/g, "").trim());
   return /^[=+\-@]/.test(clean) ? `'${clean}` : clean;
 }
 
