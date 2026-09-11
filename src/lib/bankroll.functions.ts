@@ -31,9 +31,14 @@ type Config = {
   min_stake_brl: number | string;
 };
 
-async function db() {
+type Db = {
+  from: (table: string) => any;
+  rpc: (fn: string, args?: Record<string, unknown>) => PromiseLike<{ data: any; error: { message: string } | null }>;
+};
+
+async function db(): Promise<Db> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin as unknown as { from: (table: string) => any };
+  return supabaseAdmin as unknown as Db;
 }
 
 function num(value: unknown, fallback = 0) {
@@ -51,7 +56,7 @@ function operationalMaxStake(bankroll: number, maxStakePct: number, minStakeBrl:
   return Math.min(bankroll, Math.max(minStakeBrl, proportional));
 }
 
-async function bankrollSnapshot(rawDb: Awaited<ReturnType<typeof db>>) {
+async function bankrollSnapshot(rawDb: Db) {
   const [{ data: config, error: configError }, { data: rows, error: rowsError }] = await Promise.all([
     rawDb
       .from("experimental_bankroll_config")
@@ -103,15 +108,9 @@ function suggestion(
     return { suggestedStake: 0, maxAllowedStake: maxAllowed, minimumStake: minStakeBrl };
   }
 
-  // Para binários, EV/(odd-1) coincide com Kelly bruto. Para asiáticos,
-  // usamos a razão apenas como freio conservador, sem criar nova probabilidade.
   const edgeFraction = odd > 1 ? ev / (odd - 1) : 0;
   const kellyStake = Math.max(0, edgeFraction * fractionalKelly * bankroll);
   const modelStake = floorCents(Math.min(maxAllowed, kellyStake));
-
-  // A bet365 não aceita valor positivo abaixo do piso operacional. Quando o
-  // cálculo matemático cai abaixo dele, o sistema explicita a adaptação em vez
-  // de fingir que R$ 0,10/R$ 0,20 são executáveis.
   const suggestedStake = modelStake > 0 && modelStake < minStakeBrl
     ? Math.min(maxAllowed, minStakeBrl)
     : modelStake;
@@ -172,77 +171,20 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => confirmSchema.parse(input))
   .handler(async ({ data }) => {
     const rawDb = await db();
-    const { data: row, error: rowError } = await rawDb
-      .from("experimental_bet_tracking")
-      .select("id,bet_status")
-      .eq("id", data.id)
-      .single();
-    if (rowError || !row) throw new Error("Não foi possível localizar esta sugestão.");
-    if (row.bet_status !== "PROPOSED") throw new Error("Esta sugestão já foi confirmada ou recusada.");
-
-    const snapshot = await bankrollSnapshot(rawDb);
-    const stake = floorCents(data.stakeBrl);
-    if (stake <= 0) {
-      const { data: updated, error } = await rawDb
-        .from("experimental_bet_tracking")
-        .update({
-          bet_status: "DECLINED",
-          stake_brl: 0,
-          declined_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", data.id)
-        .eq("bet_status", "PROPOSED")
-        .select("id")
-        .maybeSingle();
-      if (error) throw new Error(`Não foi possível recusar a sugestão: ${error.message}`);
-      if (!updated) {
-        throw new Error("Esta sugestão mudou de estado antes da recusa. Atualize a tela e tente novamente.");
-      }
-      return { status: "DECLINED" as const, stakeBrl: 0, availableAfter: snapshot.available };
-    }
-
-    if (stake < snapshot.minStakeBrl - 1e-9) {
-      throw new Error(
-        `A aposta mínima da bet365 é R$ ${snapshot.minStakeBrl.toFixed(2).replace(".", ",")}. Use 0 para recusar ou informe pelo menos esse valor.`,
-      );
-    }
-
-    if (stake > snapshot.available + 1e-9) {
-      throw new Error(`O valor informado supera o saldo disponível de R$ ${snapshot.available.toFixed(2).replace(".", ",")}.`);
-    }
-
-    const maxAllowed = operationalMaxStake(snapshot.available, snapshot.maxStakePct, snapshot.minStakeBrl);
-    if (stake > maxAllowed + 1e-9) {
-      throw new Error(
-        `O limite operacional desta aposta é R$ ${maxAllowed.toFixed(2).replace(".", ",")} (piso de R$ ${snapshot.minStakeBrl.toFixed(2).replace(".", ",")} ou ${(snapshot.maxStakePct * 100).toFixed(0)}% do saldo, o que for maior).`,
-      );
-    }
-
-    const { data: updated, error } = await rawDb
-      .from("experimental_bet_tracking")
-      .update({
-        bet_status: "OPEN",
-        stake_brl: stake,
-        accepted_at: new Date().toISOString(),
-        declined_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", data.id)
-      .eq("bet_status", "PROPOSED")
-      .select("id")
-      .maybeSingle();
-    if (error) throw new Error(`Não foi possível confirmar a aposta: ${error.message}`);
-    if (!updated) {
-      throw new Error("Esta sugestão mudou de estado antes da confirmação. Atualize a tela e tente novamente.");
-    }
+    const { data: rpcRows, error } = await rawDb.rpc("confirm_experimental_bet_atomic", {
+      p_id: data.id,
+      p_stake_brl: floorCents(data.stakeBrl),
+    });
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
+    if (!row) throw new Error("A confirmação da banca não retornou resultado.");
 
     return {
-      status: "OPEN" as const,
-      stakeBrl: stake,
-      availableAfter: Math.max(0, snapshot.available - stake),
-      maxAllowed,
-      minimumStake: snapshot.minStakeBrl,
+      status: String(row.status) === "DECLINED" ? ("DECLINED" as const) : ("OPEN" as const),
+      stakeBrl: num(row.stake_brl),
+      availableAfter: num(row.available_after),
+      maxAllowed: num(row.max_allowed),
+      minimumStake: num(row.minimum_stake, 0.5),
     };
   });
 
@@ -269,39 +211,12 @@ export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => settleSchema.parse(input))
   .handler(async ({ data }) => {
     const rawDb = await db();
-    const { data: row, error: rowError } = await rawDb
-      .from("experimental_bet_tracking")
-      .select("id,entry_odd,stake_brl,bet_status,result")
-      .eq("id", data.id)
-      .single();
-    if (rowError || !row) throw new Error("Aposta aberta não encontrada.");
-    if (row.bet_status !== "OPEN" || row.result !== "PENDING") {
-      throw new Error("Esta aposta não está mais aberta.");
-    }
-    const stake = num(row.stake_brl);
-    if (!(stake > 0)) throw new Error("A aposta aberta está sem valor confirmado.");
-    const odd = num(row.entry_odd);
-    const profitUnits = data.outcome === "WIN" ? odd - 1 : -1;
-    const profitBrl = stake * profitUnits;
-    const now = new Date().toISOString();
-    const { data: updated, error } = await rawDb
-      .from("experimental_bet_tracking")
-      .update({
-        bet_status: "SETTLED",
-        result: data.outcome,
-        profit_units: profitUnits,
-        profit_brl: profitBrl,
-        settled_at: now,
-        updated_at: now,
-      })
-      .eq("id", data.id)
-      .eq("bet_status", "OPEN")
-      .eq("result", "PENDING")
-      .select("id")
-      .maybeSingle();
-    if (error) throw new Error(`Não foi possível fechar a aposta: ${error.message}`);
-    if (!updated) {
-      throw new Error("Esta aposta mudou de estado antes do fechamento. Atualize a tela e tente novamente.");
-    }
-    return { ok: true, profitBrl };
+    const { data: rpcRows, error } = await rawDb.rpc("settle_experimental_bet_atomic", {
+      p_id: data.id,
+      p_outcome: data.outcome,
+    });
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
+    if (!row) throw new Error("O fechamento da aposta não retornou resultado.");
+    return { ok: true, profitBrl: num(row.profit_brl), profitUnits: num(row.profit_units) };
   });
