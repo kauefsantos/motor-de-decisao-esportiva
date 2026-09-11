@@ -47,6 +47,9 @@ jobs:
             exit 1
           fi
 
+      - name: Functional decision-flow E2E
+        run: bunx vitest run src/functional-decision-flow.e2e.test.ts
+
       - name: Experimental engine E2E
         run: bunx vitest run src/lib/engine/experimental-pilot.e2e.test.ts
 
