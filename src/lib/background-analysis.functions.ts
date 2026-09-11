@@ -38,18 +38,11 @@ export const enqueueAnalysis = createServerFn({ method: "POST" })
       });
       if (error) throw error;
     } else if (existing.status === "ERROR") {
-      const { error } = await supabase
-        .from("analysis_jobs")
-        .update({
-          status: "QUEUED",
-          current_step: null,
-          last_error: null,
-          locked_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("run_id", data.runId)
-        .eq("user_id", userId);
-      if (error) throw error;
+      // Preserve the failure so the processing screen can explain it and let the
+      // user explicitly retry instead of silently restarting on every page load.
+      return { status: "ERROR" as const };
+    } else if (existing.status === "DONE") {
+      return { status: "DONE" as const };
     }
 
     // pg_net queues this HTTP request inside PostgreSQL and returns immediately,
