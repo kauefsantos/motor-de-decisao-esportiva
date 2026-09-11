@@ -122,14 +122,24 @@
   h3 {
     letter-spacing: -0.025em;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @utility panel {
-  background-color: color-mix(in oklab, var(--color-surface) 86%, transparent);
+  background-color: color-mix(in oklab, var(--color-surface) 94%, transparent);
   border: 1px solid color-mix(in oklab, var(--color-border) 86%, transparent);
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 34px color-mix(in oklab, black 22%, transparent);
-  backdrop-filter: blur(10px);
 }
 
 @utility num {
@@ -139,8 +149,8 @@
 
 @utility label-eyebrow {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-muted-foreground);
 }
@@ -155,4 +165,13 @@
   background-color: color-mix(in oklab, var(--color-secondary) 52%, transparent);
   border: 1px solid color-mix(in oklab, var(--color-border) 74%, transparent);
   border-radius: var(--radius-md);
+}
+
+/* Legacy micro-labels remain compact on desktop, but never drop below 12px on phones. */
+@media (max-width: 639px) {
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
 }
