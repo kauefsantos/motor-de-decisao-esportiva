@@ -11,10 +11,8 @@ import { Input } from "@/components/ui/input";
 import { getRun } from "@/lib/analysis.functions";
 import { collectAutomaticBet365Odds } from "@/lib/auto-bet365-odds.functions";
 import { passesExperimentalModelGate } from "@/lib/engine/market-policy";
-import {
-  analyzeExperimentalMarketsOdds,
-  prepareExperimentalMarketsRun,
-} from "@/lib/experimental-markets-run.functions";
+import { analyzeExperimentalMarketsOddsPersisted } from "@/lib/experimental-analysis.functions";
+import { prepareExperimentalMarketsRun } from "@/lib/experimental-markets-run.functions";
 
 const pct = (value: number | null | undefined, digits = 1) =>
   value === null || value === undefined ? "—" : `${(Number(value) * 100).toFixed(digits)}%`;
@@ -63,7 +61,7 @@ function fallbackBatches(ids: string[], size = 12) {
 export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const prepare = useServerFn(prepareExperimentalMarketsRun);
-  const analyze = useServerFn(analyzeExperimentalMarketsOdds);
+  const analyze = useServerFn(analyzeExperimentalMarketsOddsPersisted);
   const collectAutoOdds = useServerFn(collectAutomaticBet365Odds);
   const fetchRun = useServerFn(getRun);
   const [odds, setOdds] = useState<Record<string, string>>({});
@@ -229,13 +227,13 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         return {
           ...evaluation,
           selected: selectedIds.has(evaluation.predictionId),
-          matchLabel: candidate?.matchLabel ?? "—",
+          matchLabel: candidate?.matchLabel ?? evaluation.matchLabel ?? "—",
           marketLabel: candidate?.marketLabel ?? evaluation.marketLabel,
-          competition: candidate?.competition ?? "",
+          competition: candidate?.competition ?? evaluation.competition ?? "",
           family: candidate?.family ?? evaluation.family,
           modelVersion: candidate?.modelVersion ?? evaluation.modelVersion,
-          sampleSize: candidate?.sampleSize ?? 0,
-          trainingMatches: candidate?.trainingMatches ?? 0,
+          sampleSize: candidate?.sampleSize ?? evaluation.sampleSize ?? 0,
+          trainingMatches: candidate?.trainingMatches ?? evaluation.trainingMatches ?? 0,
           lineCanonical: candidate?.lineCanonical ?? evaluation.lineCanonical ?? null,
         };
       });
@@ -243,7 +241,7 @@ export function ExperimentalMarketsPilot({ runId }: { runId: string }) {
         `experimental-result:${runId}`,
         JSON.stringify({
           runId,
-          analyzedAt: new Date().toISOString(),
+          analyzedAt: evaluated.analyzedAt ?? new Date().toISOString(),
           targetDate,
           dayType: selectionLimit === 3 ? "WEEKEND" : "WEEKDAY",
           selectionLimit,
