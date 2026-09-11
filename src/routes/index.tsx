@@ -6,9 +6,12 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { PushNotificationControl } from "@/components/PushNotificationControl";
 import { Button } from "@/components/ui/button";
 import { parseCsv, type CsvParseResult } from "@/lib/csv";
 import { createRun } from "@/lib/analysis.functions";
+import { enqueueAnalysis } from "@/lib/background-analysis.functions";
+import { setAnalysisNotificationTarget } from "@/lib/push.browser";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -32,6 +35,7 @@ function dateLabel(iso: string | null) {
 function UploadScreen() {
   const navigate = useNavigate();
   const create = useServerFn(createRun);
+  const enqueue = useServerFn(enqueueAnalysis);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
@@ -68,6 +72,18 @@ function UploadScreen() {
           rows: parsed.rows,
         },
       });
+      // Queue the server-side worker before navigation. Once this resolves, the
+      // analysis no longer depends on the phone keeping the app in foreground.
+      await enqueue({ data: { runId: res.runId } });
+
+      // Notification setup is best-effort only and must never prevent a sports
+      // analysis that has already been safely queued on the server.
+      try {
+        await setAnalysisNotificationTarget(res.runId);
+      } catch (error) {
+        console.warn("[Web Push] could not persist analysis target", error);
+      }
+
       navigate({ to: "/run/$runId/processamento", params: { runId: res.runId } });
     } catch {
       toast.error("Não foi possível iniciar a análise. Tente novamente.");
@@ -83,6 +99,8 @@ function UploadScreen() {
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
           Envie o CSV da rodada. Calculamos as chances primeiro e comparamos as odds depois.
         </p>
+
+        <PushNotificationControl />
 
         <div
           onDragOver={(e) => {

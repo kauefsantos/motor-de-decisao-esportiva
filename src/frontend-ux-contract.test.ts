@@ -32,11 +32,12 @@ describe("frontend P0/P1 UX contract", () => {
     expect(result).toContain("não tratamos essa situação como “nenhuma odd compensou”");
   });
 
-  it("stops processing UI work after route exit", () => {
+  it("keeps processing independent from the route lifecycle", () => {
     const processing = source("./routes/run.$runId.processamento.tsx");
-    expect(processing).toContain("let cancelled = false");
-    expect(processing).toContain("if (cancelled) return");
-    expect(processing).toContain("cancelled = true");
+    expect(processing).toContain("getProcessingStatus");
+    expect(processing).toContain("enqueueAnalysis");
+    expect(processing).not.toContain("runStep");
+    expect(processing).not.toContain("let cancelled = false");
   });
 
   it("makes bet registration language explicit", () => {
