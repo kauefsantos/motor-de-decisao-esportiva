@@ -252,7 +252,7 @@ export async function resolvePipelineMatches(db: AdminDb, runId: string) {
           response.resolution?.status === "MATCH_RESOLVED" ? "INFO" : "WARN",
           {
             provider,
-            definitionVersion: API_Football_DEFINITION_VERSION,
+            definitionVersion: API_FOOTBALL_DEFINITION_VERSION,
             endpoint: response.fetch.path,
             httpStatus: response.fetch.httpStatus,
             fetchedAt: response.fetch.fetchedAt,
