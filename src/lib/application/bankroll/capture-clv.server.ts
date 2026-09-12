@@ -7,6 +7,15 @@ export async function captureClosingClv(db: AdminDb, trackingId: string) {
     .eq("id", trackingId)
     .single();
   if (betError || !bet) return null;
+  if (!bet.match_id) {
+    await db.from("experimental_bet_tracking").update({
+      clv_status: "SOURCE_UNAVAILABLE",
+      closing_source: "five_dollar_bet365",
+      closing_fetched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", trackingId);
+    return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
+  }
 
   const supported = new Set(["1x2", "goals_match_total", "corners_match_total", "cards_match_total"]);
   if (!supported.has(String(bet.market))) {
