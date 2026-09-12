@@ -18,10 +18,10 @@ export default defineConfig({
         output: {
           manualChunks(id) {
             if (!id.includes("node_modules")) return undefined;
-            if (id.includes("react") || id.includes("react-dom")) return "vendor-react";
             if (id.includes("@tanstack")) return "vendor-tanstack";
             if (id.includes("@supabase")) return "vendor-supabase";
             if (id.includes("lucide-react")) return "vendor-icons";
+            if (id.includes("/react/") || id.includes("/react-dom/")) return "vendor-react";
             return undefined;
           },
         },
