@@ -87,6 +87,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
   const [queueActionId, setQueueActionId] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [details, setDetails] = useState<Record<string, boolean>>({});
+  const [emptyQueueMessage, setEmptyQueueMessage] = useState<string | null>(null);
   const autoStartedForRun = useRef<string | null>(null);
 
   const preparationQuery = useQuery({
@@ -114,6 +115,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
     setManualBatches([]);
     setVisibleBatchCount(1);
     setDetails({});
+    setEmptyQueueMessage(null);
     autoStartedForRun.current = null;
   }, [runId]);
 
@@ -192,6 +194,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
     setBuilding(true);
     try {
       const result = await buildQueue({ data: { runId, entries } });
+      setEmptyQueueMessage(result.data.totalQualified === 0 ? result.data.message : null);
       await historyQuery.refetch();
       toast.success(result.data.message);
     } catch (error) {
@@ -278,6 +281,17 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
             <Button className="mt-4" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Ver sugestões</Button>
           </div>
         </div>
+      </section>
+    );
+  }
+
+  if (emptyQueueMessage && !queueExists) {
+    return (
+      <section className="panel mt-4 border-warning/25 p-5">
+        <h2 className="font-semibold">Nenhuma opção passou por todos os critérios</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{emptyQueueMessage}</p>
+        <p className="mt-2 text-xs text-muted-foreground">O sistema não cria sugestões artificiais para preencher um lote.</p>
+        <Button className="mt-4" variant="outline" onClick={() => setEmptyQueueMessage(null)}>Rever as odds informadas</Button>
       </section>
     );
   }
