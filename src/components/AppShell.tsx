@@ -57,6 +57,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
 
   return (
     <div className="min-h-[100dvh]" data-keyboard-open={keyboardOpen ? "true" : "false"}>
+      <a href="#conteudo-principal" className="skip-link">Pular para o conteúdo principal</a>
       <header className="sticky top-0 z-20 border-b border-border/80 bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
         <div className="mx-auto max-w-[1280px] px-4 py-2 sm:px-6 sm:py-2.5 lg:px-8">
           <div className="flex items-center justify-between gap-3">
@@ -67,50 +68,22 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                   <span className="sm:hidden">BET VALUE</span>
                   <span className="hidden sm:inline">BET VALUE ENGINE</span>
                 </span>
-                <span className="hidden text-[10px] uppercase tracking-[0.14em] text-muted-foreground sm:block">
-                  Motor de decisão esportiva
-                </span>
+                <span className="hidden text-[10px] uppercase tracking-[0.14em] text-muted-foreground sm:block">Motor de decisão esportiva</span>
               </span>
-              <span className="num hidden rounded-md border border-border bg-secondary/35 px-1.5 py-0.5 text-[10px] text-muted-foreground md:inline">
-                v2.1.1
-              </span>
+              <span className="num hidden rounded-md border border-border bg-secondary/35 px-1.5 py-0.5 text-[10px] text-muted-foreground md:inline">v2.1.1</span>
             </Link>
 
             <nav className="hidden items-center rounded-xl border border-border bg-secondary/25 p-1 sm:flex" aria-label="Acompanhamento">
-              <Link
-                to="/open-bets"
-                aria-current={stage === "open-bets" ? "page" : undefined}
-                className={desktopNavClass(stage === "open-bets")}
-              >
-                Em andamento
-              </Link>
-              <Link
-                to="/analytics"
-                aria-current={stage === "analytics" ? "page" : undefined}
-                className={desktopNavClass(stage === "analytics")}
-              >
-                Desempenho
-              </Link>
+              <Link to="/open-bets" aria-current={stage === "open-bets" ? "page" : undefined} className={desktopNavClass(stage === "open-bets")}>Em andamento</Link>
+              <Link to="/analytics" aria-current={stage === "analytics" ? "page" : undefined} className={desktopNavClass(stage === "analytics")}>Desempenho</Link>
             </nav>
 
             <div className="flex items-center gap-1">
-              <a
-                href="/conta"
-                className={`touch-target flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary ${stage === "account" ? "text-primary" : "text-muted-foreground sm:hover:text-foreground"}`}
-                aria-label="Conta e privacidade"
-                aria-current={stage === "account" ? "page" : undefined}
-              >
-                <ShieldCheck className="size-4" aria-hidden />
-                <span className="hidden sm:inline">Conta</span>
+              <a href="/conta" className={`touch-target flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary ${stage === "account" ? "text-primary" : "text-muted-foreground sm:hover:text-foreground"}`} aria-label="Conta e privacidade" aria-current={stage === "account" ? "page" : undefined}>
+                <ShieldCheck className="size-4" aria-hidden /><span className="hidden sm:inline">Conta</span>
               </a>
-              <button
-                type="button"
-                onClick={() => void signOut()}
-                className="touch-target flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary sm:hover:text-foreground"
-                aria-label="Sair da conta"
-              >
-                <LogOut className="size-4" aria-hidden />
-                <span className="hidden sm:inline">Sair</span>
+              <button type="button" onClick={() => void signOut()} className="touch-target flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary sm:hover:text-foreground" aria-label="Sair da conta">
+                <LogOut className="size-4" aria-hidden /><span className="hidden sm:inline">Sair</span>
               </button>
             </div>
           </div>
@@ -123,31 +96,15 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                     const isActive = item.key === stage;
                     const isDone = activeStageIndex > index;
                     return (
-                      <li
-                        key={item.key}
-                        aria-current={isActive ? "step" : undefined}
-                        className={`flex min-h-10 min-w-0 items-center justify-center rounded-lg px-2 text-center text-xs transition-colors ${
-                          isActive
-                            ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
-                            : isDone
-                              ? "text-foreground"
-                              : "text-muted-foreground"
-                        }`}
-                      >
-                        <span className="mr-1.5 num text-[0.7rem] opacity-65">{index + 1}</span>
-                        <span className="truncate">{item.label}</span>
+                      <li key={item.key} aria-current={isActive ? "step" : undefined} className={`flex min-h-10 min-w-0 items-center justify-center rounded-lg px-2 text-center text-xs transition-colors ${isActive ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20" : isDone ? "text-foreground" : "text-muted-foreground"}`}>
+                        <span className="mr-1.5 num text-[0.7rem] opacity-65">{index + 1}</span><span className="truncate">{item.label}</span>
                       </li>
                     );
                   })}
                 </ol>
-
                 <div className="flex min-h-10 items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.06] px-3 text-[11px] text-muted-foreground">
                   <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                  <span className="whitespace-nowrap">
-                    <span className="font-medium text-foreground">{activeStageIndex + 1} de {STAGES.length}</span>
-                    <span className="mx-1.5 text-border">·</span>
-                    {STAGES[activeStageIndex]?.label}
-                  </span>
+                  <span className="whitespace-nowrap"><span className="font-medium text-foreground">{activeStageIndex + 1} de {STAGES.length}</span><span className="mx-1.5 text-border">·</span>{STAGES[activeStageIndex]?.label}</span>
                 </div>
               </div>
 
@@ -156,36 +113,22 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                   const isActive = item.key === stage;
                   const isDone = activeStageIndex > index;
                   return (
-                    <li
-                      key={item.key}
-                      aria-current={isActive ? "step" : undefined}
-                      className={`flex min-h-8 min-w-0 items-center justify-center rounded-lg px-1 text-center text-[11px] transition-colors ${
-                        isActive
-                          ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
-                          : isDone
-                            ? "text-foreground"
-                            : "text-muted-foreground"
-                      }`}
-                    >
-                      <span className="mr-1 num text-[0.65rem] opacity-65">{index + 1}</span>
-                      <span className="truncate">{item.shortLabel}</span>
+                    <li key={item.key} aria-current={isActive ? "step" : undefined} className={`flex min-h-8 min-w-0 items-center justify-center rounded-lg px-1 text-center text-[11px] transition-colors ${isActive ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20" : isDone ? "text-foreground" : "text-muted-foreground"}`}>
+                      <span className="mr-1 num text-[0.65rem] opacity-65">{index + 1}</span><span className="truncate">{item.shortLabel}</span>
                     </li>
                   );
                 })}
               </ol>
 
               <div className="mt-1 flex justify-center sm:hidden">
-                <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-secondary/35 px-2.5 py-1 text-[10px] leading-4 text-muted-foreground">
-                  <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                  <span className="truncate">{activeStageIndex + 1} de {STAGES.length} · {STAGES[activeStageIndex]?.label}</span>
-                </div>
+                <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-secondary/35 px-2.5 py-1 text-[10px] leading-4 text-muted-foreground"><span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden /><span className="truncate">{activeStageIndex + 1} de {STAGES.length} · {STAGES[activeStageIndex]?.label}</span></div>
               </div>
             </>
           )}
         </div>
       </header>
 
-      <main className="mx-auto min-w-0 max-w-[1400px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
+      <main id="conteudo-principal" tabIndex={-1} className="mx-auto min-w-0 max-w-[1400px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
         {children}
       </main>
 
@@ -196,24 +139,11 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
         </details>
       </footer>
 
-      <nav
-        className={`${keyboardOpen ? "hidden" : "fixed"} inset-x-0 bottom-0 z-30 border-t border-border/80 bg-background/96 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:hidden`}
-        aria-label="Navegação principal"
-        aria-hidden={keyboardOpen || undefined}
-      >
+      <nav className={`${keyboardOpen ? "hidden" : "fixed"} inset-x-0 bottom-0 z-30 border-t border-border/80 bg-background/96 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:hidden`} aria-label="Navegação principal" aria-hidden={keyboardOpen || undefined}>
         <div className="mx-auto grid max-w-lg grid-cols-3 gap-1">
-          <Link to="/" aria-current={showAnalysisProgress ? "page" : undefined} className={mobileNavClass(showAnalysisProgress)}>
-            <Search className="size-[18px]" strokeWidth={1.8} aria-hidden />
-            Analisar
-          </Link>
-          <Link to="/open-bets" aria-current={stage === "open-bets" ? "page" : undefined} className={mobileNavClass(stage === "open-bets")}>
-            <Clock3 className="size-[18px]" strokeWidth={1.8} aria-hidden />
-            Em andamento
-          </Link>
-          <Link to="/analytics" aria-current={stage === "analytics" ? "page" : undefined} className={mobileNavClass(stage === "analytics")}>
-            <BarChart3 className="size-[18px]" strokeWidth={1.8} aria-hidden />
-            Desempenho
-          </Link>
+          <Link to="/" aria-current={showAnalysisProgress ? "page" : undefined} className={mobileNavClass(showAnalysisProgress)}><Search className="size-[18px]" strokeWidth={1.8} aria-hidden />Analisar</Link>
+          <Link to="/open-bets" aria-current={stage === "open-bets" ? "page" : undefined} className={mobileNavClass(stage === "open-bets")}><Clock3 className="size-[18px]" strokeWidth={1.8} aria-hidden />Em andamento</Link>
+          <Link to="/analytics" aria-current={stage === "analytics" ? "page" : undefined} className={mobileNavClass(stage === "analytics")}><BarChart3 className="size-[18px]" strokeWidth={1.8} aria-hidden />Desempenho</Link>
         </div>
       </nav>
     </div>
