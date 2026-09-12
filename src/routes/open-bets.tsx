@@ -51,9 +51,13 @@ function OpenBetsScreen() {
       await settle({ data: { id, outcome } });
       setPendingOutcome(null);
       await refetch();
-      toast.success(outcome === "WIN" ? "Acerto registrado." : "Erro registrado.");
+      toast.success(
+        outcome === "WIN"
+          ? "Resultado salvo: aposta ganha. A banca foi atualizada."
+          : "Resultado salvo: aposta perdida. A banca foi atualizada.",
+      );
     } catch {
-      toast.error("Não foi possível atualizar esta aposta. Tente novamente.");
+      toast.error("Não foi possível salvar o resultado. A banca não foi alterada; tente novamente.");
     } finally {
       setSettlingId(null);
     }
@@ -67,7 +71,7 @@ function OpenBetsScreen() {
             <p className="label-eyebrow">Acompanhamento</p>
             <h1 className="page-heading mt-1.5">Apostas em andamento</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Depois do jogo, registre o resultado aqui. Esta é a única tela que encerra apostas e atualiza a banca.
+              Depois do jogo, informe o resultado aqui. Esta é a única tela que encerra apostas e atualiza a banca.
             </p>
           </div>
           <Button asChild variant="outline" className="min-h-12 w-full shrink-0 sm:min-h-11 sm:w-auto">
@@ -88,9 +92,9 @@ function OpenBetsScreen() {
               </div>
             </div>
             <CollapsiblePanel className="mt-3" title="Ver saldo completo" description="Banca total e valor já comprometido">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="metric-tile p-3"><p className="text-xs text-muted-foreground">Banca total</p><p className="num mt-1 text-lg font-semibold">{money(data.bankroll.equity)}</p></div>
-                <div className="metric-tile p-3"><p className="text-xs text-muted-foreground">Em apostas</p><p className="num mt-1 text-lg font-semibold">{money(data.bankroll.locked)}</p></div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <div><p className="text-xs text-muted-foreground">Banca total</p><p className="num mt-1 text-lg font-semibold">{money(data.bankroll.equity)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Em apostas</p><p className="num mt-1 text-lg font-semibold">{money(data.bankroll.locked)}</p></div>
               </div>
             </CollapsiblePanel>
           </div>
@@ -131,9 +135,9 @@ function OpenBetsScreen() {
                       <h2 className="mt-1 text-lg font-semibold leading-snug">{row.match_label}</h2>
                       <p className="mt-0.5 text-sm text-muted-foreground">{row.market_label}</p>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:block sm:text-right">
-                      <div className="metric-tile p-3 sm:border-0 sm:bg-transparent sm:p-0"><p className="text-xs text-muted-foreground">Valor apostado</p><p className="num mt-1 text-xl font-semibold">{money(Number(row.stake_brl ?? 0))}</p></div>
-                      <div className="metric-tile p-3 sm:mt-2 sm:border-0 sm:bg-transparent sm:p-0"><p className="text-xs text-muted-foreground">Odd</p><p className="num mt-1 text-xl font-semibold sm:text-sm sm:font-medium sm:text-muted-foreground">{Number(row.entry_odd).toFixed(2)}</p></div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:block sm:text-right">
+                      <div><p className="text-xs text-muted-foreground">Valor apostado</p><p className="num mt-1 text-xl font-semibold">{money(Number(row.stake_brl ?? 0))}</p></div>
+                      <div className="sm:mt-2"><p className="text-xs text-muted-foreground">Odd</p><p className="num mt-1 text-xl font-semibold sm:text-sm sm:font-medium sm:text-muted-foreground">{Number(row.entry_odd).toFixed(2)}</p></div>
                     </div>
                   </div>
 
@@ -144,7 +148,7 @@ function OpenBetsScreen() {
                         disabled={settlingId !== null}
                         onClick={() => setPendingOutcome({ id: row.id, outcome: "WIN" })}
                       >
-                        <Check className="mr-2 size-4" aria-hidden /> Acertou
+                        <Check className="mr-2 size-4" aria-hidden /> Ganhou
                       </Button>
                       <Button
                         className="min-h-12 sm:min-h-11 sm:min-w-28"
@@ -152,15 +156,15 @@ function OpenBetsScreen() {
                         disabled={settlingId !== null}
                         onClick={() => setPendingOutcome({ id: row.id, outcome: "LOSS" })}
                       >
-                        <X className="mr-2 size-4" aria-hidden /> Errou
+                        <X className="mr-2 size-4" aria-hidden /> Perdeu
                       </Button>
                     </div>
                   ) : (
                     <div className="mt-4 rounded-xl bg-warning/8 p-3 ring-1 ring-warning/25" role="alert">
                       <p className="text-sm font-medium">
-                        Confirmar resultado: {pendingOutcome.outcome === "WIN" ? "acertou" : "errou"}?
+                        Confirmar que esta aposta {pendingOutcome.outcome === "WIN" ? "ganhou" : "perdeu"}?
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">Essa ação atualiza a banca e encerra esta aposta.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Ao confirmar, a aposta será encerrada e a banca será recalculada. Esta ação não deve ser repetida.</p>
                       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                         <Button
                           className="min-h-12 w-full sm:min-h-11 sm:w-auto"
@@ -169,7 +173,7 @@ function OpenBetsScreen() {
                           onClick={() => void finish(row.id, pendingOutcome.outcome)}
                         >
                           {saving && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />}
-                          Confirmar resultado
+                          {saving ? "Salvando…" : "Confirmar resultado"}
                         </Button>
                         <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" disabled={settlingId !== null} onClick={() => setPendingOutcome(null)}>
                           Cancelar

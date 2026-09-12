@@ -39,7 +39,22 @@ Revisão mínima trimestral para aplicação, GitHub e Lovable. Superfícies ext
 - Acessos: trimestral.
 - Itens externos sem evidência: nova tentativa em até 30 dias.
 
-
 ## Integration and automation resilience (2026-09-12)
 
 External integrations and scheduled jobs are governed as recoverable distributed work. FiveDollar transient failures use bounded retries through the shared provider rate budget; API-Football uses the same distributed cache/rate primitives as its fallback path. Background analysis uses renewable short leases, heartbeat and fenced state transitions. Analysis-ready notifications are durable outbox events rather than best-effort side effects. HTTP pg_cron/pg_net dispatches are recorded in `automation_runs` and reconciled against the pg_net response table so dispatch success is not confused with endpoint success. Football local-time interpretation is anchored to the IANA zone `America/Sao_Paulo`, including historical DST.
+
+## UX/UI e fluxo de decisão (2026-09-12)
+
+A jornada principal é governada como um fluxo único e server-backed em quatro macroetapas: **Enviar e validar → Preparar → Conferir e escolher → Revisar e registrar**. O frontend não deve criar uma segunda fonte de verdade para resultado, seleção, limite diário ou progresso crítico.
+
+Regras de governança da interface:
+- o limite ativo é de até **3 escolhas por `target_date` em qualquer dia da semana**;
+- reload/retomada deve recuperar estado persistido antes de repetir preparação, cotação ou seleção;
+- falha de carregamento nunca pode ser apresentada como “nenhuma opção”;
+- `localStorage` não é fonte de verdade para resultados ou escolhas do fluxo ativo;
+- linguagem técnica de integrações, cache, rate limit e infraestrutura deve ficar em detalhes/diagnóstico, não na tarefa principal;
+- métricas esperadas e realizadas devem ser nomeadas de forma distinta, por exemplo **EV esperado** versus **ROI realizado**;
+- ações que alteram banca ou encerram aposta exigem confirmação e bloqueio contra duplo clique;
+- mudanças em `AppShell`, fluxo de resultado, registro de aposta ou navegação devem manter os contratos de UX em `src/frontend-ux-contract.test.ts` verdes.
+
+O relatório de referência desta revisão é `docs/UX_UI_AUDIT_2026-09-12.md`.

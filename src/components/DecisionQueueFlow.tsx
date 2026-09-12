@@ -6,6 +6,7 @@ import { Check, Info, Loader2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { MetricHelp } from "@/components/MetricHelp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { collectAutomaticBet365Odds } from "@/lib/auto-bet365-odds.functions";
@@ -44,7 +45,7 @@ type AutoQuote = {
 
 type QueueRow = {
   id: string;
-  queue_state: "AVAILABLE" | "SHOWN" | "ACCEPTED" | "DECLINED";
+  queue_state: "AVAILABLE" | "SHOWN" | "ACCEPTED" | "DECLINED" | "BLOCKED_CORRELATED";
   rank_global: number;
   match_label: string;
   competition: string | null;
@@ -58,7 +59,7 @@ type QueueRow = {
   expected_value: number | string | null;
 };
 
-function fallbackBatches(candidates: Array<{ predictionId: string; probabilityExperimental: number }>, size = 12) {
+function fallbackBatches(candidates: Array<{ predictionId: string; probabilityExperimental: number }>, size = 10) {
   const ids = candidates
     .filter((candidate) => passesExperimentalModelGate(candidate.probabilityExperimental))
     .map((candidate) => candidate.predictionId);
@@ -143,7 +144,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       } catch (error) {
         if (!cancelled) {
           setManualBatches(fallbackBatches(eligible));
-          toast.error(error instanceof Error ? error.message : "A busca automática falhou. As opções elegíveis podem ser cotadas manualmente.");
+          toast.error(error instanceof Error ? error.message : "Não foi possível buscar todas as odds automaticamente. Você pode preencher as que faltaram.");
         }
       } finally {
         if (!cancelled) setAutoLoading(false);
@@ -187,7 +188,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1);
 
     if (entries.length === 0) {
-      toast.error("Nenhuma odd válida está disponível para avaliar.");
+      toast.error("Nenhuma odd válida está disponível para avaliar. Preencha ao menos uma odd para continuar.");
       return;
     }
 
@@ -196,9 +197,13 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       const result = await buildQueue({ data: { runId, entries } });
       setEmptyQueueMessage(result.data.totalQualified === 0 ? result.data.message : null);
       await historyQuery.refetch();
-      toast.success(result.data.message);
+      toast.success(
+        result.data.totalQualified === 0
+          ? "Avaliação concluída: nenhuma opção passou por todos os critérios."
+          : `${result.data.totalQualified} opção${result.data.totalQualified === 1 ? "" : "ões"} com valor encontrada${result.data.totalQualified === 1 ? "" : "s"}.`,
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível criar a fila de decisão.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível avaliar as odds. Nada foi alterado.");
     } finally {
       setBuilding(false);
     }
@@ -209,7 +214,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       await loadNextBatch({ data: { runId } });
       await historyQuery.refetch();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível carregar o próximo lote.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível mostrar mais opções.");
     }
   }
 
@@ -218,6 +223,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
     try {
       await accept({ data: { queueId } });
       await historyQuery.refetch();
+      toast.success("Opção escolhida e salva.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível escolher esta opção.");
     } finally {
@@ -231,11 +237,13 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       await decline({ data: { queueId } });
       const refreshed = await historyQuery.refetch();
       const fresh = refreshed.data;
-      const stillShown = ((fresh?.rows ?? []) as QueueRow[]).some((row) => row.queue_state === "SHOWN");
+      const freshRows = ((fresh?.rows ?? []) as QueueRow[]);
+      const stillShown = freshRows.some((row) => row.queue_state === "SHOWN");
       if (!stillShown && !fresh?.exhausted && (fresh?.acceptedCount ?? 0) < (fresh?.dailySelectionLimit ?? 3)) {
         await loadNextBatch({ data: { runId } });
         await historyQuery.refetch();
       }
+      toast.success("Opção recusada. Sua escolha foi salva.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível recusar esta opção.");
     } finally {
@@ -250,19 +258,19 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       await historyQuery.refetch();
       navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível confirmar as escolhas.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível confirmar suas escolhas.");
       setFinalizing(false);
     }
   }
 
   if (preparationQuery.isError || historyQuery.isError) {
     return (
-      <section className="panel mt-4 border-destructive/30 p-5">
+      <section className="panel mt-4 border-destructive/30 p-5" role="alert">
         <div className="flex items-start gap-3">
           <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
           <div className="min-w-0 flex-1">
             <h2 className="font-semibold">Não foi possível carregar as opções</h2>
-            <p className="mt-1 text-sm text-muted-foreground">O resultado da análise continua preservado no servidor. Atualize esta etapa para retomar.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Sua análise continua salva. Tente novamente para retomar desta etapa.</p>
             <Button className="mt-4" variant="outline" onClick={() => void Promise.all([preparationQuery.refetch(), historyQuery.refetch()])}>Tentar novamente</Button>
           </div>
         </div>
@@ -277,8 +285,8 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
           <Check className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
           <div>
             <h2 className="font-semibold">Escolhas já confirmadas</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Esta rodada já foi finalizada no servidor. Você pode revisar as sugestões e seguir para a confirmação de stake.</p>
-            <Button className="mt-4" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Ver sugestões</Button>
+            <p className="mt-1 text-sm text-muted-foreground">Você já concluiu esta etapa. Continue para revisar e registrar as apostas.</p>
+            <Button className="mt-4" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Revisar escolhas</Button>
           </div>
         </div>
       </section>
@@ -290,8 +298,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       <section className="panel mt-4 border-warning/25 p-5">
         <h2 className="font-semibold">Nenhuma opção passou por todos os critérios</h2>
         <p className="mt-1 text-sm text-muted-foreground">{emptyQueueMessage}</p>
-        <p className="mt-2 text-xs text-muted-foreground">O sistema não cria sugestões artificiais para preencher um lote.</p>
-        <Button className="mt-4" variant="outline" onClick={() => setEmptyQueueMessage(null)}>Rever as odds informadas</Button>
+        <p className="mt-2 text-xs text-muted-foreground">O sistema não cria sugestões artificiais apenas para preencher a tela.</p>
       </section>
     );
   }
@@ -302,25 +309,26 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
         <div className="border-b border-border p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="label-eyebrow">Fila de decisão</p>
-              <h2 className="mt-1 text-lg font-semibold">Escolha até {dailyLimit} opções hoje</h2>
-              <p className="mt-1 text-xs text-muted-foreground">O servidor mantém a ordem por valor esperado e evita duas escolhas do mesmo jogo. Cada lote mostra no máximo 10 opções reais.</p>
+              <p className="label-eyebrow">Opções com valor</p>
+              <h2 className="mt-1 text-lg font-semibold">Escolha até {dailyLimit} opções para esta rodada</h2>
+              <p className="mt-1 text-xs text-muted-foreground">As melhores opções aparecem primeiro. Para proteger sua seleção, você não pode escolher duas opções do mesmo jogo.</p>
             </div>
             <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">{acceptedCount}/{dailyLimit} escolhidas</span>
           </div>
         </div>
 
         {acceptedRows.length > 0 && (
-          <CollapsiblePanel className="m-4 mb-0 bg-transparent shadow-none sm:m-5 sm:mb-0" title="Já escolhidas" description="Essas opções ocupam o limite diário" meta={acceptedRows.length} defaultOpen>
-            <ul className="divide-y divide-border">
+          <div className="border-b border-border/60 px-4 py-3 sm:px-5">
+            <p className="text-xs font-medium text-success">Escolhidas</p>
+            <ul className="mt-2 divide-y divide-border/60">
               {acceptedRows.map((row) => (
-                <li key={row.id} className="py-3 first:pt-0 last:pb-0">
+                <li key={row.id} className="py-2 first:pt-0 last:pb-0">
                   <p className="text-sm font-medium">{row.match_label}</p>
-                  <p className="text-xs text-muted-foreground">{row.market_label} · odd {dec(row.entry_odd)} · EV {pct(row.expected_value, 1)}</p>
+                  <p className="text-xs text-muted-foreground">{row.market_label} · odd {dec(row.entry_odd)} · EV esperado {pct(row.expected_value)}</p>
                 </li>
               ))}
             </ul>
-          </CollapsiblePanel>
+          </div>
         )}
 
         {shown.length > 0 && acceptedCount < dailyLimit && (
@@ -333,17 +341,17 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
                     <h3 className="mt-1 text-base font-semibold">{row.match_label}</h3>
                     <p className="text-sm text-muted-foreground">{row.market_label}</p>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Odd {dec(row.entry_odd)}</span>
-                      <span>Chance {pct(row.model_probability)}</span>
-                      <span>EV {pct(row.expected_value)}</span>
-                      <span>Vantagem {pct(row.edge)}</span>
+                      <span>Odd <span className="num text-foreground">{dec(row.entry_odd)}</span></span>
+                      <span>Chance <span className="num text-foreground">{pct(row.model_probability)}</span></span>
+                      <span className="inline-flex items-center">EV esperado <MetricHelp term="EV" /> <span className="num ml-1 text-success">{pct(row.expected_value)}</span></span>
+                      <span className="inline-flex items-center">Vantagem <MetricHelp term="Vantagem" /> <span className="num ml-1 text-foreground">{pct(row.edge)}</span></span>
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <Button variant="outline" className="min-h-11" disabled={queueActionId === row.id} onClick={() => void declineRow(row.id)}>
+                    <Button variant="outline" className="min-h-11" disabled={queueActionId !== null} onClick={() => void declineRow(row.id)}>
                       <X className="mr-1 size-4" /> Recusar
                     </Button>
-                    <Button className="min-h-11" disabled={queueActionId === row.id || acceptedCount >= dailyLimit} onClick={() => void acceptRow(row.id)}>
+                    <Button className="min-h-11" disabled={queueActionId !== null || acceptedCount >= dailyLimit} onClick={() => void acceptRow(row.id)}>
                       <Check className="mr-1 size-4" /> Escolher
                     </Button>
                   </div>
@@ -355,24 +363,23 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
         {shown.length === 0 && !exhausted && acceptedCount < dailyLimit && (
           <div className="p-5">
-            <p className="text-sm text-muted-foreground">Este lote terminou. Há outras opções qualificadas na fila.</p>
-            <Button className="mt-3" variant="outline" onClick={() => void nextBatch()}>Mostrar próximo lote</Button>
+            <p className="text-sm text-muted-foreground">Você terminou este grupo. Ainda existem outras opções qualificadas.</p>
+            <Button className="mt-3" variant="outline" onClick={() => void nextBatch()}>Mostrar mais opções</Button>
           </div>
         )}
 
         {exhausted && acceptedCount === 0 && (
           <div className="p-5">
             <p className="font-medium">Nenhuma opção qualificada restou nesta rodada.</p>
-            <p className="mt-1 text-sm text-muted-foreground">O sistema não cria uma recomendação artificial para preencher a tela.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Não escolher também é uma decisão válida; nenhuma recomendação artificial será criada.</p>
           </div>
         )}
 
         {canFinalize && (
           <div className="border-t border-border p-4 sm:p-5">
             <Button className="min-h-12 w-full sm:w-auto" disabled={finalizing} onClick={() => void finalizeChoices()}>
-              {finalizing ? "Confirmando…" : `CONFIRMAR ${acceptedCount} ESCOLHA${acceptedCount === 1 ? "" : "S"}`}
+              {finalizing ? "Salvando escolhas…" : `REVISAR ${acceptedCount} ESCOLHA${acceptedCount === 1 ? "" : "S"}`}
             </Button>
-            <p className="mt-2 text-xs text-muted-foreground">A confirmação é registrada no servidor e libera a etapa de stake; nenhuma escolha fica somente no navegador.</p>
           </div>
         )}
       </section>
@@ -384,9 +391,9 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       <div className="border-b border-border p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="label-eyebrow">Cotação</p>
-            <h2 className="mt-1 text-lg font-semibold">Conferir preços reais antes da fila</h2>
-            <p className="mt-1 text-xs text-muted-foreground">A Bet365 é consultada primeiro. O frontend não repete chamadas automaticamente; o backend controla cache, limite compartilhado e novas tentativas.</p>
+            <p className="label-eyebrow">Conferir preços</p>
+            <h2 className="mt-1 text-lg font-semibold">Conferir as odds reais</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Buscamos a Bet365 automaticamente quando há um preço compatível. Onde faltar, você pode informar a odd manualmente.</p>
           </div>
           {autoLoading && <span className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Buscando odds</span>}
         </div>
@@ -395,27 +402,28 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       {preparationQuery.isLoading || autoLoading ? (
         <div className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Organizando as cotações…</div>
       ) : eligible.length === 0 ? (
-        <div className="p-5 text-sm text-muted-foreground">Nenhuma linha pôde ser modelada com os dados disponíveis nesta rodada.</div>
+        <div className="p-5 text-sm text-muted-foreground">Nenhuma opção pôde ser calculada com segurança com os dados disponíveis nesta rodada.</div>
       ) : (
         <>
           {automaticCandidates.length > 0 && (
-            <CollapsiblePanel className="m-4 mb-0 bg-transparent shadow-none sm:m-5 sm:mb-0" title="Odds encontradas automaticamente" description="Serão avaliadas junto com as odds manuais" meta={automaticCandidates.length} defaultOpen>
-              <ul className="divide-y divide-border">
+            <div className="border-b border-border/60 px-4 py-3 sm:px-5">
+              <p className="text-xs font-medium">Odds encontradas automaticamente</p>
+              <ul className="mt-2 divide-y divide-border/60">
                 {automaticCandidates.map((candidate) => {
                   const quote = autoQuotes[candidate.predictionId];
                   return (
-                    <li key={candidate.predictionId} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                    <li key={candidate.predictionId} className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                       <div><p className="text-sm font-medium">{candidate.matchLabel}</p><p className="text-xs text-muted-foreground">{candidate.marketLabel}</p></div>
                       <div className="sm:text-right"><p className="num text-sm font-semibold">odd {dec(quote?.odd)}</p><p className="text-[11px] text-muted-foreground">Bet365 · automática</p></div>
                     </li>
                   );
                 })}
               </ul>
-            </CollapsiblePanel>
+            </div>
           )}
 
           {manualCandidates.length > 0 && (
-            <div className="mt-4 divide-y divide-border/70 border-t border-border">
+            <div className="divide-y divide-border/70">
               {manualCandidates.map((candidate) => {
                 const open = Boolean(details[candidate.predictionId]);
                 const quote = autoQuotes[candidate.predictionId];
@@ -424,7 +432,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
                     <div>
                       <p className="text-sm font-medium">{candidate.matchLabel}</p>
                       <p className="text-xs text-muted-foreground">{candidate.marketLabel} · chance {pct(candidate.probabilityExperimental)}</p>
-                      {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-[11px] text-warning">A linha automática não corresponde ao contrato analisado; informe a odd correta.</p>}
+                      {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-[11px] text-warning">A linha encontrada não corresponde à opção analisada. Informe a odd correta para esta linha.</p>}
                       {open && <p className="mt-2 text-xs text-muted-foreground">Odd de referência {dec(candidate.fairOddExperimental)} · linha {candidate.lineCanonical ?? "—"}</p>}
                     </div>
                     <label className="text-[11px] text-muted-foreground">Odd Bet365
@@ -439,13 +447,17 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
           <div className="border-t border-border p-4 sm:p-5">
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="min-h-12" disabled={building} onClick={() => void createDecisionQueue()}>{building ? "Montando fila…" : "AVALIAR E ABRIR FILA DE DECISÃO"}</Button>
+              <Button className="min-h-12" disabled={building} onClick={() => void createDecisionQueue()}>{building ? "Avaliando…" : "VER OPÇÕES COM VALOR"}</Button>
               {remainingManual > 0 && (
                 <Button variant="outline" className="min-h-12" onClick={() => setVisibleBatchCount((count) => Math.min(manualBatches.length, count + 1))}>Mostrar mais odds manuais ({remainingManual})</Button>
               )}
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">Somente opções que passam pelos critérios do backend entram na fila. Ela pode conter menos de 10 itens ou nenhum.</p>
+            <p className="mt-2 text-xs text-muted-foreground">Pode haver menos de 10 opções ou nenhuma. Só avançam as que passam por todos os critérios da análise.</p>
           </div>
+
+          <CollapsiblePanel className="mx-4 mb-4 bg-transparent shadow-none sm:mx-5 sm:mb-5" title="Detalhes técnicos desta etapa" description="Cache, limites de consulta e critérios de proteção">
+            <p className="text-xs leading-relaxed text-muted-foreground">As consultas externas, cache, limites compartilhados e novas tentativas são controlados no processamento central. Recarregar a página não deve repetir uma avaliação já salva.</p>
+          </CollapsiblePanel>
         </>
       )}
     </section>

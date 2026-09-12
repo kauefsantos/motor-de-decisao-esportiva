@@ -24,10 +24,13 @@ describe("strict >70% business rule", () => {
     expect(portfolio).toContain("passesModelProbabilityGate(row.decisionProbability)");
   });
 
-  it("communicates the active rule in the analysis frontend", () => {
+  it("keeps the active rule visible in the technical diagnostic without cluttering the global shell", () => {
     const shell = source("./components/AppShell.tsx");
-    expect(shell).toContain("chance do modelo");
-    expect(shell).toContain("&gt; 70%");
-    expect(shell).toContain("EV mínimo de 2%");
+    const diagnostic = source("./routes/diagnostico.tsx");
+    expect(diagnostic).toContain("Validação real da regra >70%");
+    expect(diagnostic).toContain("Passaram de 70%");
+    expect(diagnostic).toContain("EV automático ≥ 2%");
+    expect(shell).not.toContain("EV mínimo de 2%");
+    expect(shell).not.toContain("chance do modelo <strong");
   });
 });

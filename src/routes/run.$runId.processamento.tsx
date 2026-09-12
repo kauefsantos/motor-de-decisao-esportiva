@@ -33,6 +33,12 @@ const DONE_MESSAGE: Record<PipelineStepKey, string> = {
   MARKETS: "Lista pronta.",
 };
 
+function dateLabel(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const [year, month, day] = iso.slice(0, 10).split("-");
+  return `${day}/${month}/${year}`;
+}
+
 function ProcessingScreen() {
   const { runId } = Route.useParams();
   const navigate = useNavigate();
@@ -47,10 +53,9 @@ function ProcessingScreen() {
   });
 
   useEffect(() => {
-    // Safety net for direct/reloaded visits; enqueue is idempotent.
     void enqueue({ data: { runId } }).then(() => query.refetch()).catch(() => undefined);
     void setAnalysisNotificationTarget(runId);
-    // query.refetch is intentionally not a dependency: this should run once per run.
+    // This safety check runs once per analysis. The operation itself is idempotent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enqueue, runId]);
 
@@ -79,12 +84,12 @@ function ProcessingScreen() {
   return (
     <AppShell stage="processamento">
       <div className="mx-auto max-w-3xl">
-        <p className="label-eyebrow">Etapa 2</p>
+        <p className="label-eyebrow">Etapa 2 de 4 · preparar</p>
         <div className="mt-1.5 flex items-end justify-between gap-3">
           <div className="min-w-0">
             <h1 className="page-heading">Preparando sua análise</h1>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              O servidor continua trabalhando mesmo se você sair do app ou bloquear o iPhone.
+              Você pode sair desta tela ou bloquear o celular. A preparação continua e você pode retomar depois.
             </p>
           </div>
           <span className="num shrink-0 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
@@ -92,13 +97,21 @@ function ProcessingScreen() {
           </span>
         </div>
 
+        {query.data?.run && (
+          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 rounded-xl bg-secondary/25 px-4 py-3 text-xs text-muted-foreground ring-1 ring-border/45">
+            <span>Rodada <strong className="font-medium text-foreground">{dateLabel(query.data.run.target_date)}</strong></span>
+            <span>{query.data.run.matches_total ?? 0} jogo(s)</span>
+            <span>{doneCount} de {PIPELINE_STEPS.length} etapas internas concluídas</span>
+          </div>
+        )}
+
         <PushNotificationControl />
 
         {query.isError && (
           <div className="panel mt-4 border-destructive/30 p-4" role="alert">
             <p className="text-sm font-medium">Não foi possível atualizar o andamento agora.</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              A análise pode continuar no servidor. Tente atualizar o status.
+              A análise pode continuar normalmente. Atualize apenas o status desta tela.
             </p>
             <Button className="mt-3 min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => void query.refetch()}>
               Atualizar status
@@ -120,7 +133,7 @@ function ProcessingScreen() {
                   ? `${DONE_MESSAGE[step.key]} Algumas informações ficaram incompletas.`
                   : DONE_MESSAGE[step.key]
                 : state === "RUNNING"
-                  ? "Processando no servidor…"
+                  ? "Preparando…"
                   : state === "ERROR"
                     ? query.data?.job?.last_error ?? "Não foi possível concluir esta etapa."
                     : null;
@@ -164,8 +177,8 @@ function ProcessingScreen() {
 
         {failed && (
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" onClick={() => void retry()}>Tentar de novo</Button>
-            <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => navigate({ to: "/" })}>Enviar outro CSV</Button>
+            <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" onClick={() => void retry()}>Tentar novamente</Button>
+            <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => navigate({ to: "/" })}>Voltar ao início</Button>
           </div>
         )}
       </div>

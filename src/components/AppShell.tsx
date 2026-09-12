@@ -1,24 +1,21 @@
 import type { ReactNode } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { BarChart3, Clock3, LogOut, Search, ShieldCheck } from "lucide-react";
 
-import { BetConfirmationFlow } from "@/components/BetConfirmationFlow";
 import { supabase } from "@/integrations/supabase/client";
 
 const STAGES = [
-  { key: "upload", label: "Enviar jogos", shortLabel: "Enviar" },
+  { key: "upload", label: "Enviar e validar", shortLabel: "Validar" },
   { key: "processamento", label: "Preparar", shortLabel: "Preparar" },
-  { key: "oportunidades", label: "Conferir odds", shortLabel: "Odds" },
-  { key: "resultado", label: "Ver sugestões", shortLabel: "Sugestões" },
+  { key: "oportunidades", label: "Conferir e escolher", shortLabel: "Escolher" },
+  { key: "resultado", label: "Revisar e registrar", shortLabel: "Registrar" },
 ] as const;
 
 type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics" | "account";
 
 export function AppShell({ stage, children }: { stage: StageKey; children: ReactNode }) {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const resultMatch = pathname.match(/^\/run\/([0-9a-f-]+)\/resultado$/i);
-  const resultRunId = resultMatch?.[1] ?? null;
   const showAnalysisProgress = STAGES.some((item) => item.key === stage);
+  const activeStageIndex = STAGES.findIndex((item) => item.key === stage);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -103,6 +100,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                 <ol className="grid grid-cols-4 gap-1 rounded-xl border border-border bg-secondary/20 p-1" aria-label="Progresso da análise">
                   {STAGES.map((item, index) => {
                     const isActive = item.key === stage;
+                    const isDone = activeStageIndex > index;
                     return (
                       <li
                         key={item.key}
@@ -110,7 +108,9 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                         className={`flex min-h-10 min-w-0 items-center justify-center rounded-lg px-2 text-center text-xs transition-colors ${
                           isActive
                             ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
-                            : "text-muted-foreground"
+                            : isDone
+                              ? "text-foreground"
+                              : "text-muted-foreground"
                         }`}
                       >
                         <span className="mr-1.5 num text-[0.7rem] opacity-65">{index + 1}</span>
@@ -123,13 +123,9 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                 <div className="flex min-h-10 items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.06] px-3 text-[11px] text-muted-foreground">
                   <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
                   <span className="whitespace-nowrap">
-                    <span className="font-medium text-foreground">Regra ativa</span>
+                    <span className="font-medium text-foreground">{activeStageIndex + 1} de {STAGES.length}</span>
                     <span className="mx-1.5 text-border">·</span>
-                    chance do modelo <strong className="font-semibold text-primary">&gt; 70%</strong>
-                    <span className="mx-1.5">·</span>
-                    odd real
-                    <span className="mx-1.5">·</span>
-                    EV mínimo de 2%
+                    {STAGES[activeStageIndex]?.label}
                   </span>
                 </div>
               </div>
@@ -137,6 +133,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
               <ol className="mt-1 grid grid-cols-4 gap-1 sm:hidden" aria-label="Progresso da análise">
                 {STAGES.map((item, index) => {
                   const isActive = item.key === stage;
+                  const isDone = activeStageIndex > index;
                   return (
                     <li
                       key={item.key}
@@ -144,7 +141,9 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
                       className={`flex min-h-8 min-w-0 items-center justify-center rounded-lg px-1 text-center text-[11px] transition-colors ${
                         isActive
                           ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20"
-                          : "text-muted-foreground"
+                          : isDone
+                            ? "text-foreground"
+                            : "text-muted-foreground"
                       }`}
                     >
                       <span className="mr-1 num text-[0.65rem] opacity-65">{index + 1}</span>
@@ -157,7 +156,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
               <div className="mt-1 flex justify-center sm:hidden">
                 <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-secondary/35 px-2.5 py-1 text-[10px] leading-4 text-muted-foreground">
                   <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                  <span className="truncate">Regra: chance do modelo <strong className="font-medium text-foreground">&gt; 70%</strong> · odd real · EV mínimo de 2%</span>
+                  <span className="truncate">{activeStageIndex + 1} de {STAGES.length} · {STAGES[activeStageIndex]?.label}</span>
                 </div>
               </div>
             </>
@@ -167,7 +166,6 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
 
       <main className="mx-auto max-w-[1400px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
         {children}
-        {stage === "resultado" && resultRunId && <BetConfirmationFlow runId={resultRunId} />}
       </main>
 
       <footer className="mx-auto hidden max-w-[1400px] px-4 pb-8 sm:block sm:px-6 lg:px-8">

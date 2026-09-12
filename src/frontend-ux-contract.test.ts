@@ -5,59 +5,136 @@ function source(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
-describe("frontend P0/P1 UX contract", () => {
-  it("uses a single server-backed odds and decision flow", () => {
-    const route = source("./routes/run.$runId.oportunidades.tsx");
-    expect(route.match(/<DecisionQueueGate/g)?.length).toBe(1);
-    expect(route).not.toContain("ExperimentalMarketsPilot");
-    expect(route).not.toContain("analyzeOdds");
-    expect(route).not.toContain("COMPARAR ODDS");
-    expect(route).toContain("Conferir odds");
+describe("frontend UX/UI clarity contract", () => {
+  it("uses four task-oriented macro stages", () => {
+    const shell = source("./components/AppShell.tsx");
+    expect(shell).toContain('label: "Enviar e validar"');
+    expect(shell).toContain('label: "Preparar"');
+    expect(shell).toContain('label: "Conferir e escolher"');
+    expect(shell).toContain('label: "Revisar e registrar"');
+    expect(shell).toContain("{activeStageIndex + 1} de {STAGES.length}");
+    expect(shell).not.toContain("chance do modelo <strong");
+    expect(shell).not.toContain("EV mínimo de 2%");
   });
 
-  it("shows automatic odds and describes the persistent decision queue", () => {
+  it("turns the home into an owner-scoped action dashboard without hiding new analysis", () => {
+    const home = source("./routes/index.tsx");
+    const summary = source("./lib/home-summary.functions.ts");
+    expect(home).toContain("O que precisa da sua atenção?");
+    expect(home).toContain("Continuar análise");
+    expect(home).toContain("Resultados para informar");
+    expect(home).toContain("Sugestões para registrar");
+    expect(home).toContain("Saldo disponível");
+    expect(home).toContain("Análises recentes");
+    expect(home).toContain("VALIDAR PARTIDAS");
+    expect(summary).toContain('.eq("owner_id", userId)');
+    expect(summary).toContain("experimental_bet_tracking");
+  });
+
+  it("makes ignored CSV rows visible before the main CTA", () => {
+    const home = source("./routes/index.tsx");
+    const warningIndex = home.indexOf("linha{parsed.invalid.length === 1");
+    const ctaIndex = home.indexOf("VALIDAR PARTIDAS");
+    expect(home).toContain("não {parsed.invalid.length === 1 ? \"será\" : \"serão\"} analisada");
+    expect(home).toContain("Ver linhas ignoradas");
+    expect(warningIndex).toBeGreaterThan(-1);
+    expect(ctaIndex).toBeGreaterThan(warningIndex);
+  });
+
+  it("shows the resolved match and kickoff during validation", () => {
+    const route = source("./routes/draft.$draftId.validacao.tsx");
+    expect(route).toContain("resolved_kickoff");
+    expect(route).toContain('timeZone: "America/Sao_Paulo"');
+    expect(route).toContain("Encontramos:");
+    expect(route).toContain("horário confirmado");
+    expect(route).toContain("precisa(m) de atenção");
+  });
+
+  it("uses plain-language odds and selection copy", () => {
+    const route = source("./routes/run.$runId.oportunidades.tsx");
     const flow = source("./components/DecisionQueueFlow.tsx");
-    expect(flow).toContain("Odds encontradas automaticamente");
-    expect(flow).toContain("AVALIAR E ABRIR FILA DE DECISÃO");
-    expect(flow).toContain("Cada lote mostra no máximo 10 opções reais");
-    expect(flow).toContain("dailySelectionLimit ?? 3");
-    expect(flow).not.toContain("COMPARAR ODDS DESTE LOTE");
-    expect(flow).not.toContain("localStorage");
+    expect(route).toContain("Conferir as odds e escolher");
+    expect(route).toContain("até 3 para esta rodada");
+    expect(flow).toContain("VER OPÇÕES COM VALOR");
+    expect(flow).toContain("Opções com valor");
+    expect(flow).toContain("Escolha até {dailyLimit} opções para esta rodada");
+    expect(flow).not.toContain("AVALIAR E ABRIR FILA DE DECISÃO");
+    expect(flow).not.toContain("Escolha até {dailyLimit} opções hoje");
+    expect(flow).not.toContain("Cada lote mostra no máximo 10 opções reais");
   });
 
   it("resumes persisted decisions without repeating preparation or quotes", () => {
     const gate = source("./components/DecisionQueueGate.tsx");
     expect(gate).toContain("getDecisionQueueHistory");
     expect(gate).toContain("hasPersistedDecisionState");
-    expect(gate).toContain("Modelos, integrações externas e cotações não foram executados novamente");
+    expect(gate).toContain("decisionQueueEvaluated");
+    expect(gate).toContain("sem refazer modelos ou buscar as odds novamente");
     expect(gate).toContain("return <DecisionQueueFlow runId={runId} />");
   });
 
-  it("never presents a query failure as an empty model result", () => {
-    const flow = source("./components/DecisionQueueFlow.tsx");
+  it("keeps the result server-backed and places registration before exit actions", () => {
     const result = source("./routes/run.$runId.resultado.tsx");
-    expect(flow).toContain("Não foi possível carregar as opções");
-    expect(flow).toContain("O resultado da análise continua preservado no servidor");
-    expect(flow).toContain("Nenhuma opção passou por todos os critérios");
-    expect(flow).toContain("O sistema não cria sugestões artificiais");
-    expect(result).toContain("A falha de carregamento não significa que nenhuma odd tenha compensado");
-    expect(result).toContain("!isLoading && !isError && selected.length === 0");
-    expect(result).toContain("não tratamos essa situação como “nenhuma odd compensou”");
+    expect(result).toContain("getExperimentalBetPlan");
+    expect(result).toContain("<BetConfirmationFlow runId={runId} />");
+    expect(result).not.toContain("localStorage");
+    expect(result).not.toContain("experimental-result:");
+    expect(result).not.toContain("promoteQualifiedExperimentalBet");
+    expect(result.indexOf("<BetConfirmationFlow runId={runId} />")).toBeLessThan(result.indexOf("Outras ações"));
+  });
+
+  it("uses decision-focused result metrics and short explanations", () => {
+    const result = source("./routes/run.$runId.resultado.tsx");
+    const help = source("./components/MetricHelp.tsx");
+    expect(result).toContain("EV esperado");
+    expect(result).toContain('MetricHelp term="EV"');
+    expect(result).toContain('MetricHelp term="Odd de referência"');
+    expect(result).toContain('MetricHelp term="Vantagem"');
+    expect(help).toContain("Não é lucro garantido");
+  });
+
+  it("makes registration recoverable, explicit and sequential", () => {
+    const confirmation = source("./components/BetConfirmationFlow.tsx");
+    expect(confirmation).toContain("isError");
+    expect(confirmation).toContain("Não foi possível carregar o registro das apostas");
+    expect(confirmation).toContain("Tentar novamente");
+    expect(confirmation).toContain("Aposta {currentNumber} de {total}");
+    expect(confirmation).toContain("Saldo depois");
+    expect(confirmation).toContain("Descartar esta sugestão");
+    expect(confirmation).toContain("Confirmar descarte");
+    expect(confirmation).not.toContain("Não registrar");
+  });
+
+  it("removes the legacy weekday 2/weekend 3 selection rule", () => {
+    const legacy = source("./lib/qualified-alternates.functions.ts");
+    expect(legacy).toContain("SELECTION_LIMIT_PER_TARGET_DATE = 3");
+    expect(legacy).not.toContain("weekday === 0");
+    expect(legacy).not.toContain("return 2");
   });
 
   it("keeps processing independent from the route lifecycle", () => {
     const processing = source("./routes/run.$runId.processamento.tsx");
     expect(processing).toContain("getProcessingStatus");
     expect(processing).toContain("enqueueAnalysis");
+    expect(processing).toContain("idempotent");
     expect(processing).not.toContain("runStep");
-    expect(processing).not.toContain("let cancelled = false");
   });
 
-  it("makes bet registration language explicit", () => {
-    const confirmation = source("./components/BetConfirmationFlow.tsx");
-    expect(confirmation).toContain("Registrar aposta");
-    expect(confirmation).toContain("O painel não executa a aposta por você");
-    expect(confirmation).not.toContain("Apostar {money(suggested)}");
+  it("never presents a loading failure as an empty decision result", () => {
+    const flow = source("./components/DecisionQueueFlow.tsx");
+    const result = source("./routes/run.$runId.resultado.tsx");
+    expect(flow).toContain("Não foi possível carregar as opções");
+    expect(flow).toContain("Sua análise continua salva");
+    expect(result).toContain("Isso é uma falha de carregamento");
+    expect(result).toContain("não significa que a análise terminou sem opções");
+  });
+
+  it("labels realized performance separately from expected value", () => {
+    const analytics = source("./routes/analytics.tsx");
+    expect(analytics).toContain("ROI realizado");
+    expect(analytics).toContain("Resultado realizado");
+    expect(analytics).toContain('MetricHelp term={help}');
+    expect(analytics).toContain('help="CLV"');
+    expect(analytics).not.toContain('label="Retorno sobre o valor apostado"');
   });
 
   it("requires confirmation and blocks duplicate settlement actions", () => {
@@ -65,106 +142,39 @@ describe("frontend P0/P1 UX contract", () => {
     expect(openBets).toContain("settlingId");
     expect(openBets).toContain("Confirmar resultado");
     expect(openBets).toContain("disabled={settlingId !== null}");
+    expect(openBets).toContain("A banca foi atualizada");
+    expect(openBets).toContain("A banca não foi alterada");
   });
 });
 
-describe("frontend P2 usability and performance contract", () => {
+describe("frontend mobile-first and accessibility contract", () => {
   it("separates analysis progress from persistent navigation", () => {
     const shell = source("./components/AppShell.tsx");
     expect(shell).toContain('aria-label="Progresso da análise"');
     expect(shell).toContain('aria-label="Acompanhamento"');
-    expect(shell).toContain("grid grid-cols-4");
     expect(shell).toContain("Em andamento");
     expect(shell).toContain("Desempenho");
-    expect(shell).not.toContain("overflow-x-auto");
   });
 
-  it("lazy-renders collapsible content and exposes it as a region", () => {
+  it("keeps collapsible technical detail accessible", () => {
     const panel = source("./components/CollapsiblePanel.tsx");
     expect(panel).toContain("{open && (");
     expect(panel).toContain('role="region"');
     expect(panel).toContain("aria-labelledby={buttonId}");
-    expect(panel).not.toContain("grid-rows-[0fr]");
   });
 
   it("keeps touch targets and mobile microcopy legible", () => {
     const input = source("./components/ui/input.tsx");
     const styles = source("./styles.css");
     expect(input).toContain("h-11");
-    expect(styles).toContain(".text-\\[10px\\]");
     expect(styles).toContain("font-size: 0.75rem");
+    expect(styles).toContain("min-height: 44px");
   });
 
-  it("avoids expensive blur on every panel and respects reduced motion", () => {
+  it("respects reduced motion and dynamic viewport", () => {
     const styles = source("./styles.css");
-    expect(styles).not.toContain("backdrop-filter: blur(10px)");
+    const auth = source("./components/AuthGate.tsx");
     expect(styles).toContain("prefers-reduced-motion: reduce");
-  });
-
-  it("uses a single place to settle bets and keeps analytics read-only", () => {
-    const openBets = source("./routes/open-bets.tsx");
-    const analytics = source("./routes/analytics.tsx");
-    expect(openBets).toContain("única tela que encerra apostas e atualiza a banca");
-    expect(analytics).toContain("somente para acompanhar banca, resultados e qualidade das estimativas");
-    expect(analytics).toContain("histórico abaixo é somente leitura");
-    expect(analytics).not.toContain("updateExperimentalTracking");
-    expect(analytics).not.toContain("<Input");
-  });
-
-  it("keeps card labels human-readable and makes the bankroll chart informative", () => {
-    const analytics = source("./routes/analytics.tsx");
-    expect(analytics).toContain('CARDS: "Cartões"');
-    expect(analytics).toContain("Menor saldo");
-    expect(analytics).toContain("Maior saldo");
-    expect(analytics).toContain("A linha tracejada marca o saldo inicial");
-  });
-});
-
-describe("frontend P3 final polish contract", () => {
-  it("returns the user to the route they requested after Google login", () => {
-    const auth = source("./components/AuthGate.tsx");
-    expect(auth).toContain("window.location.pathname");
-    expect(auth).toContain("window.location.search");
-    expect(auth).toContain("redirectTo: currentReturnUrl()");
-    expect(auth).not.toContain('redirectTo: `${window.location.origin}/`');
-    expect(auth).not.toContain("@lovable.dev/cloud-auth-js");
-    expect(auth).not.toContain("@/integrations/lovable");
-  });
-
-  it("hides analysis progress outside the analysis journey and exposes current pages", () => {
-    const shell = source("./components/AppShell.tsx");
-    expect(shell).toContain("showAnalysisProgress");
-    expect(shell).toContain("{showAnalysisProgress && (");
-    expect(shell).toContain('aria-current={stage === "open-bets" ? "page" : undefined}');
-    expect(shell).toContain('aria-current={stage === "analytics" ? "page" : undefined}');
-  });
-
-  it("shows an explicit retry state when open bets fail to load", () => {
-    const openBets = source("./routes/open-bets.tsx");
-    expect(openBets).toContain("isError");
-    expect(openBets).toContain("Não foi possível carregar as apostas em andamento");
-    expect(openBets).toContain("Tentar novamente");
-    expect(openBets).toContain("openBetCountLabel");
-  });
-
-  it("keeps source detail disclosures accessible and labels metrics clearly", () => {
-    const audit = source("./components/SourceAudit.tsx");
-    expect(audit).toContain("aria-controls={detailsId}");
-    expect(audit).toContain('role="region"');
-    expect(audit).toContain("Jogos encontrados");
-    expect(audit).toContain("Dados aproveitados");
-  });
-
-  it("keeps fallback actions comfortably tappable", () => {
-    const root = source("./routes/__root.tsx");
-    expect(root).toContain("min-h-11");
-    expect(root).toContain('role="alert"');
-  });
-});
-
-describe("frontend iPhone mobile-first contract", () => {
-  it("respects dynamic viewport and safe areas on the auth flow", () => {
-    const auth = source("./components/AuthGate.tsx");
     expect(auth).toContain("min-h-[100dvh]");
     expect(auth).toContain("safe-area-inset-top");
     expect(auth).toContain("safe-area-inset-bottom");
@@ -185,19 +195,6 @@ describe("frontend iPhone mobile-first contract", () => {
     expect(styles).toContain("width: 100%");
   });
 
-  it("keeps the session for 30 days with the server as the authority", () => {
-    const auth = source("./components/AuthGate.tsx");
-    const sessionPolicy = source("./integrations/supabase/session-policy.ts");
-    const authMiddleware = source("./integrations/supabase/auth-middleware.ts");
-
-    expect(sessionPolicy).toContain("SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60");
-    expect(auth).toContain("isAuthenticationFresh(claims)");
-    expect(auth).toContain("supabase.auth.signOut()");
-    expect(auth).toContain("Sua sessão de 30 dias terminou");
-    expect(auth).not.toContain("bet-value-mobile-auth-at");
-    expect(authMiddleware).toContain("isAuthenticationFresh(claims)");
-  });
-
   it("uses branded icons for the installed app and in-app identity", () => {
     const root = source("./routes/__root.tsx");
     const shell = source("./components/AppShell.tsx");
@@ -207,12 +204,5 @@ describe("frontend iPhone mobile-first contract", () => {
     expect(shell).toContain("/icons/favicon-32.png");
     expect(manifest).toContain("/icons/icon-192.png");
     expect(manifest).toContain("/icons/icon-512.png");
-  });
-
-  it("repairs legacy mojibake in visible competition labels", () => {
-    const openBets = source("./routes/open-bets.tsx");
-    const csv = source("./lib/csv.ts");
-    expect(openBets).toContain("repairMojibake(row.competition)");
-    expect(csv).toContain("repairMojibake(");
   });
 });

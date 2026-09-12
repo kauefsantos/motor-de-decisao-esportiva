@@ -30,7 +30,7 @@ const dec = (value: unknown) =>
 
 type QueueRow = {
   id: string;
-  queue_state: "AVAILABLE" | "SHOWN" | "ACCEPTED" | "DECLINED";
+  queue_state: "AVAILABLE" | "SHOWN" | "ACCEPTED" | "DECLINED" | "BLOCKED_CORRELATED";
   rank_global: number;
   match_label: string;
   competition: string | null;
@@ -63,9 +63,9 @@ export function DecisionQueueGate({ runId }: { runId: string }) {
 
   if (historyQuery.isLoading) {
     return (
-      <section className="panel mt-4 flex items-center gap-2 p-5 text-sm text-muted-foreground">
+      <section className="panel mt-4 flex items-center gap-2 p-5 text-sm text-muted-foreground" role="status">
         <Loader2 className="size-4 animate-spin" aria-hidden />
-        Recuperando o estado da decisão…
+        Recuperando suas escolhas…
       </section>
     );
   }
@@ -76,8 +76,8 @@ export function DecisionQueueGate({ runId }: { runId: string }) {
         <div className="flex items-start gap-3">
           <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
           <div>
-            <p className="font-medium">Não foi possível recuperar a fila salva</p>
-            <p className="mt-1 text-sm text-muted-foreground">Nenhuma preparação ou cotação foi repetida enquanto o estado anterior não pôde ser confirmado.</p>
+            <p className="font-medium">Não foi possível recuperar suas escolhas salvas</p>
+            <p className="mt-1 text-sm text-muted-foreground">Nenhuma nova cotação será iniciada até conseguirmos confirmar o estado anterior.</p>
             <Button className="mt-4" variant="outline" onClick={() => void historyQuery.refetch()}>Tentar novamente</Button>
           </div>
         </div>
@@ -131,7 +131,7 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
       await loadNextBatch({ data: { runId } });
       await refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível carregar o próximo lote.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível mostrar mais opções.");
     }
   }
 
@@ -140,6 +140,7 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
     try {
       await accept({ data: { queueId } });
       await refresh();
+      toast.success("Opção escolhida e salva.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível escolher esta opção.");
     } finally {
@@ -159,6 +160,7 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
         await loadNextBatch({ data: { runId } });
         await refresh();
       }
+      toast.success("Opção recusada. Sua decisão foi salva.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível recusar esta opção.");
     } finally {
@@ -173,7 +175,7 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
       await refresh();
       navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível confirmar as escolhas.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível confirmar suas escolhas.");
       setFinalizing(false);
     }
   }
@@ -181,8 +183,8 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
   if (historyQuery.isError) {
     return (
       <section className="panel mt-4 border-destructive/30 p-5" role="alert">
-        <p className="font-medium">A fila salva não pôde ser atualizada</p>
-        <p className="mt-1 text-sm text-muted-foreground">O estado continua no servidor e nenhuma preparação foi executada novamente.</p>
+        <p className="font-medium">Não foi possível atualizar suas escolhas</p>
+        <p className="mt-1 text-sm text-muted-foreground">O que você já decidiu continua salvo. Tente novamente para atualizar a tela.</p>
         <Button className="mt-4" variant="outline" onClick={() => void refresh()}>Tentar novamente</Button>
       </section>
     );
@@ -195,8 +197,8 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
           <Check className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
           <div>
             <h2 className="font-semibold">Escolhas já confirmadas</h2>
-            <p className="mt-1 text-sm text-muted-foreground">A decisão foi recuperada do servidor sem recalcular modelos nem repetir cotações.</p>
-            <Button className="mt-4" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Ver sugestões</Button>
+            <p className="mt-1 text-sm text-muted-foreground">A etapa foi recuperada sem refazer modelos ou buscar as odds novamente.</p>
+            <Button className="mt-4" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Revisar e registrar</Button>
           </div>
         </div>
       </section>
@@ -207,8 +209,8 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
     return (
       <section className="panel mt-4 border-warning/25 p-5">
         <h2 className="font-semibold">Nenhuma opção passou por todos os critérios</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Esta rodada já foi avaliada e o resultado foi recuperado do servidor. Nenhuma aposta artificial foi criada.</p>
-        <p className="mt-2 text-xs text-muted-foreground">Reabrir ou atualizar esta página não repete modelos nem cotações externas para esta avaliação.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Esta rodada já foi avaliada. Atualizar ou reabrir a página não repete os modelos nem as cotações desta avaliação.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Nenhuma aposta artificial foi criada para preencher o limite.</p>
       </section>
     );
   }
@@ -218,22 +220,22 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
       <div className="border-b border-border p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="label-eyebrow">Fila recuperada</p>
+            <p className="label-eyebrow">Opções salvas</p>
             <h2 className="mt-1 text-lg font-semibold">Continue de onde parou</h2>
-            <p className="mt-1 text-xs text-muted-foreground">O estado veio do servidor. Modelos, integrações externas e cotações não foram executados novamente.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Suas decisões foram recuperadas sem repetir a análise ou as cotações.</p>
           </div>
           <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">{acceptedCount}/{dailyLimit} escolhidas</span>
         </div>
       </div>
 
       {accepted.length > 0 && (
-        <div className="border-b border-border bg-success/[0.04] p-4 sm:p-5">
+        <div className="border-b border-border/60 px-4 py-3 sm:px-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-success">Já escolhidas</p>
-          <div className="mt-2 grid gap-2">
+          <div className="mt-2 divide-y divide-border/60">
             {accepted.map((row) => (
-              <div key={row.id} className="rounded-lg border border-success/15 bg-background/60 p-3">
+              <div key={row.id} className="py-2 first:pt-0 last:pb-0">
                 <p className="text-sm font-medium">{row.match_label}</p>
-                <p className="text-xs text-muted-foreground">{row.market_label} · odd {dec(row.entry_odd)} · EV {pct(row.expected_value)}</p>
+                <p className="text-xs text-muted-foreground">{row.market_label} · odd {dec(row.entry_odd)} · EV esperado {pct(row.expected_value)}</p>
               </div>
             ))}
           </div>
@@ -252,15 +254,15 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>Odd {dec(row.entry_odd)}</span>
                     <span>Chance {pct(row.model_probability)}</span>
-                    <span>EV {pct(row.expected_value)}</span>
+                    <span>EV esperado {pct(row.expected_value)}</span>
                     <span>Vantagem {pct(row.edge)}</span>
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  <Button variant="outline" className="min-h-11" disabled={actionId === row.id} onClick={() => void declineRow(row.id)}>
+                  <Button variant="outline" className="min-h-11" disabled={actionId !== null} onClick={() => void declineRow(row.id)}>
                     <X className="mr-1 size-4" /> Recusar
                   </Button>
-                  <Button className="min-h-11" disabled={actionId === row.id || acceptedCount >= dailyLimit} onClick={() => void acceptRow(row.id)}>
+                  <Button className="min-h-11" disabled={actionId !== null || acceptedCount >= dailyLimit} onClick={() => void acceptRow(row.id)}>
                     <Check className="mr-1 size-4" /> Escolher
                   </Button>
                 </div>
@@ -272,14 +274,14 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
 
       {shown.length === 0 && !exhausted && acceptedCount < dailyLimit && (
         <div className="p-5">
-          <p className="text-sm text-muted-foreground">O lote anterior terminou e ainda há opções qualificadas.</p>
-          <Button className="mt-3" variant="outline" onClick={() => void nextBatch()}>Mostrar próximo lote</Button>
+          <p className="text-sm text-muted-foreground">Ainda há outras opções qualificadas.</p>
+          <Button className="mt-3" variant="outline" onClick={() => void nextBatch()}>Mostrar mais opções</Button>
         </div>
       )}
 
       {exhausted && acceptedCount === 0 && (
         <div className="p-5">
-          <p className="font-medium">A fila terminou sem escolha.</p>
+          <p className="font-medium">Nenhuma opção qualificada restou nesta rodada.</p>
           <p className="mt-1 text-sm text-muted-foreground">Nenhuma recomendação artificial foi criada para preencher o limite.</p>
         </div>
       )}
@@ -287,7 +289,7 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
       {canFinalize && (
         <div className="border-t border-border p-4 sm:p-5">
           <Button className="min-h-12 w-full sm:w-auto" disabled={finalizing} onClick={() => void finalizeChoices()}>
-            {finalizing ? "Confirmando…" : `CONFIRMAR ${acceptedCount} ESCOLHA${acceptedCount === 1 ? "" : "S"}`}
+            {finalizing ? "Salvando escolhas…" : `REVISAR ${acceptedCount} ESCOLHA${acceptedCount === 1 ? "" : "S"}`}
           </Button>
         </div>
       )}
