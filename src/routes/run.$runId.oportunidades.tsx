@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { AppShell } from "@/components/AppShell";
-import { DecisionQueueFlow } from "@/components/DecisionQueueFlow";
+import { DecisionQueueGate } from "@/components/DecisionQueueGate";
 import { SourceAudit } from "@/components/SourceAudit";
 
 export const Route = createFileRoute("/run/$runId/oportunidades")({
@@ -21,7 +21,7 @@ function OpportunitiesScreen() {
           As chances já foram calculadas. O sistema busca a odd real quando possível, avalia valor no servidor e abre as opções qualificadas em lotes de até 10. Você pode escolher no máximo 3 por data, em qualquer dia da semana.
         </p>
 
-        <DecisionQueueFlow runId={runId} />
+        <DecisionQueueGate runId={runId} />
         <SourceAudit runId={runId} refreshKey={0} />
       </div>
     </AppShell>
