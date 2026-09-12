@@ -28,7 +28,8 @@ describe("frontend UX/UI clarity contract", () => {
     expect(home).toContain("Análises recentes");
     expect(home).toContain("VALIDAR PARTIDAS");
     expect(summary).toContain('.eq("owner_id", userId)');
-    expect(summary).toContain("experimental_bet_tracking");
+    expect(summary).toContain('db.rpc("get_owner_home_metrics"');
+    expect(summary).not.toContain('.from("experimental_bet_tracking")');
   });
 
   it("makes ignored CSV rows visible before the main CTA", () => {
