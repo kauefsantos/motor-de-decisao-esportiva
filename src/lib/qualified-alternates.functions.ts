@@ -17,7 +17,7 @@ function labelFor(
   lineRaw: string | null,
 ) {
   const numericLine = lineRaw === null ? null : Number(lineRaw);
-  const lineLabel = Number.isFinite(numericLine) ? formatBookmakerLine(numericLine) : "";
+  const lineLabel = numericLine !== null && Number.isFinite(numericLine) ? formatBookmakerLine(numericLine) : "";
   if (market === "corners_match_total") {
     return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${lineLabel}`.trim();
   }

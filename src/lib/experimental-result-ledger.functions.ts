@@ -1,11 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-const loadSchema = z.object({ runId: z.string().uuid() });
+import type { Json } from "@/integrations/supabase/types";
+import type { AdminDb } from "./admin-db";
+import { BackendError } from "./backend-contract";
 
-type Db = {
-  from: (table: string) => any;
-};
+const loadSchema = z.object({ runId: z.string().uuid() });
 
 export type PersistedExperimentalEvaluation = {
   predictionId: string;
@@ -37,6 +37,35 @@ export type PersistedExperimentalEvaluation = {
   trainingMatches?: number;
 };
 
+export type PersistedReferenceAlternative = {
+  matchId: string;
+  market: string;
+  participant: string | null;
+  side: "OVER" | "UNDER";
+  lineCanonical: number;
+  marketLabel: string;
+  probabilityExperimental: number;
+  fairOdd: number | null;
+  minOddTarget: number | null;
+  requiresRealOdd: true;
+  valueStatus: "NAO_AVALIADO";
+};
+
+export type PersistedDirectionAssessment = {
+  matchId: string;
+  market: string;
+  participant: string | null;
+  anchorLine: number;
+  direction: "VALUE_OVER" | "VALUE_UNDER" | "MODEL_LEAN_OVER" | "MODEL_LEAN_UNDER" | "NEUTRAL";
+  basis: "VALUE" | "MODEL_ONLY" | "NEUTRAL";
+  overProbability: number;
+  underProbability: number;
+  bestValuePredictionId: string | null;
+  referenceAlternatives: PersistedReferenceAlternative[];
+};
+
+export type PersistedCorrelatedAlternate = Omit<PersistedExperimentalEvaluation, "selected">;
+
 export type PersistedExperimentalResult = {
   runId: string;
   analyzedAt: string;
@@ -47,9 +76,9 @@ export type PersistedExperimentalResult = {
   productionStatus: string;
   evaluations: PersistedExperimentalEvaluation[];
   selectionOrder: string[];
-  directionAssessments: unknown[];
-  referenceAlternatives: unknown[];
-  correlatedAlternates: unknown[];
+  directionAssessments: PersistedDirectionAssessment[];
+  referenceAlternatives: PersistedReferenceAlternative[];
+  correlatedAlternates: PersistedCorrelatedAlternate[];
 };
 
 function fingerprint(input: {
@@ -73,7 +102,7 @@ function fingerprint(input: {
 }
 
 export async function persistExperimentalResult(
-  rawDb: Db,
+  rawDb: AdminDb,
   input: PersistedExperimentalResult,
 ) {
   const evaluationRows = input.evaluations.map((row) => ({
@@ -122,7 +151,7 @@ export async function persistExperimentalResult(
 
   const { error: snapshotError } = await rawDb.from("experimental_analysis_results").upsert({
     run_id: input.runId,
-    result_payload: input,
+    result_payload: input as unknown as Json,
     analyzed_at: input.analyzedAt,
     updated_at: new Date().toISOString(),
   }, { onConflict: "run_id" });
@@ -134,7 +163,7 @@ export const getPersistedExperimentalResult = createServerFn({ method: "GET" })
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { assertRunOwner } = await import("./authorization.server");
-    const rawDb = supabaseAdmin as unknown as Db;
+    const rawDb = supabaseAdmin;
     await assertRunOwner(rawDb, context.userId, data.runId);
 
     const { data: row, error } = await rawDb
@@ -143,12 +172,12 @@ export const getPersistedExperimentalResult = createServerFn({ method: "GET" })
       .eq("run_id", data.runId)
       .maybeSingle();
 
-    if (error) throw new Error(`Não foi possível recuperar o resultado experimental: ${error.message}`);
+    if (error) throw new BackendError("INTERNAL_ERROR", "Não foi possível recuperar o resultado experimental.", 500);
     if (!row?.result_payload) return { result: null as PersistedExperimentalResult | null };
 
-    const result = row.result_payload as PersistedExperimentalResult;
+    const result = row.result_payload as unknown as PersistedExperimentalResult;
     if (result.runId !== data.runId) {
-      throw new Error("O snapshot persistido não corresponde à rodada solicitada.");
+      throw new BackendError("CONFLICT", "O snapshot persistido não corresponde à rodada solicitada.", 409);
     }
     return { result };
   });

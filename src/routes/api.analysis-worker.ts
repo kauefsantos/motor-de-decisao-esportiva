@@ -19,8 +19,8 @@ export const Route = createFileRoute("/api/analysis-worker")({
         if (rateLimited) return rateLimited;
         const body = await readBoundedJsonObject(request);
         if (!body) return backendJson({ status: "IGNORED" as const }, { status: 202 }, requestId);
-        const runId = typeof body.runId === "string" ? body.runId : "";
-        const dispatchToken = typeof body.dispatchToken === "string" ? body.dispatchToken : "";
+        const runId = typeof body["runId"] === "string" ? body["runId"] : "";
+        const dispatchToken = typeof body["dispatchToken"] === "string" ? body["dispatchToken"] : "";
         if (!UUID_RE.test(runId) || !UUID_RE.test(dispatchToken)) return backendJson({ status: "IGNORED" as const }, { status: 202 }, requestId);
 
         try {

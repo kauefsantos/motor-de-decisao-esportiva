@@ -22,7 +22,7 @@ export const Route = createFileRoute("/api/five-dollar-maintenance")({
         if (limited) return limited;
         try {
           const body = await readBoundedJsonObject(request);
-          const token = typeof body?.dispatchToken === "string" ? body.dispatchToken : "";
+          const token = typeof body?.["dispatchToken"] === "string" ? body["dispatchToken"] : "";
           if (!UUID_RE.test(token)) {
             return Response.json(
               { ok: false, error: { code: "FORBIDDEN", message: "Solicitação de manutenção inválida." }, requestId },

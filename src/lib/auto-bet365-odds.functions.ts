@@ -99,7 +99,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const supabase = supabaseAdmin;
     const { assertRunOwner } = await import("./authorization.server");
-    await assertRunOwner(supabase as unknown as { from: (table: string) => any }, context.userId, data.runId);
+    await assertRunOwner(supabase, context.userId, data.runId);
 
     const [{ data: predictions }, { data: matches }, { data: run }] = await Promise.all([
       supabase

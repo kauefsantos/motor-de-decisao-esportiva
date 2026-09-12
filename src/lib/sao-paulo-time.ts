@@ -14,12 +14,12 @@ const formatter = new Intl.DateTimeFormat("en-CA", {
 function partsAt(date: Date) {
   const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
   return {
-    year: Number(parts.year),
-    month: Number(parts.month),
-    day: Number(parts.day),
-    hour: Number(parts.hour),
-    minute: Number(parts.minute),
-    second: Number(parts.second),
+    year: Number(parts["year"]),
+    month: Number(parts["month"]),
+    day: Number(parts["day"]),
+    hour: Number(parts["hour"]),
+    minute: Number(parts["minute"]),
+    second: Number(parts["second"]),
   };
 }
 

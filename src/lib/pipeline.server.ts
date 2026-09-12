@@ -8,6 +8,7 @@ export type { PipelineStepKey } from "./pipeline.steps";
 import type { PipelineStepKey } from "./pipeline.steps";
 import { collectPipelineData } from "./pipeline/collect.server";
 import { resolvePipelineMatches } from "./pipeline/resolve.server";
+import { activeFootballProvider } from "./pipeline/provider.server";
 
 type Db = Awaited<ReturnType<typeof getDb>>;
 
@@ -25,6 +26,16 @@ async function log(
   payload: Record<string, unknown> = {},
 ) {
   await db.from("pipeline_logs").insert({ run_id: runId, step, level, message, payload: payload as never });
+}
+
+async function runPredictionAt(db: Db, runId: string): Promise<string> {
+  const { data: run } = await db.from("analysis_runs").select("notes, created_at").eq("id", runId).single();
+  const stored = (run?.notes as { prediction_at?: unknown } | null)?.prediction_at;
+  if (typeof stored === "string" && Number.isFinite(Date.parse(stored))) return stored;
+  const fallback = run?.created_at ?? new Date().toISOString();
+  const notes = { ...((run?.notes as Record<string, unknown> | null) ?? {}), prediction_at: fallback };
+  await db.from("analysis_runs").update({ notes: notes as never }).eq("id", runId);
+  return fallback;
 }
 
 export async function executeStep(runId: string, step: PipelineStepKey) {
@@ -273,6 +284,6 @@ async function markets(db: Db, runId: string) {
     current_step: "MARKETS",
     updated_at: new Date().toISOString(),
   }).eq("id", runId);
-  await log(db, runId, "MARKETS", `${published} contratos publicados, ${blocked} bloqueados.`, published ? "INFO" : "WARN", { provider: activeProvider() });
-  return { published, blocked, provider: activeProvider() };
+  await log(db, runId, "MARKETS", `${published} contratos publicados, ${blocked} bloqueados.`, published ? "INFO" : "WARN", { provider: activeFootballProvider() });
+  return { published, blocked, provider: activeFootballProvider() };
 }

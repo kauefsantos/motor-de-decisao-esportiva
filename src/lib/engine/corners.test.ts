@@ -10,7 +10,7 @@ import {
   validateTemporally,
   type CornerMatchRow,
 } from "./corners";
-import { buildDataset } from "./corners.train.server";
+import { buildDataset } from "../application/training/corners-training.server";
 
 function synthetic(n: number): CornerMatchRow[] {
   const teams = ["A", "B", "C", "D", "E", "F"];

@@ -302,12 +302,12 @@ function DraftValidationScreen() {
                           <div className="mt-2 flex flex-wrap gap-2">
                             {(game.suggestions ?? []).slice(0, 5).map((suggestion, index) => (
                               <Button key={index} type="button" size="sm" variant="outline" onClick={() => {
-                                const field = editable.includes("target_date") && typeof suggestion.date === "string" ? "target_date" : editable.includes("partida") && typeof suggestion.partida === "string" ? "partida" : null;
+                                const field = editable.includes("target_date") && typeof suggestion["date"] === "string" ? "target_date" : editable.includes("partida") && typeof suggestion["partida"] === "string" ? "partida" : null;
                                 if (!field) return;
-                                const value = field === "target_date" ? String(suggestion.date) : String(suggestion.partida);
+                                const value = field === "target_date" ? String(suggestion["date"]) : String(suggestion["partida"]);
                                 setValues((current) => ({ ...current, [`${game.id}:${field}`]: value }));
                               }}>
-                                {String(suggestion.partida ?? suggestion.label ?? suggestion.date ?? `Sugestão ${index + 1}`)}
+                                {String(suggestion["partida"] ?? suggestion["label"] ?? suggestion["date"] ?? `Sugestão ${index + 1}`)}
                               </Button>
                             ))}
                           </div>
