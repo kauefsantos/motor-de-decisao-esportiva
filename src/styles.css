@@ -57,7 +57,7 @@
   --popover: #222433;
   --popover-foreground: #f2f3f7;
   --primary: #8a6ef2;
-  --primary-foreground: #fbfbfd;
+  --primary-foreground: #101118;
   --secondary: #2a2d3d;
   --secondary-foreground: #eef0f4;
   --muted: #272a38;
@@ -65,13 +65,13 @@
   --accent: #55cbe5;
   --accent-foreground: #171923;
   --destructive: #e1645a;
-  --destructive-foreground: #fbfbfd;
+  --destructive-foreground: #101118;
   --success: #55d8a5;
   --success-foreground: #171923;
   --warning: #e5c56a;
   --warning-foreground: #1a1b24;
   --border: #383c50;
-  --input: #303448;
+  --input: #70768f;
   --ring: #9a80f7;
   --grid: #232634;
 }
@@ -87,7 +87,7 @@
     --popover: oklch(0.225 0.028 271);
     --popover-foreground: oklch(0.955 0.008 265);
     --primary: oklch(0.69 0.19 282);
-    --primary-foreground: oklch(0.98 0.006 265);
+    --primary-foreground: oklch(0.14 0.018 272);
     --secondary: oklch(0.27 0.032 273);
     --secondary-foreground: oklch(0.94 0.009 265);
     --muted: oklch(0.25 0.026 272);
@@ -95,13 +95,13 @@
     --accent: oklch(0.77 0.125 205);
     --accent-foreground: oklch(0.17 0.022 272);
     --destructive: oklch(0.66 0.18 27);
-    --destructive-foreground: oklch(0.98 0.006 265);
+    --destructive-foreground: oklch(0.14 0.018 272);
     --success: oklch(0.76 0.13 166);
     --success-foreground: oklch(0.17 0.022 272);
     --warning: oklch(0.8 0.12 82);
     --warning-foreground: oklch(0.18 0.02 272);
     --border: oklch(0.31 0.035 273);
-    --input: oklch(0.275 0.034 273);
+    --input: oklch(0.55 0.035 273);
     --ring: oklch(0.73 0.17 282);
     --grid: oklch(0.225 0.023 272);
   }
@@ -134,6 +134,7 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    line-height: 1.5;
     background-image:
       linear-gradient(color-mix(in oklab, var(--color-grid) 60%, transparent) 1px, transparent 1px),
       linear-gradient(90deg, color-mix(in oklab, var(--color-grid) 60%, transparent) 1px, transparent 1px);
@@ -152,6 +153,7 @@
   a,
   input,
   select,
+  textarea,
   summary {
     outline-color: transparent;
     -webkit-tap-highlight-color: transparent;
@@ -173,7 +175,9 @@
   a:focus-visible,
   input:focus-visible,
   select:focus-visible,
-  summary:focus-visible {
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
@@ -220,8 +224,9 @@
 
 @utility label-eyebrow {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--color-muted-foreground);
 }
@@ -238,6 +243,39 @@
   border: 1px solid var(--color-border);
   border: 1px solid color-mix(in oklab, var(--color-border) 74%, transparent);
   border-radius: var(--radius-md);
+}
+
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: calc(0.5rem + env(safe-area-inset-top));
+  z-index: 100;
+  transform: translateY(-180%);
+  border-radius: 0.5rem;
+  background: var(--color-foreground);
+  color: var(--color-background);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: transform 120ms ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* Typography floor: metadata remains visually secondary without becoming tiny. */
+@layer utilities {
+  .text-xs {
+    font-size: 0.8125rem;
+    line-height: 1.125rem;
+  }
+
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
 }
 
 /* Mobile-first rules for narrow phones. */
@@ -266,14 +304,9 @@
   }
 
   .label-eyebrow {
-    font-size: 0.6875rem;
-    letter-spacing: 0.1em;
-  }
-
-  .text-\[10px\],
-  .text-\[11px\] {
     font-size: 0.75rem;
     line-height: 1rem;
+    letter-spacing: 0.08em;
   }
 
   input,
