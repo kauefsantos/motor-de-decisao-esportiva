@@ -18,6 +18,7 @@ const inputSchema = z.object({
 });
 const runSchema = z.object({ runId: z.string().uuid() });
 const queueSchema = z.object({ queueId: z.string().uuid() });
+const DECISION_QUEUE_EVALUATED_STEP = "DECISION_QUEUE_EVALUATED";
 
 type Prediction = {
   prediction_id: string;
@@ -133,10 +134,6 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
       });
     }
 
-    // The selector remains the source of truth for qualification and correlation.
-    // For the user-choice queue we retain BOTH the best row per match and its
-    // qualified correlated alternates. The database reveals only one market per
-    // match in a batch; alternates remain available if the first one is declined.
     const portfolio = selectExperimentalPortfolio(evaluated, Math.max(1, evaluated.length));
     const qualified = ([...portfolio.selected, ...portfolio.correlatedAlternates] as Ranked[])
       .sort((a, b) => (b.evCons ?? -Infinity) - (a.evCons ?? -Infinity) || (b.edgeCons ?? -Infinity) - (a.edgeCons ?? -Infinity));
@@ -169,6 +166,18 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
     });
     if (replaceError) throw new BackendError("CONFLICT", "A fila de opções já possui escolhas e não pode ser reconstruída.", 409);
 
+    const evaluatedCount = Number(count ?? queueRows.length);
+    const { error: markerError } = await rawDb.from("pipeline_logs").insert({
+      run_id: data.runId,
+      step: DECISION_QUEUE_EVALUATED_STEP,
+      level: "INFO",
+      message: evaluatedCount === 0
+        ? "Fila de decisão avaliada sem opções qualificadas."
+        : `Fila de decisão avaliada com ${evaluatedCount} opção(ões) qualificadas.`,
+      payload: { totalQualified: evaluatedCount },
+    });
+    if (markerError) throw new BackendError("INTERNAL_ERROR", "A avaliação foi concluída, mas seu estado não pôde ser persistido.", 500);
+
     const { data: batch, error: batchError } = await rawDb.rpc("next_decision_batch_atomic", {
       p_run_id: data.runId,
       p_owner_id: context.userId,
@@ -178,7 +187,7 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
 
     return backendOk({
       runId: data.runId,
-      totalQualified: Number(count ?? queueRows.length),
+      totalQualified: evaluatedCount,
       batch: batch ?? [],
       batchSize: (batch ?? []).length,
       exhausted: queueRows.length <= (batch ?? []).length,
@@ -285,17 +294,22 @@ export const getDecisionQueueHistory = createServerFn({ method: "POST" })
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
     const rawDb = await db();
     const run = await owner(rawDb, data.runId, context.userId);
-    const { data: rows, error } = await rawDb.from("decision_opportunity_queue").select("*").eq("run_id", data.runId).order("rank_global");
-    if (error) throw new BackendError("INTERNAL_ERROR", "Não foi possível recuperar o histórico da fila.", 500);
-    const history = rows ?? [];
+    const [queueResult, evaluationResult] = await Promise.all([
+      rawDb.from("decision_opportunity_queue").select("*").eq("run_id", data.runId).order("rank_global"),
+      rawDb.from("pipeline_logs").select("id", { count: "exact", head: true }).eq("run_id", data.runId).eq("step", DECISION_QUEUE_EVALUATED_STEP),
+    ]);
+    if (queueResult.error || evaluationResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível recuperar o histórico da fila.", 500);
+    const history = queueResult.data ?? [];
     const acceptedCount = history.filter((row: any) => row.queue_state === "ACCEPTED").length;
     const exhausted = !history.some((row: any) => row.queue_state === "AVAILABLE" || row.queue_state === "SHOWN");
     const selectionFinalized = Boolean(run.selection_finalized_at);
+    const decisionQueueEvaluated = history.length > 0 || Number(evaluationResult.count ?? 0) > 0;
     return backendOk({
       rows: history,
       acceptedCount,
       exhausted,
       selectionFinalized,
+      decisionQueueEvaluated,
       canProceedToStake: selectionFinalized || acceptedCount >= 3 || (acceptedCount > 0 && exhausted),
       dailySelectionLimit: 3,
     });
