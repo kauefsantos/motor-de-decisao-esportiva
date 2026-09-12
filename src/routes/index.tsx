@@ -47,15 +47,31 @@ function runStatusLabel(status: string) {
   return "Em andamento";
 }
 
-function ResumeRunLink({ run }: { run: RecentRun | null | undefined }) {
+function ResumeRunButton({ run, compact = false }: { run: RecentRun | null | undefined; compact?: boolean }) {
   if (!run) return null;
+  const size = compact ? "sm" : "default";
+  const variant = compact ? "outline" : "default";
+  const className = compact ? undefined : "min-h-11 w-full sm:w-auto";
+
   if (run.selection_finalized_at) {
-    return <Link to="/run/$runId/resultado" params={{ runId: run.id }} search={{ mode: "experimental" }}>Abrir resultado</Link>;
+    return (
+      <Button asChild size={size} variant={variant} className={className}>
+        <Link to="/run/$runId/resultado" params={{ runId: run.id }} search={{ mode: "experimental" }}>Abrir resultado</Link>
+      </Button>
+    );
   }
   if (run.status === "RUNNING") {
-    return <Link to="/run/$runId/processamento" params={{ runId: run.id }}>Continuar</Link>;
+    return (
+      <Button asChild size={size} variant={variant} className={className}>
+        <Link to="/run/$runId/processamento" params={{ runId: run.id }}>Continuar</Link>
+      </Button>
+    );
   }
-  return <Link to="/run/$runId/oportunidades" params={{ runId: run.id }}>Continuar</Link>;
+  return (
+    <Button asChild size={size} variant={variant} className={className}>
+      <Link to="/run/$runId/oportunidades" params={{ runId: run.id }}>Continuar</Link>
+    </Button>
+  );
 }
 
 function UploadScreen() {
@@ -148,13 +164,13 @@ function UploadScreen() {
                         : `Rodada ${dateLabel(summary.resumableRun?.target_date)} · ${runStatusLabel(summary.resumableRun?.status ?? "")}`}
                     </p>
                   </div>
-                  <Button asChild className="min-h-11 w-full sm:w-auto">
-                    {summary.pendingDraft ? (
+                  {summary.pendingDraft ? (
+                    <Button asChild className="min-h-11 w-full sm:w-auto">
                       <Link to="/draft/$draftId/validacao" params={{ draftId: summary.pendingDraft.id }}>Continuar análise</Link>
-                    ) : (
-                      <ResumeRunLink run={summary.resumableRun} />
-                    )}
-                  </Button>
+                    </Button>
+                  ) : (
+                    <ResumeRunButton run={summary.resumableRun} />
+                  )}
                 </div>
               ) : (
                 <div className="p-4 text-sm text-muted-foreground sm:p-5">Nenhuma análise precisa ser retomada agora.</div>
@@ -165,10 +181,22 @@ function UploadScreen() {
                   <span><span className="block text-xs text-muted-foreground">Resultados para informar</span><strong className="num mt-1 block text-xl">{summary.openBetsCount}</strong></span>
                   <Clock3 className="size-5 text-muted-foreground" aria-hidden />
                 </Link>
-                <div className="flex min-h-20 items-center justify-between gap-3 p-4">
-                  <span><span className="block text-xs text-muted-foreground">Sugestões para registrar</span><strong className="num mt-1 block text-xl">{summary.proposedCount}</strong></span>
-                  <FileSpreadsheet className="size-5 text-muted-foreground" aria-hidden />
-                </div>
+                {summary.proposedCount > 0 && summary.proposedRunId ? (
+                  <Link
+                    to="/run/$runId/resultado"
+                    params={{ runId: summary.proposedRunId }}
+                    search={{ mode: "experimental" }}
+                    className="flex min-h-20 items-center justify-between gap-3 p-4 transition-colors hover:bg-secondary/20"
+                  >
+                    <span><span className="block text-xs text-muted-foreground">Sugestões para registrar</span><strong className="num mt-1 block text-xl">{summary.proposedCount}</strong></span>
+                    <FileSpreadsheet className="size-5 text-muted-foreground" aria-hidden />
+                  </Link>
+                ) : (
+                  <div className="flex min-h-20 items-center justify-between gap-3 p-4">
+                    <span><span className="block text-xs text-muted-foreground">Sugestões para registrar</span><strong className="num mt-1 block text-xl">0</strong></span>
+                    <FileSpreadsheet className="size-5 text-muted-foreground" aria-hidden />
+                  </div>
+                )}
                 <div className="flex min-h-20 items-center justify-between gap-3 p-4">
                   <span><span className="block text-xs text-muted-foreground">Saldo disponível</span><strong className="num mt-1 block text-lg">{money(summary.availableBankroll)}</strong></span>
                   <WalletCards className="size-5 text-muted-foreground" aria-hidden />
@@ -315,7 +343,7 @@ function UploadScreen() {
                     <p className="text-sm font-medium">Rodada {dateLabel(run.target_date)}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">{runStatusLabel(run.status)} · {run.matches_total ?? 0} jogo(s)</p>
                   </div>
-                  <Button asChild size="sm" variant="outline"><ResumeRunLink run={run} /></Button>
+                  <ResumeRunButton run={run} compact />
                 </li>
               ))}
             </ul>
