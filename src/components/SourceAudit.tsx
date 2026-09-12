@@ -107,6 +107,9 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
             const isOpen = open === match.id;
             const buttonId = `source-audit-button-${match.id}`;
             const detailsId = `source-audit-details-${match.id}`;
+            const resolutionLabel = match.resolution_status
+              ? (RESOLUTION_LABEL[match.resolution_status] ?? "Em conferência")
+              : "Em conferência";
             return (
               <li key={match.id}>
                 <button
@@ -121,7 +124,7 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
                     {match.home_team && match.away_team ? `${match.home_team} x ${match.away_team}` : match.raw_partida}
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
-                    <span className="hidden text-xs text-muted-foreground sm:inline">{RESOLUTION_LABEL[match.resolution_status] ?? "Em conferência"}</span>
+                    <span className="hidden text-xs text-muted-foreground sm:inline">{resolutionLabel}</span>
                     <ChevronDown className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden />
                   </span>
                 </button>
