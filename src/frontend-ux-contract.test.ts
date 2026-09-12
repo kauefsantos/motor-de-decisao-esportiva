@@ -180,11 +180,13 @@ describe("frontend mobile-first and accessibility contract", () => {
     expect(auth).toContain("safe-area-inset-bottom");
   });
 
-  it("uses a bottom navigation and leaves room for the Home Indicator", () => {
+  it("uses a bottom navigation, leaves room for the Home Indicator, and avoids the virtual keyboard", () => {
     const shell = source("./components/AppShell.tsx");
     expect(shell).toContain('aria-label="Navegação principal"');
     expect(shell).toContain("safe-area-inset-bottom");
-    expect(shell).toContain("fixed inset-x-0 bottom-0");
+    expect(shell).toContain('keyboardOpen ? "hidden" : "fixed"');
+    expect(shell).toContain("inset-x-0 bottom-0");
+    expect(shell).toContain("window.visualViewport");
   });
 
   it("keeps manual odds easy to enter on narrow phone layouts", () => {
