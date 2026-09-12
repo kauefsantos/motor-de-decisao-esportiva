@@ -68,8 +68,7 @@ export function PushNotificationControl() {
 
     setBusy(true);
     try {
-      // Permission is requested directly from this tap/click handler, which is
-      // required by iOS Home Screen web apps.
+      // Permission must be requested directly from a user gesture on mobile browsers.
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         setState(permission === "denied" ? "blocked" : "available");
@@ -119,7 +118,7 @@ export function PushNotificationControl() {
         <div>
           <p className="text-sm font-medium">Notificações ativadas</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Você pode sair do Bet Value ou bloquear o iPhone. Avisaremos quando a análise estiver pronta.
+            Você pode sair do Bet Value ou bloquear o aparelho. Avisaremos quando a análise estiver pronta.
           </p>
         </div>
       </div>
@@ -133,7 +132,7 @@ export function PushNotificationControl() {
         <div>
           <p className="text-sm font-medium">Notificações bloqueadas</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            A análise continua em segundo plano. Para receber avisos, libere o Bet Value em Ajustes → Notificações no iPhone.
+            A análise continua em segundo plano. Para receber avisos, libere as notificações do Bet Value nas configurações do navegador ou do sistema.
           </p>
         </div>
       </div>
@@ -145,9 +144,9 @@ export function PushNotificationControl() {
       <div className="panel mt-4 flex items-start gap-3 p-4">
         <Smartphone className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
         <div>
-          <p className="text-sm font-medium">Avisos não disponíveis neste modo</p>
+          <p className="text-sm font-medium">Avisos não disponíveis neste navegador ou modo</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            No iPhone, abra o Bet Value pelo ícone adicionado à Tela de Início para usar notificações.
+            Use um navegador atualizado. No iPhone e iPad, as notificações web exigem o app adicionado à Tela de Início; em Android e computador, confira a permissão do navegador.
           </p>
         </div>
       </div>
@@ -163,7 +162,7 @@ export function PushNotificationControl() {
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {standalone
               ? "Ative uma vez e pode sair do app enquanto a análise continua no servidor."
-              : "No iPhone, funciona melhor pelo Bet Value instalado na Tela de Início."}
+              : "Ative no navegador; se o dispositivo exigir instalação para notificações, adicione o Bet Value à Tela de Início."}
           </p>
           {state === "error" && (
             <p className="mt-1 text-xs text-warning">Não foi possível preparar os avisos agora. Tente novamente.</p>
