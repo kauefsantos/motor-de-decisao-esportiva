@@ -25,12 +25,13 @@ import {
   evaluateExperimentalEntries,
 } from "./application/experimental-markets/value-tracking";
 import {
+  clearExperimentalPredictions,
+  insertExperimentalPredictions,
   loadExperimentalExternalIds,
   loadExperimentalMatches,
   loadExperimentalMatchesByIds,
   loadExperimentalOddsState,
   loadExperimentalRun,
-  replaceExperimentalPredictions,
   upsertExperimentalTracking,
 } from "./repositories/experimental-markets.repository.server";
 
@@ -71,6 +72,10 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
         .map((row) => asRecord(row.raw_value))
         .filter((row): row is RawValue => Boolean(row)),
     );
+
+    // Preserve the original replacement semantics: stale experimental rows are
+    // cleared before a fresh calculation begins, not after it succeeds.
+    await clearExperimentalPredictions(db, data.runId);
     const predictions = await buildExperimentalPredictions({
       runId: data.runId,
       predictionAt,
@@ -80,8 +85,8 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
       runRaws: runRaws as RunRawRow[],
       datasets,
     });
+    await insertExperimentalPredictions(db, predictions.predictionRows);
 
-    await replaceExperimentalPredictions(db, data.runId, predictions.predictionRows);
     return {
       candidates: predictions.candidates,
       issues: predictions.issues,
