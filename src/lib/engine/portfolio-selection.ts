@@ -1,4 +1,11 @@
-import { passesModelProbabilityGate, type ValueResult } from "./value";
+import {
+  EV_TARGET,
+  MIN_EDGE,
+  MAX_SELECTIONS,
+  passesMinimumOddGate,
+  passesModelProbabilityGate,
+  type ValueResult,
+} from "./value";
 
 export type PortfolioCandidate = ValueResult & {
   matchId: string | null;
@@ -10,6 +17,7 @@ export type PortfolioCandidate = ValueResult & {
 
 export type PortfolioSelectionResult<T extends PortfolioCandidate> = {
   selected: T[];
+  /** Mantido por compatibilidade de contrato; itens correlacionados não são espelhados ao frontend. */
   correlatedAlternates: T[];
 };
 
@@ -18,44 +26,43 @@ function valueOrder<T extends ValueResult>(a: T, b: T) {
     (b.edgeCons ?? -Infinity) - (a.edgeCons ?? -Infinity);
 }
 
+function isQualified(row: ValueResult) {
+  return row.probabilityStatus === "APROVADA" &&
+    passesModelProbabilityGate(row.decisionProbability) &&
+    passesMinimumOddGate(row.odd) &&
+    (row.evCons ?? -Infinity) >= EV_TARGET &&
+    (row.edgeCons ?? -Infinity) >= MIN_EDGE &&
+    row.valueStatus === "TEM_VALOR" &&
+    row.executionStatus === "EXECUTAVEL";
+}
+
 /**
- * Experimental portfolio selector.
- *
- * A linha só chega ao portfólio se já tiver passado pelo gate estrito de
- * probabilidade (>70%), pelo value com odd real e pela execução. Esta checagem
- * é repetida aqui como defesa em profundidade para impedir que um resultado
- * antigo/stale seja promovido apenas por ter EV positivo.
+ * Seleciona exclusivamente o portfólio que pode ser espelhado para o frontend.
+ * O backend pode avaliar quantos contratos forem necessários; só os sobreviventes
+ * desta função chegam à fila principal.
  */
 export function selectExperimentalPortfolio<T extends PortfolioCandidate>(
   results: T[],
-  limit: number,
+  legacyLimit = MAX_SELECTIONS,
 ): PortfolioSelectionResult<T> {
-  const qualified = results
-    .filter(
-      (row) =>
-        row.probabilityStatus === "APROVADA" &&
-        passesModelProbabilityGate(row.decisionProbability) &&
-        row.valueStatus === "TEM_VALOR" &&
-        row.executionStatus === "EXECUTAVEL",
-    )
-    .sort(valueOrder);
-
+  void legacyLimit;
+  const qualified = results.filter(isQualified).sort(valueOrder);
   const selected: T[] = [];
-  const correlatedAlternates: T[] = [];
   const selectedMatches = new Set<string>();
+  const familyCounts = new Map<string, number>();
 
   for (const row of qualified) {
-    if (selected.length >= limit) {
-      correlatedAlternates.push(row);
-      continue;
-    }
-    if (row.matchId && selectedMatches.has(row.matchId)) {
-      correlatedAlternates.push(row);
-      continue;
-    }
+    if (selected.length >= MAX_SELECTIONS) break;
+    if (row.matchId && selectedMatches.has(row.matchId)) continue;
+    const familyCount = familyCounts.get(row.family) ?? 0;
+    if (familyCount >= 2) continue;
+
     selected.push(row);
     if (row.matchId) selectedMatches.add(row.matchId);
+    familyCounts.set(row.family, familyCount + 1);
   }
 
-  return { selected, correlatedAlternates };
+  // Não devolver alternativas ao fluxo operacional evita que a camada de fila
+  // reintroduza opções descartadas por correlação, concentração ou top-3.
+  return { selected, correlatedAlternates: [] };
 }

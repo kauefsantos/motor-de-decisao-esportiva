@@ -84,34 +84,60 @@ do $test$
 declare
   v_user uuid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid;
   v_run uuid;
+  v_m1 uuid;
+  v_m2 uuid;
+  v_m3 uuid;
+  v_m4 uuid;
   v_q uuid;
   v_n integer;
   v_failed boolean := false;
 begin
-  select id into v_run from public.analysis_runs where owner_id=v_user and idempotency_key='cccccccc-cccc-4ccc-8ccc-cccccccccccc'::uuid;
-  perform public.replace_decision_queue_atomic(v_run,v_user,
-  '[
-    {"prediction_id":"Q1","rank_global":1,"match_label":"A x B","competition":"Liga","market_family":"1X2","market":"1x2","market_label":"A vence","side":"HOME","model_version":"test-v1","model_status":"EXPERIMENTAL_CURRENT_SEASON","model_probability":0.76,"fair_odd":1.31,"entry_odd":2.10,"min_odd_target":1.35,"edge":0.20,"expected_value":0.25},
-    {"prediction_id":"Q2","rank_global":2,"match_label":"C x D","competition":"Liga","market_family":"1X2","market":"1x2","market_label":"C vence","side":"HOME","model_version":"test-v1","model_status":"EXPERIMENTAL_CURRENT_SEASON","model_probability":0.77,"fair_odd":1.30,"entry_odd":2.00,"min_odd_target":1.33,"edge":0.18,"expected_value":0.20},
-    {"prediction_id":"Q3","rank_global":3,"match_label":"E x F","competition":"Liga","market_family":"1X2","market":"1x2","market_label":"E vence","side":"HOME","model_version":"test-v1","model_status":"EXPERIMENTAL_CURRENT_SEASON","model_probability":0.78,"fair_odd":1.28,"entry_odd":1.95,"min_odd_target":1.31,"edge":0.16,"expected_value":0.18},
-    {"prediction_id":"Q4","rank_global":4,"match_label":"G x H","competition":"Liga","market_family":"1X2","market":"1x2","market_label":"G vence","side":"HOME","model_version":"test-v1","model_status":"EXPERIMENTAL_CURRENT_SEASON","model_probability":0.79,"fair_odd":1.27,"entry_odd":1.90,"min_odd_target":1.29,"edge":0.14,"expected_value":0.15}
-  ]'::jsonb);
-  select count(*) into v_n from public.next_decision_batch_atomic(v_run,v_user,10);
-  if v_n<>4 then raise exception 'expected four shown opportunities, got %',v_n; end if;
+  select run_id into v_run from public.create_analysis_run_atomic(
+    v_user,'cccccccc-cccc-4ccc-8ccc-cccccccccccd'::uuid,'2026-09-20'::date,'queue.csv',0,array['Liga'],array['Data','Partida','Horário','Campeonato'],
+    '[
+      {"partida":"A x B","horario":"13:00","campeonato":"Liga"},
+      {"partida":"C x D","horario":"15:00","campeonato":"Liga"},
+      {"partida":"E x F","horario":"17:00","campeonato":"Liga"},
+      {"partida":"G x H","horario":"19:00","campeonato":"Liga"}
+    ]'::jsonb
+  );
+  select id into v_m1 from public.matches where run_id=v_run and raw_partida='A x B';
+  select id into v_m2 from public.matches where run_id=v_run and raw_partida='C x D';
+  select id into v_m3 from public.matches where run_id=v_run and raw_partida='E x F';
+  select id into v_m4 from public.matches where run_id=v_run and raw_partida='G x H';
 
-  for v_q in select id from public.decision_opportunity_queue where run_id=v_run order by rank_global limit 3 loop
+  insert into public.model_predictions(run_id,match_id,prediction_id,market,side,model_probability,model_version,model_status,data_status)
+  values
+    (v_run,v_m1,'Q1','goals_match_total','OVER',0.76,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK'),
+    (v_run,v_m2,'Q2','corners_match_total','OVER',0.77,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK'),
+    (v_run,v_m3,'Q3','cards_match_total','OVER',0.78,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK'),
+    (v_run,v_m4,'Q4','1x2','HOME',0.79,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK');
+
+  begin
+    perform public.replace_decision_queue_atomic(v_run,v_user,jsonb_build_array(
+      jsonb_build_object('match_id',v_m1,'prediction_id','Q1','rank_global',1,'match_label','A x B','competition','Liga','market_family','GOALS','market','goals_match_total','market_label','Mais de 2.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.76,'fair_odd',1.31,'entry_odd',2.10,'min_odd_target',1.70,'edge',0.20,'expected_value',0.25),
+      jsonb_build_object('match_id',v_m2,'prediction_id','Q2','rank_global',2,'match_label','C x D','competition','Liga','market_family','CORNERS','market','corners_match_total','market_label','Mais de 9.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.77,'fair_odd',1.30,'entry_odd',2.00,'min_odd_target',1.70,'edge',0.18,'expected_value',0.20),
+      jsonb_build_object('match_id',v_m3,'prediction_id','Q3','rank_global',3,'match_label','E x F','competition','Liga','market_family','CARDS','market','cards_match_total','market_label','Mais de 4.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.78,'fair_odd',1.28,'entry_odd',1.95,'min_odd_target',1.70,'edge',0.16,'expected_value',0.18),
+      jsonb_build_object('match_id',v_m4,'prediction_id','Q4','rank_global',4,'match_label','G x H','competition','Liga','market_family','1X2','market','1x2','market_label','G vence','side','HOME','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.79,'fair_odd',1.27,'entry_odd',1.90,'min_odd_target',1.70,'edge',0.14,'expected_value',0.15)
+    ));
+  exception when others then
+    v_failed := true;
+  end;
+  if not v_failed then raise exception 'queue incorrectly accepted more than three final opportunities'; end if;
+
+  perform public.replace_decision_queue_atomic(v_run,v_user,jsonb_build_array(
+    jsonb_build_object('match_id',v_m1,'prediction_id','Q1','rank_global',1,'match_label','A x B','competition','Liga','market_family','GOALS','market','goals_match_total','market_label','Mais de 2.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.76,'fair_odd',1.31,'entry_odd',2.10,'min_odd_target',1.70,'edge',0.20,'expected_value',0.25),
+    jsonb_build_object('match_id',v_m2,'prediction_id','Q2','rank_global',2,'match_label','C x D','competition','Liga','market_family','CORNERS','market','corners_match_total','market_label','Mais de 9.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.77,'fair_odd',1.30,'entry_odd',2.00,'min_odd_target',1.70,'edge',0.18,'expected_value',0.20),
+    jsonb_build_object('match_id',v_m3,'prediction_id','Q3','rank_global',3,'match_label','E x F','competition','Liga','market_family','CARDS','market','cards_match_total','market_label','Mais de 4.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.78,'fair_odd',1.28,'entry_odd',1.95,'min_odd_target',1.70,'edge',0.16,'expected_value',0.18)
+  ));
+  select count(*) into v_n from public.next_decision_batch_atomic(v_run,v_user,10);
+  if v_n<>3 then raise exception 'expected three final opportunities, got %',v_n; end if;
+
+  for v_q in select id from public.decision_opportunity_queue where run_id=v_run order by rank_global loop
     perform public.accept_decision_opportunity_atomic(v_q,v_user);
   end loop;
   if (select count(*) from public.decision_opportunity_queue where run_id=v_run and queue_state='ACCEPTED')<>3 then raise exception 'three choices were not accepted'; end if;
   if (select count(*) from public.experimental_bet_tracking where run_id=v_run and bet_status='PROPOSED')<>3 then raise exception 'accepted choices were not transferred to stake ledger'; end if;
-
-  select id into v_q from public.decision_opportunity_queue where run_id=v_run and prediction_id='Q4';
-  begin
-    perform public.accept_decision_opportunity_atomic(v_q,v_user);
-  exception when others then
-    v_failed := true;
-  end;
-  if not v_failed then raise exception 'fourth daily choice was incorrectly accepted'; end if;
 
   update public.experimental_bet_tracking set bet_status='DECLINED'
     where run_id=v_run and prediction_id='Q1';
@@ -121,7 +147,7 @@ begin
 end
 $test$
 $outer$,
-'decision queue shows available choices, caps daily acceptance at three and releases a declined stake'
+'decision queue contains at most three final qualified choices and releases a declined stake'
 );
 
 select lives_ok(

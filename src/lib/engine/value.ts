@@ -11,12 +11,19 @@ import {
 } from "./settlement";
 import type { AsianOutcomeProbabilities, ContractType } from "./types";
 
-export const EV_TARGET = 0.02;
+/** Régua única de publicação/execução aprovada para o funil de decisão. */
 export const MIN_MODEL_PROBABILITY = 0.70;
+export const MIN_ENTRY_ODD = 1.70;
+export const EV_TARGET = 0.08;
+export const MIN_EDGE = 0.05;
 export const MAX_SELECTIONS = 3;
 
 export function passesModelProbabilityGate(probability: number | null | undefined): probability is number {
-  return probability !== null && probability !== undefined && Number.isFinite(probability) && probability > MIN_MODEL_PROBABILITY && probability <= 1;
+  return probability !== null && probability !== undefined && Number.isFinite(probability) && probability >= MIN_MODEL_PROBABILITY && probability <= 1;
+}
+
+export function passesMinimumOddGate(odd: number | null | undefined): odd is number {
+  return odd !== null && odd !== undefined && Number.isFinite(odd) && odd >= MIN_ENTRY_ODD;
 }
 
 export type ProbabilityBasis =
@@ -27,6 +34,9 @@ export type ProbabilityBasis =
 export type RejectionReason =
   | "SEM_VALOR"
   | "MODEL_PROBABILITY_BELOW_THRESHOLD"
+  | "ODD_BELOW_MINIMUM"
+  | "EV_BELOW_THRESHOLD"
+  | "EDGE_BELOW_THRESHOLD"
   | "PRICE_MOVED_NO_BET"
   | "REFORECAST_REQUIRED"
   | "MODEL_NOT_PRODUCTION_VALIDATED"
@@ -46,7 +56,7 @@ export interface ValueInput {
   lineCanonical: number | null;
   /**
    * Probabilidade entregue pelo Motor 1 ao Motor 2 para a decisão.
-   * Toda recomendação exige valor estritamente maior que 70%.
+   * Toda recomendação exige pelo menos 70%.
    */
   pCons: number | null;
   probabilityBasis?: ProbabilityBasis;
@@ -87,6 +97,17 @@ function binaryProbabilityBasis(input: ValueInput): ProbabilityBasis {
     : "CONSERVATIVE_CALIBRATED";
 }
 
+function edgeOddTarget(probability: number) {
+  const maximumImpliedProbability = probability - MIN_EDGE;
+  return maximumImpliedProbability > 0 ? 1 / maximumImpliedProbability : Number.POSITIVE_INFINITY;
+}
+
+function rejectionForValue(ev: number, edge: number): RejectionReason | null {
+  if (ev < EV_TARGET) return "EV_BELOW_THRESHOLD";
+  if (edge < MIN_EDGE) return "EDGE_BELOW_THRESHOLD";
+  return null;
+}
+
 export function evaluateValue(input: ValueInput): ValueResult {
   const base: ValueResult = {
     candidateId: input.candidateId,
@@ -113,11 +134,20 @@ export function evaluateValue(input: ValueInput): ValueResult {
   if (!Number.isFinite(input.odd) || input.odd <= 1) {
     return { ...base, rejectionReason: "INVALID_ODD" };
   }
+  if (input.odd < MIN_ENTRY_ODD) {
+    return { ...base, rejectionReason: "ODD_BELOW_MINIMUM" };
+  }
   if (!input.published) {
     const reason = (
       ["MODEL_NOT_PRODUCTION_VALIDATED", "DATA_DEFINITION_MISMATCH", "INSUFFICIENT_DATA"] as const
     ).find((r) => input.modelStatus === r || input.dataStatus === r);
     return { ...base, rejectionReason: reason ?? "INSUFFICIENT_DATA" };
+  }
+  if (input.dataStatus !== "OK") {
+    const reason = input.dataStatus === "DATA_DEFINITION_MISMATCH"
+      ? "DATA_DEFINITION_MISMATCH"
+      : "INSUFFICIENT_DATA";
+    return { ...base, rejectionReason: reason };
   }
   if (
     input.lineAtEntry !== null &&
@@ -138,7 +168,7 @@ export function evaluateValue(input: ValueInput): ValueResult {
 
   const p = input.pCons;
 
-  // Só depois do gate estrito >70% o Motor 2 avalia preço/value.
+  // Só depois dos gates de confiança e preço mínimo o Motor 2 avalia value.
   if (input.contractType === "ASIAN") {
     const dist = input.outcomeDistribution;
     if (!dist) return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
@@ -146,43 +176,50 @@ export function evaluateValue(input: ValueInput): ValueResult {
     const l = lEff(dist);
     const ev = asianEV(dist, input.odd);
     const fair = asianFairOdd(dist);
-    const minOdd = asianMinOdd(dist, EV_TARGET);
+    const asianTarget = asianMinOdd(dist, EV_TARGET);
+    if (asianTarget === null) return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
     const implied = 1 / input.odd;
-    const hasValue = ev >= EV_TARGET;
+    const edge = w - implied;
+    const rejectionReason = rejectionForValue(ev, edge);
+    const minOdd = Math.max(MIN_ENTRY_ODD, asianTarget, edgeOddTarget(w));
+    const hasValue = rejectionReason === null;
     return {
       ...base,
       impliedProbability: implied,
       fairOdd: fair,
-      minOddTarget: minOdd,
+      minOddTarget: Number.isFinite(minOdd) ? minOdd : null,
       decisionProbability: p,
       probabilityBasis: "OUTCOME_DISTRIBUTION",
-      edgeCons: w - implied,
+      edgeCons: edge,
       evCons: ev,
       wEff: w,
       lEff: l,
       probabilityStatus: "APROVADA",
       valueStatus: hasValue ? "TEM_VALOR" : "SEM_VALOR",
       executionStatus: hasValue ? "EXECUTAVEL" : "NAO_EXECUTAR",
-      rejectionReason: hasValue ? null : "SEM_VALOR",
+      rejectionReason,
     };
   }
 
   const implied = 1 / input.odd;
   const ev = p * input.odd - 1;
-  const hasValue = ev >= EV_TARGET;
+  const edge = p - implied;
+  const rejectionReason = rejectionForValue(ev, edge);
+  const minOdd = Math.max(MIN_ENTRY_ODD, (1 + EV_TARGET) / p, edgeOddTarget(p));
+  const hasValue = rejectionReason === null;
   return {
     ...base,
     impliedProbability: implied,
     fairOdd: 1 / p,
-    minOddTarget: (1 + EV_TARGET) / p,
+    minOddTarget: minOdd,
     decisionProbability: p,
     probabilityBasis: binaryProbabilityBasis(input),
-    edgeCons: p - implied,
+    edgeCons: edge,
     evCons: ev,
     probabilityStatus: "APROVADA",
     valueStatus: hasValue ? "TEM_VALOR" : "SEM_VALOR",
     executionStatus: hasValue ? "EXECUTAVEL" : "NAO_EXECUTAR",
-    rejectionReason: hasValue ? null : "SEM_VALOR",
+    rejectionReason,
   };
 }
 
@@ -192,7 +229,15 @@ export function evaluateValue(input: ValueInput): ValueResult {
  */
 export function finalSelection(results: ValueResult[]): ValueResult[] {
   return results
-    .filter((r) => r.probabilityStatus === "APROVADA" && passesModelProbabilityGate(r.decisionProbability) && r.valueStatus === "TEM_VALOR" && r.executionStatus === "EXECUTAVEL")
+    .filter((r) =>
+      r.probabilityStatus === "APROVADA" &&
+      passesModelProbabilityGate(r.decisionProbability) &&
+      passesMinimumOddGate(r.odd) &&
+      (r.evCons ?? -Infinity) >= EV_TARGET &&
+      (r.edgeCons ?? -Infinity) >= MIN_EDGE &&
+      r.valueStatus === "TEM_VALOR" &&
+      r.executionStatus === "EXECUTAVEL"
+    )
     .sort((a, b) => (b.evCons ?? 0) - (a.evCons ?? 0) || (b.edgeCons ?? 0) - (a.edgeCons ?? 0))
     .slice(0, MAX_SELECTIONS);
 }
