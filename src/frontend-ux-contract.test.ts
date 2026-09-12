@@ -6,27 +6,40 @@ function source(path: string) {
 }
 
 describe("frontend P0/P1 UX contract", () => {
-  it("uses a single odds-review flow", () => {
+  it("uses a single server-backed odds and decision flow", () => {
     const route = source("./routes/run.$runId.oportunidades.tsx");
-    expect(route.match(/<ExperimentalMarketsPilot/g)?.length).toBe(1);
+    expect(route.match(/<DecisionQueueGate/g)?.length).toBe(1);
+    expect(route).not.toContain("ExperimentalMarketsPilot");
     expect(route).not.toContain("analyzeOdds");
     expect(route).not.toContain("COMPARAR ODDS");
     expect(route).toContain("Conferir odds");
   });
 
-  it("shows automatic odds and describes the real analysis scope", () => {
-    const pilot = source("./components/ExperimentalMarketsPilot.tsx");
-    expect(pilot).toContain("Odds encontradas automaticamente");
-    expect(pilot).toContain("ANALISAR ODDS DISPONÍVEIS");
-    expect(pilot).toContain("odds automáticas e todas as odds manuais válidas");
-    expect(pilot).not.toContain("COMPARAR ODDS DESTE LOTE");
+  it("shows automatic odds and describes the persistent decision queue", () => {
+    const flow = source("./components/DecisionQueueFlow.tsx");
+    expect(flow).toContain("Odds encontradas automaticamente");
+    expect(flow).toContain("AVALIAR E ABRIR FILA DE DECISÃO");
+    expect(flow).toContain("Cada lote mostra no máximo 10 opções reais");
+    expect(flow).toContain("dailySelectionLimit ?? 3");
+    expect(flow).not.toContain("COMPARAR ODDS DESTE LOTE");
+    expect(flow).not.toContain("localStorage");
+  });
+
+  it("resumes persisted decisions without repeating preparation or quotes", () => {
+    const gate = source("./components/DecisionQueueGate.tsx");
+    expect(gate).toContain("getDecisionQueueHistory");
+    expect(gate).toContain("hasPersistedDecisionState");
+    expect(gate).toContain("Modelos, integrações externas e cotações não foram executados novamente");
+    expect(gate).toContain("return <DecisionQueueFlow runId={runId} />");
   });
 
   it("never presents a query failure as an empty model result", () => {
-    const pilot = source("./components/ExperimentalMarketsPilot.tsx");
+    const flow = source("./components/DecisionQueueFlow.tsx");
     const result = source("./routes/run.$runId.resultado.tsx");
-    expect(pilot).toContain("Não foi possível preparar as opções");
-    expect(pilot).toContain("Isso não significa que não existam oportunidades");
+    expect(flow).toContain("Não foi possível carregar as opções");
+    expect(flow).toContain("O resultado da análise continua preservado no servidor");
+    expect(flow).toContain("Nenhuma opção passou por todos os critérios");
+    expect(flow).toContain("O sistema não cria sugestões artificiais");
     expect(result).toContain("A falha de carregamento não significa que nenhuma odd tenha compensado");
     expect(result).toContain("!isLoading && !isError && selected.length === 0");
     expect(result).toContain("não tratamos essa situação como “nenhuma odd compensou”");
@@ -165,9 +178,9 @@ describe("frontend iPhone mobile-first contract", () => {
   });
 
   it("keeps manual odds easy to enter on narrow phone layouts", () => {
-    const pilot = source("./components/ExperimentalMarketsPilot.tsx");
+    const flow = source("./components/DecisionQueueFlow.tsx");
     const styles = source("./styles.css");
-    expect(pilot).toContain('className="num mt-1 w-28"');
+    expect(flow).toContain('className="num mt-1 w-28"');
     expect(styles).toContain("input.w-28");
     expect(styles).toContain("width: 100%");
   });

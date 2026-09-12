@@ -6,12 +6,21 @@ function source(path: string) {
 }
 
 describe("background analysis contract", () => {
-  it("queues the server job before leaving the upload screen", () => {
+  it("creates an idempotent draft first and queues only after validation finalizes", () => {
     const upload = source("./routes/index.tsx");
-    const enqueueAt = upload.indexOf("await enqueue({ data: { runId: res.runId } })");
-    const navigateAt = upload.indexOf('navigate({ to: "/run/$runId/processamento"');
-    expect(enqueueAt).toBeGreaterThan(-1);
-    expect(navigateAt).toBeGreaterThan(enqueueAt);
+    const validation = source("./routes/draft.$draftId.validacao.tsx");
+    const draftFunctions = source("./lib/analysis-draft.functions.ts");
+
+    expect(upload).toContain("createAnalysisDraft");
+    expect(upload).toContain('navigate({ to: "/draft/$draftId/validacao"');
+    expect(upload).not.toContain("enqueueAnalysis");
+
+    const finalizeAt = validation.indexOf("await finalizeDraft({");
+    const navigateAt = validation.indexOf('navigate({ to: "/run/$runId/processamento"');
+    expect(finalizeAt).toBeGreaterThan(-1);
+    expect(navigateAt).toBeGreaterThan(finalizeAt);
+    expect(draftFunctions).toContain('db.rpc("enqueue_analysis_job_atomic"');
+    expect(draftFunctions).toContain('db.rpc("kick_analysis_worker")');
   });
 
   it("observes persisted progress instead of executing pipeline steps in the phone", () => {
