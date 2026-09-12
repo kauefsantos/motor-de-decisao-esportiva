@@ -1,58 +1,48 @@
-type DbError = { message?: string } | null;
-
-type QueryResult<T> = {
-  data: T | null;
-  error: DbError;
-};
-
-type Db = {
-  from: (table: string) => any;
-};
+import type { AdminDb } from "./admin-db";
+import { BackendError } from "./backend-contract";
 
 function forbidden(message = "Você não tem autorização para acessar este recurso."): never {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = 403;
-  throw error;
+  throw new BackendError("FORBIDDEN", message, 403);
 }
 
-export async function assertRunOwner(db: Db, userId: string | undefined, runId: string) {
-  if (!userId) forbidden("Usuário não autenticado.");
+export async function assertRunOwner(db: AdminDb, userId: string | undefined, runId: string) {
+  if (!userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
 
-  const { data, error } = (await db
+  const { data, error } = await db
     .from("analysis_runs")
     .select("id")
     .eq("id", runId)
     .eq("owner_id", userId)
-    .maybeSingle()) as QueryResult<{ id: string }>;
+    .maybeSingle();
 
-  if (error) throw new Error(`Falha ao validar autorização da análise: ${error.message ?? "erro desconhecido"}`);
+  if (error) throw new BackendError("INTERNAL_ERROR", "Falha ao validar autorização da análise.", 500);
   if (!data) forbidden();
   return data;
 }
 
-export async function assertTrackingOwner(db: Db, userId: string | undefined, trackingId: string) {
-  if (!userId) forbidden("Usuário não autenticado.");
+export async function assertTrackingOwner(db: AdminDb, userId: string | undefined, trackingId: string) {
+  if (!userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
 
-  const { data, error } = (await db
+  const { data, error } = await db
     .from("experimental_bet_tracking")
     .select("id,run_id")
     .eq("id", trackingId)
-    .maybeSingle()) as QueryResult<{ id: string; run_id: string }>;
+    .maybeSingle();
 
-  if (error) throw new Error(`Falha ao validar autorização da seleção: ${error.message ?? "erro desconhecido"}`);
+  if (error) throw new BackendError("INTERNAL_ERROR", "Falha ao validar autorização da seleção.", 500);
   if (!data) forbidden();
   await assertRunOwner(db, userId, data.run_id);
   return data;
 }
 
-export async function ownedRunIds(db: Db, userId: string | undefined) {
-  if (!userId) forbidden("Usuário não autenticado.");
+export async function ownedRunIds(db: AdminDb, userId: string | undefined) {
+  if (!userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
   const { data, error } = await db
     .from("analysis_runs")
     .select("id")
     .eq("owner_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) throw new Error(`Falha ao carregar análises autorizadas: ${error.message ?? "erro desconhecido"}`);
-  return (data ?? []).map((row: { id: string }) => row.id);
+  if (error) throw new BackendError("INTERNAL_ERROR", "Falha ao carregar análises autorizadas.", 500);
+  return (data ?? []).map((row) => row.id);
 }
