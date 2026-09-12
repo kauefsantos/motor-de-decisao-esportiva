@@ -1,4 +1,4 @@
-import type { Database } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/database.types";
 import type { AdminDb } from "../../admin-db";
 
 type TrackingTable = Database["public"]["Tables"]["experimental_bet_tracking"];
