@@ -54,7 +54,6 @@ function AnalyticsScreen() {
     queryKey: ["experimental-analytics"],
     queryFn: () => fetchAnalytics(),
   });
-
   const recent = useMemo(() => (data?.rows ?? []).slice(0, 80), [data]);
 
   return (
@@ -104,9 +103,7 @@ function AnalyticsScreen() {
               <MetricCard label="Taxa de acerto" value={pct(data.summary.hitRate)} hint={`${data.summary.wins} ganhos · ${data.summary.losses} perdas`} />
             </div>
 
-            <p className="mt-3 rounded-xl bg-secondary/25 px-4 py-3 text-sm leading-relaxed text-muted-foreground ring-1 ring-border/45">
-              {data.summary.sampleMessage}
-            </p>
+            <p className="mt-3 rounded-xl bg-secondary/25 px-4 py-3 text-sm leading-relaxed text-muted-foreground ring-1 ring-border/45">{data.summary.sampleMessage}</p>
 
             <CollapsiblePanel className="mt-3" title="Mais indicadores" description="Métricas complementares da banca e das estimativas">
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-5">
@@ -138,7 +135,7 @@ function AnalyticsScreen() {
                 <p className="text-sm text-muted-foreground">Ainda não há sugestões registradas.</p>
               ) : (
                 <>
-                  <div className="hidden overflow-hidden rounded-lg border border-border md:block">
+                  <div className="hidden overflow-hidden rounded-lg border border-border lg:block">
                     <table className="w-full border-collapse text-sm">
                       <thead><tr className="border-b border-border text-left"><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Sugestões</th><th className="px-4 py-3">Encerradas</th><th className="px-4 py-3">Acertos</th><th className="px-4 py-3">ROI realizado</th><th className="px-4 py-3">CLV médio</th></tr></thead>
                       <tbody>
@@ -148,7 +145,7 @@ function AnalyticsScreen() {
                       </tbody>
                     </table>
                   </div>
-                  <div className="grid gap-2 md:hidden">
+                  <div className="grid gap-2 lg:hidden">
                     {data.byFamily.map((family) => (
                       <div key={family.family} className="border-b border-border/60 py-3 last:border-b-0">
                         <div className="flex items-center justify-between gap-3">
@@ -176,7 +173,7 @@ function AnalyticsScreen() {
                 <p className="text-sm text-muted-foreground">Nenhuma sugestão registrada desde 08/09/2026.</p>
               ) : (
                 <>
-                  <div className="hidden overflow-x-auto md:block">
+                  <div className="hidden overflow-x-auto lg:block">
                     <table className="min-w-[960px] w-full border-collapse text-sm">
                       <thead><tr className="border-b border-border text-left"><th className="px-3 py-3">Data</th><th className="px-3 py-3">Jogo / opção</th><th className="px-3 py-3">Chance</th><th className="px-3 py-3">Odd entrada</th><th className="px-3 py-3">Odd final</th><th className="px-3 py-3">Valor</th><th className="px-3 py-3">Resultado</th><th className="px-3 py-3">Financeiro</th></tr></thead>
                       <tbody>
@@ -196,7 +193,7 @@ function AnalyticsScreen() {
                     </table>
                   </div>
 
-                  <div className="grid gap-3 md:hidden">
+                  <div className="grid gap-3 lg:hidden">
                     {recent.map((row) => (
                       <article key={row.id} className="border-b border-border/60 py-3 first:pt-0 last:border-b-0 last:pb-0">
                         <div className="flex items-start justify-between gap-3">
