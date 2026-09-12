@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(19);
 
 select ok(to_regclass('public.governance_domain_owners') is not null,'domain owner registry exists');
 select is((select count(*)::integer from public.governance_domain_owners),6,'six governed domains seeded');
@@ -13,6 +13,9 @@ select ok(exists(select 1 from pg_trigger where tgname='trg_source_fetch_catalog
 select ok(exists(select 1 from pg_trigger where tgname='trg_raw_observation_catalog' and not tgisinternal),'raw observations enforce catalog');
 select ok(to_regclass('public.governance_change_log') is not null,'governance change log exists');
 select is((select count(*)::integer from pg_trigger where tgname like 'trg_audit_%' and not tgisinternal),5,'five governed master-data audit triggers exist');
+select ok(exists(select 1 from pg_trigger where tgname='trg_governance_change_log_immutable' and not tgisinternal),'governance history has immutability trigger');
+select ok(not has_table_privilege('service_role','public.governance_change_log','UPDATE'),'service role cannot update governance history');
+select ok(not has_table_privilege('service_role','public.governance_change_log','DELETE'),'service role cannot delete governance history');
 select ok(to_regclass('public.access_reviews') is not null,'access review registry exists');
 select is((select count(*)::integer from public.access_reviews where review_period='2026-Q3' and review_status='VERIFIED'),3,'three directly verifiable access surfaces recorded');
 select is((select count(*)::integer from public.access_reviews where review_period='2026-Q3' and review_status='REVIEW_REQUIRED'),2,'unverifiable external access surfaces are explicit');

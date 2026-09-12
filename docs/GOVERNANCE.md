@@ -29,6 +29,8 @@ O catálogo canônico é `public.source_definitions`, complementado por `docs/DA
 Código/schema: Git + migrations + `app_schema_releases`.
 Configurações governadas: `governance_change_log` registra INSERT/UPDATE/DELETE com before/after, papel de banco, usuário quando disponível e timestamp.
 
+`governance_change_log` é **append-only**: o `service_role` não possui `UPDATE` ou `DELETE`, e um trigger de imutabilidade rejeita mutações de linhas existentes. Correções de histórico exigem uma migration explícita, nunca edição operacional silenciosa.
+
 ## Revisão de acessos
 Revisão mínima trimestral para aplicação, GitHub e Lovable. Superfícies externas não verificáveis pela automação ficam com status `REVIEW_REQUIRED`, nunca presumidas como conformes.
 
