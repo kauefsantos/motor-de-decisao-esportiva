@@ -39,7 +39,8 @@ Revisão mínima trimestral para aplicação, GitHub e Lovable. Superfícies ext
 - Acessos: trimestral.
 - Itens externos sem evidência: nova tentativa em até 30 dias.
 
-
 ## Integration and automation resilience (2026-09-12)
 
 External integrations and scheduled jobs are governed as recoverable distributed work. FiveDollar transient failures use bounded retries through the shared provider rate budget; API-Football uses the same distributed cache/rate primitives as its fallback path. Background analysis uses renewable short leases, heartbeat and fenced state transitions. Analysis-ready notifications are durable outbox events rather than best-effort side effects. HTTP pg_cron/pg_net dispatches are recorded in `automation_runs` and reconciled against the pg_net response table so dispatch success is not confused with endpoint success. Football local-time interpretation is anchored to the IANA zone `America/Sao_Paulo`, including historical DST.
+
+A production smoke on 2026-09-12 also verified the runtime insertion path for `automation_runs`. Because `request_id` is protected by a **partial unique index**, dispatcher inserts use bare `ON CONFLICT DO NOTHING`; PostgreSQL cannot infer that partial index from `ON CONFLICT(request_id)`. This behavior is covered by a runtime pgTAP regression so future dispatcher changes must execute the ledger insert, not merely inspect function text.
