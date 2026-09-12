@@ -1,6 +1,7 @@
 import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
+import { buildContentSecurityPolicy, createCspNonce, injectCspNonce } from "./lib/csp";
 import { renderErrorPage } from "./lib/error-page";
 
 type ServerEntry = {
@@ -18,29 +19,16 @@ async function getServerEntry(): Promise<ServerEntry> {
   return serverEntryPromise;
 }
 
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "base-uri 'none'",
-  "object-src 'none'",
-  "frame-ancestors 'self' https://*.lovable.dev https://*.gptengineer.app",
-  // TanStack/Lovable hydration still emits framework-managed inline script/style
-  // blocks. Keep that compatibility for now, while forbidding inline event
-  // handlers explicitly; nonce/hash migration requires coordinated runtime tests.
-  "script-src 'self' 'unsafe-inline'",
-  "script-src-attr 'none'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "worker-src 'self'",
-  "manifest-src 'self'",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",
-  "form-action 'self' https://accounts.google.com",
-  "frame-src 'self' https://accounts.google.com https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",
-].join("; ");
-
-function applySecurityHeaders(request: Request, response: Response): Response {
+async function applySecurityHeaders(request: Request, response: Response): Promise<Response> {
   const headers = new Headers(response.headers);
   const contentType = headers.get("content-type") ?? "";
+  const nonce = createCspNonce();
+  let body: BodyInit | null = response.body;
+
+  if (contentType.includes("text/html")) {
+    body = injectCspNonce(await response.text(), nonce);
+    headers.delete("content-length");
+  }
 
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
@@ -48,10 +36,9 @@ function applySecurityHeaders(request: Request, response: Response): Response {
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()",
   );
-  // OAuth flows may use a popup/redirect, so keep popups isolated but functional.
   headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  headers.set("Content-Security-Policy", buildContentSecurityPolicy(nonce));
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
 
   if (contentType.includes("text/html") || contentType.includes("application/json")) {
@@ -63,7 +50,7 @@ function applySecurityHeaders(request: Request, response: Response): Response {
     headers.set("Strict-Transport-Security", "max-age=31536000");
   }
 
-  return new Response(response.body, {
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,
@@ -102,10 +89,10 @@ export default {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       const normalized = await normalizeCatastrophicSsrResponse(response);
-      return applySecurityHeaders(request, normalized);
+      return await applySecurityHeaders(request, normalized);
     } catch (error) {
       console.error(error);
-      return applySecurityHeaders(
+      return await applySecurityHeaders(
         request,
         new Response(renderErrorPage(), {
           status: 500,
