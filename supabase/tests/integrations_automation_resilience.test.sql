@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(20);
 
 select ok(exists(select 1 from information_schema.columns where table_schema='public' and table_name='analysis_jobs' and column_name='lease_token'),'analysis job has lease token');
 select ok(exists(select 1 from information_schema.columns where table_schema='public' and table_name='analysis_jobs' and column_name='lease_expires_at'),'analysis job has lease expiry');
@@ -40,11 +40,9 @@ select ok(has_function_privilege('service_role','public.claim_push_delivery_batc
 select lives_ok($outer$
 do $test$
 declare
-  v_user uuid:='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  v_user uuid:='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
   v1 uuid; v2 uuid; v_lock uuid; v_ok boolean;
 begin
-  insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
-  values(v_user,'authenticated','authenticated','push-test@example.invalid','{"provider":"google","providers":["google"]}','{}',now(),now());
   select public.enqueue_push_delivery_event('analysis-ready:test',v_user,'ANALYSIS_READY','{}') into v1;
   select public.enqueue_push_delivery_event('analysis-ready:test',v_user,'ANALYSIS_READY','{}') into v2;
   if v1 is distinct from v2 or (select count(*) from public.push_delivery_outbox where event_key='analysis-ready:test')<>1 then raise exception 'outbox idempotency failed'; end if;
