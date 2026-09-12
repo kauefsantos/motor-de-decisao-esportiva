@@ -10,10 +10,12 @@ select ok(
 );
 
 select ok(
-  pg_get_constraintdef(c.oid) like '%BLOCKED_CORRELATED%'
-  from pg_constraint c
-  where c.conrelid='public.decision_opportunity_queue'::regclass
-    and c.conname='decision_opportunity_queue_queue_state_check',
+  coalesce((
+    select pg_get_constraintdef(c.oid) like '%BLOCKED_CORRELATED%'
+    from pg_constraint c
+    where c.conrelid='public.decision_opportunity_queue'::regclass
+      and c.conname='decision_opportunity_queue_queue_state_check'
+  ),false),
   'decision queue supports explicit correlated-blocked state'
 );
 
