@@ -134,9 +134,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
         const automaticValues: Record<string, string> = {};
         for (const quote of result.quotes) {
           byPrediction[quote.predictionId] = quote as AutoQuote;
-          if (quote.status === "MATCHED" && quote.odd !== null && quote.odd > 1) {
-            automaticValues[quote.predictionId] = String(quote.odd);
-          }
+          if (quote.status === "MATCHED" && quote.odd !== null && quote.odd > 1) automaticValues[quote.predictionId] = String(quote.odd);
         }
         setAutoQuotes(byPrediction);
         setManualBatches(result.manualBatches ?? []);
@@ -152,23 +150,12 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
     }
 
     void collect();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [collectAutoOdds, eligible, queueExists, runId]);
 
-  const visibleManualIds = useMemo(
-    () => new Set(manualBatches.slice(0, visibleBatchCount).flat()),
-    [manualBatches, visibleBatchCount],
-  );
-  const manualCandidates = useMemo(
-    () => eligible.filter((candidate) => visibleManualIds.has(candidate.predictionId)),
-    [eligible, visibleManualIds],
-  );
-  const automaticCandidates = useMemo(
-    () => eligible.filter((candidate) => autoQuotes[candidate.predictionId]?.status === "MATCHED"),
-    [autoQuotes, eligible],
-  );
+  const visibleManualIds = useMemo(() => new Set(manualBatches.slice(0, visibleBatchCount).flat()), [manualBatches, visibleBatchCount]);
+  const manualCandidates = useMemo(() => eligible.filter((candidate) => visibleManualIds.has(candidate.predictionId)), [eligible, visibleManualIds]);
+  const automaticCandidates = useMemo(() => eligible.filter((candidate) => autoQuotes[candidate.predictionId]?.status === "MATCHED"), [autoQuotes, eligible]);
   const remainingManual = manualBatches.slice(visibleBatchCount).reduce((sum, batch) => sum + batch.length, 0);
 
   const shown = queueRows.filter((row) => row.queue_state === "SHOWN");
@@ -180,11 +167,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
   async function createDecisionQueue() {
     const entries = eligible
-      .map((candidate) => ({
-        predictionId: candidate.predictionId,
-        odd: Number((odds[candidate.predictionId] ?? "").replace(",", ".")),
-        lineAtEntry: candidate.lineCanonical,
-      }))
+      .map((candidate) => ({ predictionId: candidate.predictionId, odd: Number((odds[candidate.predictionId] ?? "").replace(",", ".")), lineAtEntry: candidate.lineCanonical }))
       .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1);
 
     if (entries.length === 0) {
@@ -197,11 +180,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       const result = await buildQueue({ data: { runId, entries } });
       setEmptyQueueMessage(result.data.totalQualified === 0 ? result.data.message : null);
       await historyQuery.refetch();
-      toast.success(
-        result.data.totalQualified === 0
-          ? "Avaliação concluída: nenhuma opção passou por todos os critérios."
-          : `${result.data.totalQualified} opção${result.data.totalQualified === 1 ? "" : "ões"} com valor encontrada${result.data.totalQualified === 1 ? "" : "s"}.`,
-      );
+      toast.success(result.data.totalQualified === 0 ? "Avaliação concluída: nenhuma opção passou por todos os critérios." : `${result.data.totalQualified} opção${result.data.totalQualified === 1 ? "" : "ões"} com valor encontrada${result.data.totalQualified === 1 ? "" : "s"}.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível avaliar as odds. Nada foi alterado.");
     } finally {
@@ -295,7 +274,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
   if (emptyQueueMessage && !queueExists) {
     return (
-      <section className="panel mt-4 border-warning/25 p-5">
+      <section className="panel mt-4 border-warning/25 p-5" role="status" aria-live="polite">
         <h2 className="font-semibold">Nenhuma opção passou por todos os critérios</h2>
         <p className="mt-1 text-sm text-muted-foreground">{emptyQueueMessage}</p>
         <p className="mt-2 text-xs text-muted-foreground">O sistema não cria sugestões artificiais apenas para preencher a tela.</p>
@@ -348,12 +327,8 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <Button variant="outline" className="min-h-11" disabled={queueActionId !== null} onClick={() => void declineRow(row.id)}>
-                      <X className="mr-1 size-4" /> Recusar
-                    </Button>
-                    <Button className="min-h-11" disabled={queueActionId !== null || acceptedCount >= dailyLimit} onClick={() => void acceptRow(row.id)}>
-                      <Check className="mr-1 size-4" /> Escolher
-                    </Button>
+                    <Button variant="outline" className="min-h-11" disabled={queueActionId !== null} onClick={() => void declineRow(row.id)}><X className="mr-1 size-4" aria-hidden /> Recusar</Button>
+                    <Button className="min-h-11" disabled={queueActionId !== null || acceptedCount >= dailyLimit} onClick={() => void acceptRow(row.id)}><Check className="mr-1 size-4" aria-hidden /> Escolher</Button>
                   </div>
                 </div>
               </article>
@@ -362,24 +337,16 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
         )}
 
         {shown.length === 0 && !exhausted && acceptedCount < dailyLimit && (
-          <div className="p-5">
-            <p className="text-sm text-muted-foreground">Você terminou este grupo. Ainda existem outras opções qualificadas.</p>
-            <Button className="mt-3" variant="outline" onClick={() => void nextBatch()}>Mostrar mais opções</Button>
-          </div>
+          <div className="p-5"><p className="text-sm text-muted-foreground">Você terminou este grupo. Ainda existem outras opções qualificadas.</p><Button className="mt-3" variant="outline" onClick={() => void nextBatch()}>Mostrar mais opções</Button></div>
         )}
 
         {exhausted && acceptedCount === 0 && (
-          <div className="p-5">
-            <p className="font-medium">Nenhuma opção qualificada restou nesta rodada.</p>
-            <p className="mt-1 text-sm text-muted-foreground">Não escolher também é uma decisão válida; nenhuma recomendação artificial será criada.</p>
-          </div>
+          <div className="p-5"><p className="font-medium">Nenhuma opção qualificada restou nesta rodada.</p><p className="mt-1 text-sm text-muted-foreground">Não escolher também é uma decisão válida; nenhuma recomendação artificial será criada.</p></div>
         )}
 
         {canFinalize && (
           <div className="border-t border-border p-4 sm:p-5">
-            <Button className="min-h-12 w-full sm:w-auto" disabled={finalizing} onClick={() => void finalizeChoices()}>
-              {finalizing ? "Salvando escolhas…" : `REVISAR ${acceptedCount} ESCOLHA${acceptedCount === 1 ? "" : "S"}`}
-            </Button>
+            <Button className="min-h-12 w-full sm:w-auto" disabled={finalizing} onClick={() => void finalizeChoices()}>{finalizing ? "Salvando escolhas…" : `Revisar ${acceptedCount} escolha${acceptedCount === 1 ? "" : "s"}`}</Button>
           </div>
         )}
       </section>
@@ -395,12 +362,12 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
             <h2 className="mt-1 text-lg font-semibold">Conferir as odds reais</h2>
             <p className="mt-1 text-xs text-muted-foreground">Buscamos a Bet365 automaticamente quando há um preço compatível. Onde faltar, você pode informar a odd manualmente.</p>
           </div>
-          {autoLoading && <span className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Buscando odds</span>}
+          {autoLoading && <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite"><Loader2 className="size-3.5 animate-spin" aria-hidden /> Buscando odds</span>}
         </div>
       </div>
 
       {preparationQuery.isLoading || autoLoading ? (
-        <div className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Organizando as cotações…</div>
+        <div className="flex items-center gap-2 p-5 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="size-4 animate-spin" aria-hidden /> Organizando as cotações…</div>
       ) : eligible.length === 0 ? (
         <div className="p-5 text-sm text-muted-foreground">Nenhuma opção pôde ser calculada com segurança com os dados disponíveis nesta rodada.</div>
       ) : (
@@ -427,18 +394,19 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
               {manualCandidates.map((candidate) => {
                 const open = Boolean(details[candidate.predictionId]);
                 const quote = autoQuotes[candidate.predictionId];
+                const detailId = `decision-detail-${candidate.predictionId}`;
                 return (
                   <div key={candidate.predictionId} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:p-5">
                     <div>
                       <p className="text-sm font-medium">{candidate.matchLabel}</p>
                       <p className="text-xs text-muted-foreground">{candidate.marketLabel} · chance {pct(candidate.probabilityExperimental)}</p>
-                      {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-[11px] text-warning">A linha encontrada não corresponde à opção analisada. Informe a odd correta para esta linha.</p>}
-                      {open && <p className="mt-2 text-xs text-muted-foreground">Odd de referência {dec(candidate.fairOddExperimental)} · linha {candidate.lineCanonical ?? "—"}</p>}
+                      {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-xs text-warning">A linha encontrada não corresponde à opção analisada. Informe a odd correta para esta linha.</p>}
+                      {open && <p id={detailId} className="mt-2 text-xs text-muted-foreground">Odd de referência {dec(candidate.fairOddExperimental)} · linha {candidate.lineCanonical ?? "—"}</p>}
                     </div>
-                    <label className="text-[11px] text-muted-foreground">Odd Bet365
+                    <label className="text-sm text-muted-foreground">Odd Bet365
                       <Input inputMode="decimal" value={odds[candidate.predictionId] ?? ""} onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))} className="num mt-1 w-28" />
                     </label>
-                    <button type="button" className="inline-flex min-h-10 items-center gap-1 text-xs text-accent" onClick={() => setDetails((current) => ({ ...current, [candidate.predictionId]: !open }))}><Info className="size-3" /> {open ? "Ocultar" : "Detalhes"}</button>
+                    <button type="button" className="touch-target inline-flex min-h-10 items-center gap-1 text-xs text-accent" aria-expanded={open} aria-controls={detailId} onClick={() => setDetails((current) => ({ ...current, [candidate.predictionId]: !open }))}><Info className="size-3" aria-hidden /> {open ? "Ocultar detalhes" : "Ver detalhes"}</button>
                   </div>
                 );
               })}
@@ -447,10 +415,8 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
           <div className="border-t border-border p-4 sm:p-5">
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="min-h-12" disabled={building} onClick={() => void createDecisionQueue()}>{building ? "Avaliando…" : "VER OPÇÕES COM VALOR"}</Button>
-              {remainingManual > 0 && (
-                <Button variant="outline" className="min-h-12" onClick={() => setVisibleBatchCount((count) => Math.min(manualBatches.length, count + 1))}>Mostrar mais odds manuais ({remainingManual})</Button>
-              )}
+              <Button className="min-h-12" disabled={building} onClick={() => void createDecisionQueue()}>{building ? "Avaliando…" : "Ver opções com valor"}</Button>
+              {remainingManual > 0 && <Button variant="outline" className="min-h-12" onClick={() => setVisibleBatchCount((count) => Math.min(manualBatches.length, count + 1))}>Mostrar mais odds manuais ({remainingManual})</Button>}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">Pode haver menos de 10 opções ou nenhuma. Só avançam as que passam por todos os critérios da análise.</p>
           </div>
