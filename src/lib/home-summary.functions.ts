@@ -68,12 +68,27 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
     return run.status === "RUNNING" || run.status === "READY_FOR_ODDS";
   }) ?? null;
 
+  const ownerRunIds = recentRuns.map((run) => run.id);
+  const proposedRunResult = proposedCount > 0 && ownerRunIds.length > 0
+    ? await db
+        .from("experimental_bet_tracking")
+        .select("run_id,updated_at")
+        .in("run_id", ownerRunIds)
+        .eq("bet_status", "PROPOSED")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null, error: null };
+  if (proposedRunResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível localizar as sugestões pendentes.", 500);
+  const proposedRunId = proposedRunResult.data?.run_id ? String(proposedRunResult.data.run_id) : null;
+
   return {
     pendingDraft: draftResult.data ?? null,
     resumableRun,
     recentRuns,
     openBetsCount: openCount,
     proposedCount,
+    proposedRunId,
     availableBankroll,
   };
 });
