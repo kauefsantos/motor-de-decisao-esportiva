@@ -33,7 +33,18 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Architecture and static quality gates
-        run: bun run check
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run check 2>&1 | tee architecture-check.log
+
+      - name: Preserve static quality diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-check-diagnostics
+          path: architecture-check.log
+          if-no-files-found: error
 
       - name: Dependency vulnerability gate
         run: bun audit --audit-level=high
