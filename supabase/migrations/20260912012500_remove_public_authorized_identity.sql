@@ -1,11 +1,34 @@
--- Remove any privileged account identifier from the application source while
--- preserving the existing single-user Google boundary.
---
--- The first Google identity already present in auth.users is the canonical owner.
--- The browser/backend only receives a boolean answer about the current JWT.
+-- Remove any privileged account identifier from application source while preserving
+-- the existing single-user Google boundary. The approved UUID is sealed only inside
+-- the private database schema and is never inferred again after initial binding.
 
 create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
+
+create table if not exists private.app_security_config (
+  singleton boolean primary key default true check (singleton),
+  approved_user_id uuid unique
+);
+revoke all on table private.app_security_config from public, anon, authenticated;
+
+insert into private.app_security_config (singleton, approved_user_id)
+values (true, null)
+on conflict (singleton) do nothing;
+
+-- Existing production environments bind once to the already-established Google
+-- identity. Fresh environments leave the value null until the first Google insert,
+-- when the trigger below claims it atomically.
+update private.app_security_config c
+set approved_user_id = candidate.id
+from (
+  select u.id
+  from auth.users u
+  where coalesce(u.raw_app_meta_data ->> 'provider', '') = 'google'
+  order by u.created_at, u.id
+  limit 1
+) candidate
+where c.singleton = true
+  and c.approved_user_id is null;
 
 create or replace function private.approved_app_user_id()
 returns uuid
@@ -14,11 +37,9 @@ stable
 security definer
 set search_path = ''
 as $$
-  select u.id
-  from auth.users u
-  where coalesce(u.raw_app_meta_data ->> 'provider', '') = 'google'
-  order by u.created_at, u.id
-  limit 1;
+  select c.approved_user_id
+  from private.app_security_config c
+  where c.singleton = true;
 $$;
 
 revoke all on function private.approved_app_user_id() from public, anon, authenticated;
@@ -32,10 +53,21 @@ set search_path = ''
 as $function$
 declare
   v_provider text := coalesce(NEW.raw_app_meta_data ->> 'provider', '');
-  v_approved_user_id uuid := private.approved_app_user_id();
+  v_approved_user_id uuid;
 begin
-  if v_provider <> 'google'
-     or (v_approved_user_id is not null and NEW.id is distinct from v_approved_user_id) then
+  if v_provider <> 'google' then
+    raise exception using
+      errcode = '42501',
+      message = 'Account not authorized for this application';
+  end if;
+
+  update private.app_security_config
+  set approved_user_id = NEW.id
+  where singleton = true and approved_user_id is null;
+
+  select private.approved_app_user_id() into v_approved_user_id;
+
+  if NEW.id is distinct from v_approved_user_id then
     raise exception using
       errcode = '42501',
       message = 'Account not authorized for this application';
