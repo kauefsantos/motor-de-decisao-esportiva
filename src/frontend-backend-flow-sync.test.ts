@@ -28,11 +28,17 @@ describe("frontend/backend flow synchronization", () => {
     const opportunities = source("./routes/run.$runId.oportunidades.tsx");
     const gate = source("./components/DecisionQueueGate.tsx");
     const queue = source("./components/DecisionQueueFlow.tsx");
+    const queueFunctions = source("./lib/decision-queue.functions.ts");
     expect(opportunities).toContain("DecisionQueueGate");
     expect(opportunities).not.toContain("ExperimentalMarketsPilot");
     expect(gate).toContain("getDecisionQueueHistory");
     expect(gate).toContain("hasPersistedDecisionState");
+    expect(gate).toContain("decisionQueueEvaluated");
+    expect(gate).toContain("Nenhuma opção passou por todos os critérios");
+    expect(gate).toContain("Reabrir ou atualizar esta página não repete modelos nem cotações externas");
     expect(gate).toContain("Modelos, integrações externas e cotações não foram executados novamente");
+    expect(queueFunctions).toContain("DECISION_QUEUE_EVALUATED");
+    expect(queueFunctions).toContain("decisionQueueEvaluated");
     expect(queue).toContain("buildDecisionOpportunityQueue");
     expect(queue).toContain("getDecisionQueueHistory");
     expect(queue).toContain("dailySelectionLimit");
@@ -41,9 +47,13 @@ describe("frontend/backend flow synchronization", () => {
     expect(queue).not.toContain("selectionLimitForDate");
   });
 
-  it("does not hard-code UTC-3 in staged draft validation", () => {
+  it("uses America/Sao_Paulo semantics for validation and the Bet365 daily window", () => {
     const draftFunctions = source("./lib/analysis-draft.functions.ts");
+    const bet365 = source("./lib/bet365-odds.server.ts");
     expect(draftFunctions).toContain("saoPauloLocalDateTimeToIso");
     expect(draftFunctions).not.toContain(":00-03:00");
+    expect(bet365).toContain("saoPauloLocalDayUnixWindow");
+    expect(bet365).not.toContain("T03:00:00Z");
+    expect(bet365).not.toContain("start + 24 * 3600");
   });
 });
