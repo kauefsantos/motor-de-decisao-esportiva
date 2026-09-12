@@ -1,7 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { UploadCloud, FileSpreadsheet, AlertTriangle, ArrowRight } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock3, FileSpreadsheet, UploadCloud, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
@@ -10,6 +11,7 @@ import { PushNotificationControl } from "@/components/PushNotificationControl";
 import { Button } from "@/components/ui/button";
 import { parseCsv, type CsvParseResult } from "@/lib/csv";
 import { createAnalysisDraft } from "@/lib/analysis-draft.functions";
+import { getHomeSummary } from "@/lib/home-summary.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,15 +26,38 @@ export const Route = createFileRoute("/")({
   component: UploadScreen,
 });
 
-function dateLabel(iso: string | null) {
+function dateLabel(iso: string | null | undefined) {
   if (!iso) return "—";
-  const [year, month, day] = iso.split("-");
+  const [year, month, day] = iso.slice(0, 10).split("-");
   return `${day}/${month}/${year}`;
+}
+
+function money(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+function runStatusLabel(status: string) {
+  if (status === "RUNNING") return "Preparando análise";
+  if (status === "READY_FOR_ODDS") return "Pronta para conferir e escolher";
+  if (status === "COMPLETED") return "Concluída";
+  return "Em andamento";
+}
+
+function ResumeRunLink({ run }: { run: any }) {
+  if (run.selection_finalized_at) {
+    return <Link to="/run/$runId/resultado" params={{ runId: run.id }} search={{ mode: "experimental" }}>Abrir resultado</Link>;
+  }
+  if (run.status === "RUNNING") {
+    return <Link to="/run/$runId/processamento" params={{ runId: run.id }}>Continuar</Link>;
+  }
+  return <Link to="/run/$runId/oportunidades" params={{ runId: run.id }}>Continuar</Link>;
 }
 
 function UploadScreen() {
   const navigate = useNavigate();
   const createDraft = useServerFn(createAnalysisDraft);
+  const loadSummary = useServerFn(getHomeSummary);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
@@ -42,9 +67,15 @@ function UploadScreen() {
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
 
+  const summaryQuery = useQuery({
+    queryKey: ["home-summary"],
+    queryFn: () => loadSummary(),
+    staleTime: 30_000,
+  });
+
   const handleFile = useCallback(async (file: File) => {
     if (file.size > 2_000_000) {
-      toast.error("O arquivo passou de 2 MB.");
+      toast.error("O arquivo passou de 2 MB. Escolha um CSV menor para continuar.");
       return;
     }
     const text = await file.text();
@@ -84,14 +115,76 @@ function UploadScreen() {
     }
   }
 
+  const summary = summaryQuery.data;
+  const primaryPending = summary?.pendingDraft ?? summary?.resumableRun ?? null;
+
   return (
     <AppShell stage="upload">
-      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="mx-auto max-w-3xl">
-        <p className="label-eyebrow">Etapa 1</p>
-        <h1 className="page-heading mt-1.5">Analisar os jogos do dia</h1>
+      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="mx-auto max-w-4xl">
+        <p className="label-eyebrow">Etapa 1 de 4 · enviar e validar</p>
+        <h1 className="page-heading mt-1.5">O que precisa da sua atenção?</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:mt-3 sm:text-base">
-          Envie o CSV da rodada. Primeiro validamos as partidas com a fonte esportiva; só depois a análise entra na fila de processamento.
+          Continue uma análise que já começou, registre resultados pendentes ou envie uma nova rodada.
         </p>
+
+        {summary && (
+          <section className="panel mt-5 overflow-hidden" aria-label="Agora">
+            <div className="border-b border-border px-4 py-3 sm:px-5">
+              <p className="label-eyebrow">Agora</p>
+            </div>
+            <div className="divide-y divide-border/60">
+              {primaryPending ? (
+                <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                  <div>
+                    <p className="text-sm font-medium">Você tem uma análise para continuar</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {summary.pendingDraft
+                        ? `Rodada ${dateLabel(summary.pendingDraft.target_date)} · validação pendente`
+                        : `Rodada ${dateLabel(summary.resumableRun?.target_date)} · ${runStatusLabel(summary.resumableRun?.status ?? "")}`}
+                    </p>
+                  </div>
+                  <Button asChild className="min-h-11 w-full sm:w-auto">
+                    {summary.pendingDraft ? (
+                      <Link to="/draft/$draftId/validacao" params={{ draftId: summary.pendingDraft.id }}>Continuar análise</Link>
+                    ) : (
+                      <ResumeRunLink run={summary.resumableRun} />
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="p-4 text-sm text-muted-foreground sm:p-5">Nenhuma análise precisa ser retomada agora.</div>
+              )}
+
+              <div className="grid sm:grid-cols-3 sm:divide-x sm:divide-y-0 sm:divide-border/60">
+                <Link to="/open-bets" className="flex min-h-20 items-center justify-between gap-3 p-4 transition-colors hover:bg-secondary/20">
+                  <span><span className="block text-xs text-muted-foreground">Resultados para informar</span><strong className="num mt-1 block text-xl">{summary.openBetsCount}</strong></span>
+                  <Clock3 className="size-5 text-muted-foreground" aria-hidden />
+                </Link>
+                <div className="flex min-h-20 items-center justify-between gap-3 p-4">
+                  <span><span className="block text-xs text-muted-foreground">Sugestões para registrar</span><strong className="num mt-1 block text-xl">{summary.proposedCount}</strong></span>
+                  <FileSpreadsheet className="size-5 text-muted-foreground" aria-hidden />
+                </div>
+                <div className="flex min-h-20 items-center justify-between gap-3 p-4">
+                  <span><span className="block text-xs text-muted-foreground">Saldo disponível</span><strong className="num mt-1 block text-lg">{money(summary.availableBankroll)}</strong></span>
+                  <WalletCards className="size-5 text-muted-foreground" aria-hidden />
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {summaryQuery.isError && (
+          <div className="mt-4 rounded-xl border border-warning/25 bg-warning/8 p-3 text-sm text-muted-foreground">
+            O resumo não pôde ser atualizado agora. Você ainda pode iniciar uma nova análise normalmente.
+          </div>
+        )}
+
+        <div className="mt-7 flex items-end justify-between gap-3">
+          <div>
+            <p className="label-eyebrow">Nova análise</p>
+            <h2 className="mt-1 text-xl font-semibold">Enviar os jogos da rodada</h2>
+          </div>
+        </div>
 
         <PushNotificationControl />
 
@@ -107,7 +200,7 @@ function UploadScreen() {
             const file = e.dataTransfer.files?.[0];
             if (file) void handleFile(file);
           }}
-          className={`panel mt-4 flex min-h-44 flex-col items-center justify-center gap-3 border-primary/15 bg-primary/[0.035] px-4 py-6 text-center transition-all sm:mt-6 sm:min-h-64 sm:gap-4 sm:px-8 sm:py-9 ${
+          className={`panel mt-4 flex min-h-44 flex-col items-center justify-center gap-3 border-primary/15 bg-primary/[0.035] px-4 py-6 text-center transition-all sm:min-h-56 sm:gap-4 sm:px-8 sm:py-8 ${
             dragging ? "border-primary bg-primary/10 ring-1 ring-primary/30" : ""
           }`}
         >
@@ -131,23 +224,10 @@ function UploadScreen() {
               if (file) void handleFile(file);
             }}
           />
-          <Button className="min-h-12 w-full sm:w-auto sm:min-w-40" variant="outline" disabled={!ready} onClick={() => inputRef.current?.click()}>
+          <Button className="min-h-12 w-full sm:w-auto sm:min-w-40" disabled={!ready} onClick={() => inputRef.current?.click()}>
             Escolher CSV
           </Button>
         </div>
-
-        <CollapsiblePanel
-          className="mt-3 sm:mt-4"
-          title="Como funciona"
-          description="Enviar jogos → validar partidas → calcular chances → comparar odds → escolher até 3"
-        >
-          <ol className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
-            <li><span className="font-medium text-foreground">1. Envie os jogos.</span> O arquivo vira um rascunho idempotente, sem criar análises duplicadas.</li>
-            <li><span className="font-medium text-foreground">2. Validamos as partidas.</span> Se algo estiver ambíguo, somente os campos marcados pelo servidor podem ser corrigidos.</li>
-            <li><span className="font-medium text-foreground">3. Calculamos e cotamos.</span> As chances são calculadas primeiro e a odd real é conferida depois.</li>
-            <li><span className="font-medium text-foreground">4. Você decide.</span> As opções qualificadas aparecem em lotes de até 10 e você pode escolher no máximo 3 por dia.</li>
-          </ol>
-        </CollapsiblePanel>
 
         {parsed && (
           <section className="panel mt-4 overflow-hidden">
@@ -162,33 +242,35 @@ function UploadScreen() {
                 </div>
               </div>
 
-              <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Data</dt><dd className="num mt-1 text-xl font-semibold">{dateLabel(parsed.targetDate)}</dd></div>
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Partidas</dt><dd className="num mt-1 text-xl font-semibold">{parsed.rows.length}</dd></div>
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Campeonatos</dt><dd className="num mt-1 text-xl font-semibold">{parsed.leagues.length}</dd></div>
-                <div className="metric-tile p-3"><dt className="text-[11px] text-muted-foreground">Ignoradas</dt><dd className="num mt-1 text-xl font-semibold">{parsed.invalid.length}</dd></div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border/60 py-4 sm:grid-cols-4">
+                <div><dt className="text-[11px] text-muted-foreground">Data</dt><dd className="num mt-1 text-lg font-semibold">{dateLabel(parsed.targetDate)}</dd></div>
+                <div><dt className="text-[11px] text-muted-foreground">Partidas</dt><dd className="num mt-1 text-lg font-semibold">{parsed.rows.length}</dd></div>
+                <div><dt className="text-[11px] text-muted-foreground">Campeonatos</dt><dd className="num mt-1 text-lg font-semibold">{parsed.leagues.length}</dd></div>
+                <div><dt className="text-[11px] text-muted-foreground">Ignoradas</dt><dd className={`num mt-1 text-lg font-semibold ${parsed.invalid.length > 0 ? "text-warning" : ""}`}>{parsed.invalid.length}</dd></div>
               </dl>
 
-              {(parsed.leagues.length > 0 || parsed.invalid.length > 0) && (
-                <CollapsiblePanel
-                  title="Ver detalhes do arquivo"
-                  description="Campeonatos encontrados e linhas que não puderam ser usadas"
-                >
-                  {parsed.leagues.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {parsed.leagues.map((league) => (
-                        <span key={league} className="rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground">{league}</span>
-                      ))}
-                    </div>
-                  )}
-                  {parsed.invalid.length > 0 && (
-                    <div className="mt-4 rounded-lg border border-warning/30 bg-warning/10 p-3">
-                      <p className="flex items-center gap-2 text-sm font-medium text-warning"><AlertTriangle className="size-4" /> Algumas linhas foram ignoradas</p>
-                      <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        {parsed.invalid.slice(0, 8).map((item, index) => <li key={`${item.line}-${index}`}>linha {item.line}: {item.reason}</li>)}
-                      </ul>
-                    </div>
-                  )}
+              {parsed.invalid.length > 0 && (
+                <div className="rounded-xl border border-warning/30 bg-warning/8 p-3" role="alert">
+                  <p className="flex items-center gap-2 text-sm font-medium text-warning">
+                    <AlertTriangle className="size-4" aria-hidden /> {parsed.invalid.length} linha{parsed.invalid.length === 1 ? "" : "s"} não {parsed.invalid.length === 1 ? "será" : "serão"} analisada{parsed.invalid.length === 1 ? "" : "s"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">Confira os motivos antes de continuar. As outras partidas podem seguir normalmente.</p>
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer font-medium text-foreground">Ver linhas ignoradas</summary>
+                    <ul className="mt-2 space-y-1 text-muted-foreground">
+                      {parsed.invalid.slice(0, 12).map((item, index) => <li key={`${item.line}-${index}`}>Linha {item.line}: {item.reason}</li>)}
+                    </ul>
+                  </details>
+                </div>
+              )}
+
+              {parsed.leagues.length > 0 && (
+                <CollapsiblePanel title="Campeonatos encontrados" description="Confira rapidamente o que foi reconhecido" meta={parsed.leagues.length}>
+                  <div className="flex flex-wrap gap-2">
+                    {parsed.leagues.map((league) => (
+                      <span key={league} className="rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground">{league}</span>
+                    ))}
+                  </div>
                 </CollapsiblePanel>
               )}
 
@@ -204,6 +286,35 @@ function UploadScreen() {
               </Button>
             </div>
           </section>
+        )}
+
+        <CollapsiblePanel
+          className="mt-4"
+          title="Como funciona"
+          description="Quatro etapas simples, do CSV ao registro"
+        >
+          <ol className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+            <li><span className="font-medium text-foreground">1. Enviar e validar.</span> Conferimos os jogos e pedimos correção apenas quando necessário.</li>
+            <li><span className="font-medium text-foreground">2. Preparar.</span> O sistema organiza os dados e calcula as chances.</li>
+            <li><span className="font-medium text-foreground">3. Conferir e escolher.</span> A odd real é comparada com a análise e você escolhe até 3 opções para a rodada.</li>
+            <li><span className="font-medium text-foreground">4. Revisar e registrar.</span> Você revisa as escolhas e registra apenas as apostas que realmente fez.</li>
+          </ol>
+        </CollapsiblePanel>
+
+        {summary?.recentRuns?.length > 0 && (
+          <CollapsiblePanel className="mt-4" title="Análises recentes" description="Retome ou consulte as últimas rodadas" meta={summary.recentRuns.length}>
+            <ul className="divide-y divide-border">
+              {summary.recentRuns.map((run: any) => (
+                <li key={run.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Rodada {dateLabel(run.target_date)}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{runStatusLabel(run.status)} · {run.matches_total ?? 0} jogo(s)</p>
+                  </div>
+                  <Button asChild size="sm" variant="outline"><ResumeRunLink run={run} /></Button>
+                </li>
+              ))}
+            </ul>
+          </CollapsiblePanel>
         )}
       </div>
     </AppShell>
