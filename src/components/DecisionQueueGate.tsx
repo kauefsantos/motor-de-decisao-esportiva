@@ -47,6 +47,7 @@ type QueueHistory = {
   acceptedCount: number;
   exhausted: boolean;
   selectionFinalized: boolean;
+  decisionQueueEvaluated: boolean;
   canProceedToStake: boolean;
   dailySelectionLimit: number;
 };
@@ -84,7 +85,9 @@ export function DecisionQueueGate({ runId }: { runId: string }) {
     );
   }
 
-  const hasPersistedDecisionState = historyQuery.data.rows.length > 0 || historyQuery.data.selectionFinalized;
+  const hasPersistedDecisionState = historyQuery.data.decisionQueueEvaluated
+    || historyQuery.data.rows.length > 0
+    || historyQuery.data.selectionFinalized;
   if (!hasPersistedDecisionState) {
     return <DecisionQueueFlow runId={runId} />;
   }
@@ -196,6 +199,16 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
             <Button className="mt-4" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Ver sugestões</Button>
           </div>
         </div>
+      </section>
+    );
+  }
+
+  if (history.decisionQueueEvaluated && rows.length === 0) {
+    return (
+      <section className="panel mt-4 border-warning/25 p-5">
+        <h2 className="font-semibold">Nenhuma opção passou por todos os critérios</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Esta rodada já foi avaliada e o resultado foi recuperado do servidor. Nenhuma aposta artificial foi criada.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Reabrir ou atualizar esta página não repete modelos nem cotações externas para esta avaliação.</p>
       </section>
     );
   }
