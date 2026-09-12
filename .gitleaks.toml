@@ -11,8 +11,9 @@ regexes = [
 ]
 
 [[allowlists]]
-description = "Empty documented secret placeholders are not credentials"
-regexTarget = "line"
+targetRules = ["generic-api-key"]
+description = "The documented cron secret placeholders are both intentionally empty"
+regexTarget = "match"
 regexes = [
-  '''^LOVABLE_CRON_SECRET(?:_PREVIOUS)?=""$'''
+  '''LOVABLE_CRON_SECRET=""\s+LOVABLE_CRON_SECRET_PREVIOUS=""'''
 ]
