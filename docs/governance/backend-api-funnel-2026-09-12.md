@@ -98,6 +98,10 @@ The optimization goal is maximum useful value from the current plan, not blindly
 - Queue acceptance is serialized by owner/date; a fourth accepted choice is rejected.
 - Declining a bet during stake confirmation synchronizes its queue row to `DECLINED` and releases the daily slot.
 
+## Versioned route-tree control
+
+The Lovable deployment consumes the committed `src/routeTree.gen.ts`. A production validation caught the tree lagging behind route files, which made newly added routes resolve as 404 even though CI build generation succeeded in its temporary workspace. The committed tree is now synchronized with all files under `src/routes`, including API worker/maintenance and privacy/account routes. CI includes a `Versioned route tree gate` that fails whenever a route file exists without a matching import in the committed tree.
+
 ## Frontend status
 
 This change intentionally implements the backend contract only. The existing UI is not redesigned here. The next frontend can use the staged validation/queue functions without weakening the backend invariants.
