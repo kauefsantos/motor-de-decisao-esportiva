@@ -68,7 +68,6 @@ export function PushNotificationControl() {
 
     setBusy(true);
     try {
-      // Permission must be requested directly from a user gesture on mobile browsers.
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         setState(permission === "denied" ? "blocked" : "available");
@@ -104,7 +103,7 @@ export function PushNotificationControl() {
 
   if (state === "checking") {
     return (
-      <div className="panel mt-4 flex items-center gap-3 p-4 text-sm text-muted-foreground" role="status">
+      <div className="panel mt-4 flex items-center gap-3 p-4 text-sm text-muted-foreground" role="status" aria-live="polite">
         <Loader2 className="size-4 animate-spin" aria-hidden />
         Verificando notificações…
       </div>
@@ -113,13 +112,11 @@ export function PushNotificationControl() {
 
   if (state === "enabled") {
     return (
-      <div className="panel mt-4 flex items-start gap-3 border-success/25 p-4">
+      <div className="panel mt-4 flex items-start gap-3 border-success/25 p-4" role="status" aria-live="polite">
         <Bell className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
         <div>
           <p className="text-sm font-medium">Notificações ativadas</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Você pode sair do Bet Value ou bloquear o aparelho. Avisaremos quando a análise estiver pronta.
-          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Você pode sair do Bet Value ou bloquear o aparelho. Avisaremos quando a análise estiver pronta.</p>
         </div>
       </div>
     );
@@ -127,13 +124,11 @@ export function PushNotificationControl() {
 
   if (state === "blocked") {
     return (
-      <div className="panel mt-4 flex items-start gap-3 p-4">
+      <div className="panel mt-4 flex items-start gap-3 p-4" role="status" aria-live="polite">
         <BellOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
         <div>
           <p className="text-sm font-medium">Notificações bloqueadas</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            A análise continua em segundo plano. Para receber avisos, libere as notificações do Bet Value nas configurações do navegador ou do sistema.
-          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">A análise continua em segundo plano. Para receber avisos, libere as notificações do Bet Value nas configurações do navegador ou do sistema.</p>
         </div>
       </div>
     );
@@ -141,20 +136,18 @@ export function PushNotificationControl() {
 
   if (state === "unsupported") {
     return (
-      <div className="panel mt-4 flex items-start gap-3 p-4">
+      <div className="panel mt-4 flex items-start gap-3 p-4" role="status" aria-live="polite">
         <Smartphone className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
         <div>
           <p className="text-sm font-medium">Avisos não disponíveis neste navegador ou modo</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Use um navegador atualizado. No iPhone e iPad, as notificações web exigem o app adicionado à Tela de Início; em Android e computador, confira a permissão do navegador.
-          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Use um navegador atualizado. No iPhone e iPad, as notificações web exigem o app adicionado à Tela de Início; em Android e computador, confira a permissão do navegador.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="panel mt-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="panel mt-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" role={state === "error" ? "alert" : undefined} aria-live={state === "error" ? "assertive" : undefined}>
       <div className="flex min-w-0 items-start gap-3">
         <Bell className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
         <div>
@@ -164,9 +157,7 @@ export function PushNotificationControl() {
               ? "Ative uma vez e pode sair do app enquanto a análise continua no servidor."
               : "Ative no navegador; se o dispositivo exigir instalação para notificações, adicione o Bet Value à Tela de Início."}
           </p>
-          {state === "error" && (
-            <p className="mt-1 text-xs text-warning">Não foi possível preparar os avisos agora. Tente novamente.</p>
-          )}
+          {state === "error" && <p className="mt-1 text-xs text-warning">Não foi possível preparar os avisos agora. Tente novamente.</p>}
         </div>
       </div>
       <Button className="min-h-11 shrink-0" onClick={() => void enable()} disabled={busy || !publicKey}>
