@@ -12,10 +12,7 @@ import {
 } from "./engine/market-policy";
 import { EV_TARGET, evaluateValue, type ValueResult } from "./engine/value";
 import { selectExperimentalPortfolio } from "./engine/portfolio-selection";
-import {
-  persistExperimentalResult,
-  type PersistedExperimentalResult,
-} from "./experimental-result-ledger.functions";
+import { persistExperimentalResult, type PersistedExperimentalResult } from "./experimental-result-ledger.functions";
 import { EXPERIMENTAL_MARKETS_STATUS } from "./experimental-markets-run.functions";
 
 const PRODUCTION_STATUS = "MODEL_NOT_PRODUCTION_VALIDATED" as const;
@@ -94,11 +91,15 @@ function finiteNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function selectionLimitForDate(isoDate: string | null): number {
-  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
+function selectionLimitForDate(_isoDate: string | null): number {
+  return 3;
+}
+
+function dayTypeForDate(isoDate: string | null): "WEEKDAY" | "WEEKEND" {
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return "WEEKDAY";
   const [year, month, day] = isoDate.split("-").map(Number);
   const weekday = new Date(Date.UTC(year!, month! - 1, day!)).getUTCDay();
-  return weekday === 0 || weekday === 6 ? 3 : 2;
+  return weekday === 0 || weekday === 6 ? "WEEKEND" : "WEEKDAY";
 }
 
 function labelFor(market: string, participant: string | null, side: string | null, lineRaw: string | null) {
@@ -309,7 +310,7 @@ export const analyzeExperimentalMarketsOddsPersisted = createServerFn({ method: 
       runId: data.runId,
       analyzedAt,
       targetDate,
-      dayType: selectionLimit === 3 ? "WEEKEND" : "WEEKDAY",
+      dayType: dayTypeForDate(targetDate),
       selectionLimit,
       modelStatus: EXPERIMENTAL_MARKETS_STATUS,
       productionStatus: PRODUCTION_STATUS,
@@ -321,7 +322,6 @@ export const analyzeExperimentalMarketsOddsPersisted = createServerFn({ method: 
     };
 
     await persistExperimentalResult(supabase, persisted);
-
     return {
       evaluations,
       selections: selected,
