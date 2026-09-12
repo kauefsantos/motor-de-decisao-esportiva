@@ -53,6 +53,14 @@ function currentValue(game: DraftGame, field: EditableField) {
   return String(game[field] ?? "");
 }
 
+function fieldInputId(gameId: string, field: EditableField) {
+  return `draft-field-${gameId}-${field}`;
+}
+
+function fieldErrorId(gameId: string, field: string, index: number) {
+  return `draft-error-${gameId}-${field}-${index}`;
+}
+
 function dateLabel(iso: string | null | undefined) {
   if (!iso) return "—";
   const [year, month, day] = iso.slice(0, 10).split("-");
@@ -127,6 +135,13 @@ function DraftValidationScreen() {
     });
   }, [games]);
 
+  function focusFirstInvalid(targetGames: DraftGame[]) {
+    const firstGame = targetGames.find((game) => game.validation_status !== "VALID" && (game.editable_fields?.length ?? 0) > 0);
+    const firstField = firstGame?.editable_fields?.[0];
+    if (!firstGame || !firstField) return;
+    requestAnimationFrame(() => document.getElementById(fieldInputId(firstGame.id, firstField))?.focus());
+  }
+
   async function applyCorrections() {
     const corrections = invalidGames.flatMap((game) =>
       (game.editable_fields ?? []).flatMap((field) => {
@@ -137,6 +152,7 @@ function DraftValidationScreen() {
     );
     if (corrections.length === 0) {
       toast.error("Preencha ao menos um dos campos marcados para correção.");
+      focusFirstInvalid(invalidGames);
       return;
     }
 
@@ -144,10 +160,14 @@ function DraftValidationScreen() {
     try {
       await correctDraft({ data: { draftId, corrections } });
       await validateDraft({ data: { draftId } });
-      await query.refetch();
+      const refreshed = await query.refetch();
+      const refreshedGames = (refreshed.data?.games ?? []) as DraftGame[];
+      const remainingInvalid = refreshedGames.filter((game) => game.validation_status !== "VALID");
+      if (remainingInvalid.length > 0) focusFirstInvalid(remainingInvalid);
       toast.success("Correções conferidas. A lista foi atualizada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível validar as correções.");
+      focusFirstInvalid(invalidGames);
     } finally {
       setSaving(false);
     }
@@ -156,9 +176,7 @@ function DraftValidationScreen() {
   async function startAnalysis() {
     setFinalizing(true);
     try {
-      const result = await finalizeDraft({
-        data: { draftId, idempotencyKey: finalizeKey(draftId) },
-      });
+      const result = await finalizeDraft({ data: { draftId, idempotencyKey: finalizeKey(draftId) } });
       const runId = result.data.runId;
       try {
         await setAnalysisNotificationTarget(runId);
@@ -168,6 +186,7 @@ function DraftValidationScreen() {
       navigate({ to: "/run/$runId/processamento", params: { runId } });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Ainda existem partidas que precisam ser corrigidas.");
+      focusFirstInvalid(invalidGames);
       setFinalizing(false);
     }
   }
@@ -177,9 +196,7 @@ function DraftValidationScreen() {
       <div className="mx-auto max-w-4xl">
         <p className="label-eyebrow">Etapa 1 de 4 · enviar e validar</p>
         <h1 className="page-heading mt-2">Conferir as partidas</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Conferimos os times, a competição e o horário. Se houver dúvida, apenas o que precisa de correção ficará editável.
-        </p>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Conferimos os times, a competição e o horário. Se houver dúvida, apenas o que precisa de correção ficará editável.</p>
 
         {query.data && (
           <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 rounded-xl bg-secondary/25 px-4 py-3 text-xs text-muted-foreground ring-1 ring-border/45">
@@ -193,8 +210,8 @@ function DraftValidationScreen() {
         <PushNotificationControl />
 
         {query.isLoading && (
-          <div className="panel mt-5 flex items-center gap-3 p-5 text-sm text-muted-foreground" role="status">
-            <Loader2 className="size-4 animate-spin" /> Conferindo partidas e horários…
+          <div className="panel mt-5 flex items-center gap-3 p-5 text-sm text-muted-foreground" role="status" aria-live="polite">
+            <Loader2 className="size-4 animate-spin" aria-hidden /> Conferindo partidas e horários…
           </div>
         )}
 
@@ -212,13 +229,10 @@ function DraftValidationScreen() {
         )}
 
         {!query.isLoading && !query.isError && ready && (
-          <div className="panel mt-5 border-success/25 p-5">
+          <div className="panel mt-5 border-success/25 p-5" role="status" aria-live="polite">
             <div className="flex items-start gap-3">
               <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
-              <div>
-                <p className="font-medium">Todas as partidas foram identificadas</p>
-                <p className="mt-1 text-sm text-muted-foreground">Ao continuar, esta rodada entra na preparação uma única vez.</p>
-              </div>
+              <div><p className="font-medium">Todas as partidas foram identificadas</p><p className="mt-1 text-sm text-muted-foreground">Ao continuar, esta rodada entra na preparação uma única vez.</p></div>
             </div>
           </div>
         )}
@@ -239,9 +253,7 @@ function DraftValidationScreen() {
                       <h2 className="mt-1 font-semibold">{game.partida}</h2>
                       <p className="mt-1 text-xs text-muted-foreground">{game.campeonato} · {dateLabel(game.target_date)} · CSV {game.horario}</p>
                     </div>
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${valid ? "bg-success/10 text-success" : "bg-warning/12 text-warning"}`}>
-                      {valid ? "Validado" : "Precisa conferir"}
-                    </span>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${valid ? "bg-success/10 text-success" : "bg-warning/12 text-warning"}`}>{valid ? "Validado" : "Precisa conferir"}</span>
                   </div>
 
                   {valid ? (
@@ -252,24 +264,31 @@ function DraftValidationScreen() {
                     </div>
                   ) : (
                     <>
-                      <div className="mt-3 rounded-lg border border-warning/25 bg-warning/8 p-3">
+                      <div className="mt-3 rounded-lg border border-warning/25 bg-warning/8 p-3" role="group" aria-label={`Erros de validação do jogo ${game.ordinal + 1}`}>
                         {(game.validation_errors ?? []).map((item, index) => (
-                          <p key={`${item.code}-${index}`} className="text-xs text-warning">{item.message}</p>
+                          <p id={fieldErrorId(game.id, item.field, index)} key={`${item.code}-${index}`} className="text-xs text-warning">{item.message}</p>
                         ))}
                       </div>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         {editable.map((field, fieldIndex) => {
                           const key = `${game.id}:${field}`;
                           const isLastField = fieldIndex === editable.length - 1;
+                          const matchingErrors = (game.validation_errors ?? [])
+                            .map((item, index) => ({ item, index }))
+                            .filter(({ item }) => item.field === field);
+                          const describedBy = matchingErrors.map(({ item, index }) => fieldErrorId(game.id, item.field, index)).join(" ") || undefined;
                           return (
-                            <label key={field} className="text-xs text-muted-foreground">
+                            <label key={field} className="text-sm text-muted-foreground" htmlFor={fieldInputId(game.id, field)}>
                               {fieldLabel(field)}
                               <Input
+                                id={fieldInputId(game.id, field)}
                                 className="mt-1"
                                 type={field === "target_date" ? "date" : field === "horario" ? "time" : "text"}
                                 inputMode={field === "horario" ? "numeric" : undefined}
                                 enterKeyHint={isLastField ? "done" : "next"}
                                 autoComplete="off"
+                                aria-invalid={matchingErrors.length > 0 || undefined}
+                                aria-describedby={describedBy}
                                 value={values[key] ?? currentValue(game, field)}
                                 onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))}
                               />
@@ -279,25 +298,15 @@ function DraftValidationScreen() {
                       </div>
                       {(game.suggestions ?? []).length > 0 && (
                         <div className="mt-3">
-                          <p className="text-xs font-medium">Sugestões encontradas</p>
+                          <p className="text-sm font-medium">Sugestões encontradas</p>
                           <div className="mt-2 flex flex-wrap gap-2">
                             {(game.suggestions ?? []).slice(0, 5).map((suggestion, index) => (
-                              <Button
-                                key={index}
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  const field = editable.includes("target_date") && typeof suggestion.date === "string"
-                                    ? "target_date"
-                                    : editable.includes("partida") && typeof suggestion.partida === "string"
-                                      ? "partida"
-                                      : null;
-                                  if (!field) return;
-                                  const value = field === "target_date" ? String(suggestion.date) : String(suggestion.partida);
-                                  setValues((current) => ({ ...current, [`${game.id}:${field}`]: value }));
-                                }}
-                              >
+                              <Button key={index} type="button" size="sm" variant="outline" onClick={() => {
+                                const field = editable.includes("target_date") && typeof suggestion.date === "string" ? "target_date" : editable.includes("partida") && typeof suggestion.partida === "string" ? "partida" : null;
+                                if (!field) return;
+                                const value = field === "target_date" ? String(suggestion.date) : String(suggestion.partida);
+                                setValues((current) => ({ ...current, [`${game.id}:${field}`]: value }));
+                              }}>
                                 {String(suggestion.partida ?? suggestion.label ?? suggestion.date ?? `Sugestão ${index + 1}`)}
                               </Button>
                             ))}
@@ -314,17 +323,13 @@ function DraftValidationScreen() {
 
         {!query.isLoading && !query.isError && invalidGames.length > 0 && (
           <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-            <Button className="min-h-12" onClick={() => void applyCorrections()} disabled={saving}>
-              {saving ? "Conferindo novamente…" : `VALIDAR ${invalidGames.length} CORREÇÃO${invalidGames.length === 1 ? "" : "ÕES"}`}
-            </Button>
+            <Button className="min-h-12" onClick={() => void applyCorrections()} disabled={saving}>{saving ? "Conferindo novamente…" : `Validar ${invalidGames.length} correção${invalidGames.length === 1 ? "" : "ões"}`}</Button>
             <Button variant="outline" className="min-h-12" onClick={() => navigate({ to: "/" })}>Enviar outro CSV</Button>
           </div>
         )}
 
         {!query.isLoading && !query.isError && ready && (
-          <Button className="mt-5 min-h-12 w-full sm:w-auto" onClick={() => void startAnalysis()} disabled={finalizing}>
-            {finalizing ? "Iniciando preparação…" : "CONTINUAR PARA PREPARAR"}
-          </Button>
+          <Button className="mt-5 min-h-12 w-full sm:w-auto" onClick={() => void startAnalysis()} disabled={finalizing}>{finalizing ? "Iniciando preparação…" : "Continuar para preparar"}</Button>
         )}
       </div>
     </AppShell>
