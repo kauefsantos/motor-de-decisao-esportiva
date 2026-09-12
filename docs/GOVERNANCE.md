@@ -13,6 +13,7 @@
 | Banca/Analytics | Product/Data Owner | Repository Maintainer | versão/dicionário da métrica |
 | Segurança/Acessos | System Owner | Repository Maintainer | revisão trimestral |
 | Schema | Data/System Owner | Repository Maintainer | migration + testes do banco |
+| Desempenho/Escalabilidade | System Owner | Repository Maintainer | budget + medição + rollback |
 
 Enquanto o projeto for single-maintainer, o `CODEOWNERS` aponta para o mantenedor atual. Não se exige uma segunda pessoa inexistente; quando houver outro responsável, o ruleset deve passar a exigir code-owner approval.
 
@@ -58,3 +59,18 @@ Regras de governança da interface:
 - mudanças em `AppShell`, fluxo de resultado, registro de aposta ou navegação devem manter os contratos de UX em `src/frontend-ux-contract.test.ts` verdes.
 
 O relatório de referência desta revisão é `docs/UX_UI_AUDIT_2026-09-12.md`.
+
+## Desempenho e escalabilidade (2026-09-12)
+
+Desempenho passa a ser tratado como contrato de produção, não apenas otimização eventual. O CI deve impedir regressões materiais de bundle e executar um smoke de concorrência HTTP; a matriz de navegador mantém um smoke de navegação e estabilidade visual. Métricas LCP, CLS e INP de sessões autenticadas são armazenadas sem identificador de conta e retidas por 30 dias para diagnóstico agregado.
+
+Regras operacionais:
+- consultas por `run_id`, owner/status e tracking devem possuir índices compatíveis com o padrão de acesso observado em produção;
+- a Home deve usar agregação no banco em vez de transferir todo o histórico de runs/apostas para calcular contagens e saldo;
+- `raw_observations` de análises finalizadas/completas tem retenção operacional de 90 dias; os produtos derivados (stats normalizadas, modelos, decisões e resultados) permanecem disponíveis;
+- `source_fetches` e `pipeline_logs` de runs finalizadas têm retenção de 180 dias; Web Vitals, 30 dias;
+- jobs de Elo e manutenção externa devem ceder enquanto houver `analysis_jobs` em `QUEUED`/`RUNNING` e usar advisory lock para evitar sobreposição;
+- o limite do provedor externo continua sendo teto físico compartilhado; retries nunca podem contornar a cota distribuída;
+- qualquer alteração que aumente deliberadamente o bundle acima do orçamento deve justificar o impacto no PR e ajustar o budget de forma explícita, nunca silenciosamente.
+
+Baseline medida antes deste pacote: banco ~296 MB, `raw_observations` ~239 MB, análise recente ~381–390 s, consulta de 22.788 raws ~2,53 s e maiores chunks client ~100/90 KiB gzip. A comparação pós-ajuste deve usar a mesma família de medições.

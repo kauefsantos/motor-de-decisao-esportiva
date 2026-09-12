@@ -5,6 +5,7 @@ import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
 import { isCrossLeagueCompetitionName } from "./competition-kind";
 import { saoPauloLocalDateTimeToIso } from "./sao-paulo-time";
+import { loadFiveDollarCacheRows } from "./raw-observations.server";
 
 export type { PipelineStepKey } from "./pipeline.steps";
 import type { PipelineStepKey } from "./pipeline.steps";
@@ -277,19 +278,20 @@ async function collect(db: Db, runId: string) {
     let rateLimited = false;
 
     if (fiveDollarConfigured()) {
-      const { data: cachedRows } = await db
-        .from("raw_observations")
-        .select("metric, raw_value, observed_at, fetched_at")
-        .eq("source", FIVE_DOLLAR_SOURCE)
-        .eq("definition_version", FIVE_DOLLAR_DEFINITION_VERSION)
-        .limit(5000);
+      const cacheKeys = [...new Set((externalIds ?? [])
+        .filter((entry) => entry.source === "five_dollar_team_home" || entry.source === "five_dollar_team_away")
+        .map((entry) => `five_dollar:${entry.external_id}:${predictionAt}`))];
+      const cachedRows = await loadFiveDollarCacheRows(
+        db,
+        FIVE_DOLLAR_SOURCE,
+        FIVE_DOLLAR_DEFINITION_VERSION,
+        cacheKeys,
+      );
       const cacheIndex = new Map<string, typeof cachedRows>();
-      for (const row of cachedRows ?? []) {
-        const key = (row.raw_value as { cacheKey?: string } | null)?.cacheKey;
-        if (!key) continue;
-        const list = cacheIndex.get(key) ?? [];
+      for (const row of cachedRows) {
+        const list = cacheIndex.get(row.cache_key) ?? [];
         list.push(row);
-        cacheIndex.set(key, list);
+        cacheIndex.set(row.cache_key, list);
       }
 
       const leagueHistoryCache = new Map<string, Awaited<ReturnType<typeof fiveDollarLeagueHistory>>>();

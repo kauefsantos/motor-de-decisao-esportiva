@@ -14,8 +14,8 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const db = supabaseAdmin as any;
 
-  const [runIdsResult, recentRunsResult, draftResult, configResult] = await Promise.all([
-    db.from("analysis_runs").select("id").eq("owner_id", userId),
+  const [metricsResult, recentRunsResult, draftResult, configResult] = await Promise.all([
+    db.rpc("get_owner_home_metrics", { p_owner_id: userId }),
     db
       .from("analysis_runs")
       .select("id,target_date,status,current_step,matches_total,matches_resolved,matches_failed,selections_count,selection_finalized_at,created_at,updated_at")
@@ -38,33 +38,19 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
       .maybeSingle(),
   ]);
 
-  if (runIdsResult.error) throw new Error("Não foi possível carregar suas análises.");
+  if (metricsResult.error) throw new Error("Não foi possível carregar suas pendências.");
   if (recentRunsResult.error) throw new Error("Não foi possível carregar suas análises recentes.");
   if (draftResult.error) throw new Error("Não foi possível carregar o rascunho em andamento.");
 
-  const runIds = (runIdsResult.data ?? []).map((row: DbRow) => String(row.id));
-  const trackingResult = runIds.length
-    ? await db
-        .from("experimental_bet_tracking")
-        .select("run_id,bet_status,stake_brl,profit_brl,result")
-        .in("run_id", runIds)
-    : { data: [], error: null };
-
-  if (trackingResult.error) throw new Error("Não foi possível carregar suas pendências.");
-
-  const tracking = (trackingResult.data ?? []) as DbRow[];
-  const openCount = tracking.filter((row) => row.bet_status === "OPEN" && row.result === "PENDING").length;
-  const proposedCount = tracking.filter((row) => row.bet_status === "PROPOSED").length;
+  const metrics = (Array.isArray(metricsResult.data) ? metricsResult.data[0] : metricsResult.data) as DbRow | null;
+  const openCount = num(metrics?.open_bets_count);
+  const proposedCount = num(metrics?.proposed_count);
+  const settledProfit = num(metrics?.settled_profit);
+  const locked = num(metrics?.locked_stake);
 
   let availableBankroll: number | null = null;
   if (!configResult.error && configResult.data) {
     const initial = num(configResult.data.initial_bankroll);
-    const settledProfit = tracking
-      .filter((row) => row.bet_status === "SETTLED" || row.result !== "PENDING")
-      .reduce((sum, row) => sum + num(row.profit_brl), 0);
-    const locked = tracking
-      .filter((row) => row.bet_status === "OPEN" && row.result === "PENDING")
-      .reduce((sum, row) => sum + num(row.stake_brl), 0);
     availableBankroll = Math.max(0, initial + settledProfit - locked);
   }
 
