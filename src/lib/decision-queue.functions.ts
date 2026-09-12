@@ -72,7 +72,7 @@ async function db() {
 }
 
 async function owner(db: any, runId: string, userId: string) {
-  const { data, error } = await db.from("analysis_runs").select("id,target_date").eq("id", runId).eq("owner_id", userId).single();
+  const { data, error } = await db.from("analysis_runs").select("id,target_date,selection_finalized_at").eq("id", runId).eq("owner_id", userId).single();
   if (error || !data) throw new BackendError("NOT_FOUND", "Análise não encontrada.", 404);
   return data;
 }
@@ -133,11 +133,13 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
       });
     }
 
-    // Keep the existing portfolio correlation protection, but remove the old 2/3
-    // auto-selection cap. The result becomes the full ranked pool from which the
-    // user may choose up to three.
+    // The selector remains the source of truth for qualification and correlation.
+    // For the user-choice queue we retain BOTH the best row per match and its
+    // qualified correlated alternates. The database reveals only one market per
+    // match in a batch; alternates remain available if the first one is declined.
     const portfolio = selectExperimentalPortfolio(evaluated, Math.max(1, evaluated.length));
-    const qualified = portfolio.selected as Ranked[];
+    const qualified = ([...portfolio.selected, ...portfolio.correlatedAlternates] as Ranked[])
+      .sort((a, b) => (b.evCons ?? -Infinity) - (a.evCons ?? -Infinity) || (b.edgeCons ?? -Infinity) - (a.edgeCons ?? -Infinity));
     const queueRows = qualified.map((row, index) => ({
       match_id: row.matchId,
       prediction_id: row.predictionId,
@@ -181,12 +183,12 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
       batchSize: (batch ?? []).length,
       exhausted: queueRows.length <= (batch ?? []).length,
       dailySelectionLimit: 3,
-      correlatedAlternatesExcluded: portfolio.correlatedAlternates.length,
+      correlatedAlternatesDeferred: portfolio.correlatedAlternates.length,
       message: queueRows.length === 0
         ? "Nenhuma aposta atendeu a todos os requisitos da regra de negócio."
         : queueRows.length < 10
           ? `Foram encontradas ${queueRows.length} opção(ões) válidas; nenhuma opção artificial foi adicionada.`
-          : "As 10 melhores opções qualificadas estão disponíveis para escolha.",
+          : "As melhores opções qualificadas estão disponíveis em lotes de até 10.",
     });
   });
 
@@ -195,7 +197,11 @@ export const getNextDecisionBatch = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
     const rawDb = await db();
-    await owner(rawDb, data.runId, context.userId);
+    const run = await owner(rawDb, data.runId, context.userId);
+    if (run.selection_finalized_at) {
+      const { count: accepted } = await rawDb.from("decision_opportunity_queue").select("id", { count: "exact", head: true }).eq("run_id", data.runId).eq("queue_state", "ACCEPTED");
+      return backendOk({ batch: [], exhausted: false, acceptedCount: Number(accepted ?? 0), selectionFinalized: true, canProceedToStake: Number(accepted ?? 0) > 0, dailySelectionLimit: 3 });
+    }
     const { data: batch, error } = await rawDb.rpc("next_decision_batch_atomic", {
       p_run_id: data.runId,
       p_owner_id: context.userId,
@@ -208,6 +214,8 @@ export const getNextDecisionBatch = createServerFn({ method: "POST" })
       batch: batch ?? [],
       exhausted: (batch ?? []).length === 0 && Number(available ?? 0) === 0,
       acceptedCount: Number(accepted ?? 0),
+      selectionFinalized: false,
+      canProceedToStake: false,
       dailySelectionLimit: 3,
     });
   });
@@ -241,7 +249,7 @@ export const acceptDecisionOpportunity = createServerFn({ method: "POST" })
       p_queue_id: data.queueId,
       p_owner_id: context.userId,
     });
-    if (error) throw new BackendError("CONFLICT", "A opção não pôde ser selecionada ou o limite diário de três escolhas foi atingido.", 409);
+    if (error) throw new BackendError("CONFLICT", "A opção não pôde ser selecionada, há outra escolha do mesmo jogo ou o limite diário de três escolhas foi atingido.", 409);
     const row = Array.isArray(rows) ? rows[0] : rows;
     return backendOk({
       accepted: Boolean(row?.accepted),
@@ -251,16 +259,44 @@ export const acceptDecisionOpportunity = createServerFn({ method: "POST" })
     });
   });
 
-export const getDecisionQueueHistory = createServerFn({ method: "POST" })
+export const finalizeDecisionSelection = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => runSchema.parse(input))
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
     const rawDb = await db();
     await owner(rawDb, data.runId, context.userId);
+    const { data: rows, error } = await rawDb.rpc("finalize_decision_selection_atomic", {
+      p_run_id: data.runId,
+      p_owner_id: context.userId,
+    });
+    if (error) throw new BackendError("CONFLICT", "Escolha ao menos uma e no máximo três apostas antes de continuar.", 409);
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    return backendOk({
+      finalized: Boolean(row?.finalized),
+      acceptedCount: Number(row?.accepted_count ?? 0),
+      readyForStake: Boolean(row?.finalized),
+      dailySelectionLimit: 3,
+    });
+  });
+
+export const getDecisionQueueHistory = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => runSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
+    const rawDb = await db();
+    const run = await owner(rawDb, data.runId, context.userId);
     const { data: rows, error } = await rawDb.from("decision_opportunity_queue").select("*").eq("run_id", data.runId).order("rank_global");
     if (error) throw new BackendError("INTERNAL_ERROR", "Não foi possível recuperar o histórico da fila.", 500);
     const history = rows ?? [];
     const acceptedCount = history.filter((row: any) => row.queue_state === "ACCEPTED").length;
     const exhausted = !history.some((row: any) => row.queue_state === "AVAILABLE" || row.queue_state === "SHOWN");
-    return backendOk({ rows: history, acceptedCount, exhausted, canProceedToStake: acceptedCount >= 3 || (acceptedCount > 0 && exhausted), dailySelectionLimit: 3 });
+    const selectionFinalized = Boolean(run.selection_finalized_at);
+    return backendOk({
+      rows: history,
+      acceptedCount,
+      exhausted,
+      selectionFinalized,
+      canProceedToStake: selectionFinalized || acceptedCount >= 3 || (acceptedCount > 0 && exhausted),
+      dailySelectionLimit: 3,
+    });
   });
