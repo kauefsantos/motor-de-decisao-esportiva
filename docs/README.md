@@ -1,11 +1,11 @@
 # Documentação do Motor de Decisão Esportiva
 
-Este diretório reúne documentação de produto, arquitetura, auditorias, modelos e operação.
+Este diretório reúne documentação de produto, arquitetura, auditorias, modelos, operação e governança.
 
 Há dois níveis de leitura:
 
 - **Portfólio** — problema, solução, arquitetura e competências demonstradas.
-- **Técnico** — decisões quantitativas, segurança, Elo, operação e rastreabilidade.
+- **Técnico** — decisões quantitativas, segurança, Elo, operação, rastreabilidade e governança.
 
 ## Comece por aqui
 
@@ -14,6 +14,9 @@ Há dois níveis de leitura:
 | [CASE_STUDY.md](CASE_STUDY.md) | Recrutadores, clientes e portfólio | problema, estratégia low-code, evolução e competências demonstradas |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Produto, dados e engenharia | camadas, fluxo, boundaries, segurança e fontes de verdade |
 | [PROJECT_STATE.md](PROJECT_STATE.md) | Continuidade técnica | estado canônico e decisões vigentes |
+| [GOVERNANCE.md](GOVERNANCE.md) | Produto, dados e engenharia | responsáveis, change control, auditoria e revisão de acessos |
+| [METRICS_GLOSSARY.md](METRICS_GLOSSARY.md) | Produto/Quant/Data | definições e versões dos indicadores |
+| [DATA_CATALOG.md](DATA_CATALOG.md) | Dados/Backend | catálogo e governança das fontes |
 
 ## Backend e modelos
 
@@ -49,13 +52,20 @@ Trilha histórica de auditoria:
 | [RLS_SECURITY.md](RLS_SECURITY.md) | política de RLS e privilégios do banco |
 | [SECURITY_AUDIT_2026-09-10.md](SECURITY_AUDIT_2026-09-10.md) | autenticação, servidor, headers e riscos residuais |
 
+## Governança
+
+- `GOVERNANCE.md`: matriz de responsabilidade, mudanças e cadências.
+- `METRICS_GLOSSARY.md`: significado/versionamento dos indicadores.
+- `DATA_CATALOG.md`: origem, contrato e revisão das fontes.
+- `governance/access-reviews/`: evidências periódicas de revisão de acesso.
+
 ## Como interpretar a documentação
 
 Quando um documento histórico divergir do estado atual, a prioridade é:
 
 1. código e migrations no `main`;
-2. `PROJECT_STATE.md`;
-3. documentos canônicos atuais, como `ELO.md` e `ELO_RUNBOOK.md`;
+2. `PROJECT_STATE.md` e documentos canônicos de governança;
+3. documentos canônicos atuais, como `ELO.md`, `ELO_RUNBOOK.md`, `GOVERNANCE.md`, `METRICS_GLOSSARY.md` e `DATA_CATALOG.md`;
 4. documentos de fechamento/auditoria mais recentes;
 5. registros históricos mais antigos.
 
