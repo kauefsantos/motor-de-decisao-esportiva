@@ -17,7 +17,7 @@ describe("analysis worker request hardening", () => {
     });
 
     const payload = await readBoundedJsonObject(request);
-    expect(payload?.runId).toBe("11111111-1111-4111-8111-111111111111");
+    expect(payload?.["runId"]).toBe("11111111-1111-4111-8111-111111111111");
   });
 
   it("rejects non-JSON content before parsing", async () => {
