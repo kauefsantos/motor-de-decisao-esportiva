@@ -91,6 +91,26 @@ jobs:
             fi
           fi
 
+      - name: Versioned route tree gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          while IFS= read -r file; do
+            base="$(basename "$file")"
+            base="${base%.tsx}"
+            base="${base%.ts}"
+            [ "$base" = "__root" ] && continue
+            if ! grep -Fq "from './routes/$base'" src/routeTree.gen.ts; then
+              echo "Route missing from committed src/routeTree.gen.ts: $file"
+              missing=1
+            fi
+          done < <(find src/routes -maxdepth 1 -type f \( -name '*.ts' -o -name '*.tsx' \) | sort)
+          if [ "$missing" -ne 0 ]; then
+            echo "Regenerate and commit src/routeTree.gen.ts before merging."
+            exit 1
+          fi
+
       - name: Database migrations and regression tests
         run: |
           supabase db start
