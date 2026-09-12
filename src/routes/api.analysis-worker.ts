@@ -39,7 +39,7 @@ export const Route = createFileRoute("/api/analysis-worker")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const db = supabaseAdmin as any;
+        const db = supabaseAdmin;
         const { data: claimed, error: claimError } = await db.rpc("claim_analysis_job", {
           p_run_id: runId,
           p_dispatch_token: dispatchToken,
