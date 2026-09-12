@@ -1,8 +1,7 @@
-import type { Database } from "@/integrations/supabase/database.types";
-import type { AdminDb } from "../admin-db";
+import type { AdminDb, RuntimeDatabase } from "../admin-db";
 import { callRuntimeRpc } from "./runtime-rpc.server";
 
-export type DecisionQueueRow = Database["public"]["Tables"]["decision_opportunity_queue"]["Row"];
+export type DecisionQueueRow = RuntimeDatabase["public"]["Tables"]["decision_opportunity_queue"]["Row"];
 
 type OwnedDecisionRun = {
   id: string;
