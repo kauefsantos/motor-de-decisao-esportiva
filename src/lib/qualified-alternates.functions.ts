@@ -8,13 +8,7 @@ import type { ContractType } from "./engine/types";
 import { EXPERIMENTAL_MARKETS_STATUS } from "./experimental-markets-run.functions";
 
 const PRODUCTION_STATUS = "MODEL_NOT_PRODUCTION_VALIDATED" as const;
-
-function selectionLimitForDate(isoDate: string | null): number {
-  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
-  const [year, month, day] = isoDate.split("-").map(Number);
-  const weekday = new Date(Date.UTC(year!, month! - 1, day!)).getUTCDay();
-  return weekday === 0 || weekday === 6 ? 3 : 2;
-}
+const SELECTION_LIMIT_PER_TARGET_DATE = 3;
 
 function labelFor(
   market: string,
@@ -55,6 +49,12 @@ const promoteSchema = z.object({
   lineAtEntry: z.number().finite().nullable(),
 });
 
+/**
+ * Legacy compatibility entry point for older bookmarked result views.
+ * The active result flow no longer offers alternate promotion, but any
+ * remaining caller must obey the current business rule: up to 3 selections
+ * per target date on every day of the week.
+ */
 export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => promoteSchema.parse(input))
   .handler(async ({ data, context }) => {
@@ -142,7 +142,7 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       throw new Error("Esta odd não atende mais aos critérios mínimos de valor e execução.");
     }
 
-    const selectionLimit = selectionLimitForDate(run.target_date ?? null);
+    const selectionLimit = SELECTION_LIMIT_PER_TARGET_DATE;
     const { data: activeRows, error: activeError } = await supabase
       .from("experimental_bet_tracking")
       .select("id")
@@ -153,7 +153,7 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
     const active = activeRows ?? [];
     if (active.length >= selectionLimit) {
       throw new Error(
-        `O limite desta rodada é de ${selectionLimit} seleção(ões). Recuse uma sugestão pendente antes de escolher outra.`,
+        `O limite desta rodada é de ${selectionLimit} seleções. Recuse uma sugestão pendente antes de escolher outra.`,
       );
     }
 
@@ -198,7 +198,7 @@ export const promoteQualifiedExperimentalBet = createServerFn({ method: "POST" }
       result: "PENDING",
       bet_status: "PROPOSED",
       selection_rank: null,
-      notes: "Selecionada manualmente entre oportunidades qualificadas fora da seleção final automática.",
+      notes: "Selecionada por compatibilidade com um fluxo legado; limite atual de três por rodada aplicado.",
       updated_at: now,
     };
 
