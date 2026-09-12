@@ -8,6 +8,12 @@ const vitalSchema = z.object({
   route: z.string().trim().min(1).max(160),
 });
 
+const UUID_IN_PATH = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
+
+function normalizedRoute(route: string) {
+  return (route.split("?")[0] || "/").replace(UUID_IN_PATH, ":id").slice(0, 160);
+}
+
 export const reportPerformanceVital = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => vitalSchema.parse(input))
   .handler(async ({ data, context }) => {
@@ -17,7 +23,7 @@ export const reportPerformanceVital = createServerFn({ method: "POST" })
       metric: data.metric,
       value: data.value,
       rating: data.rating,
-      route: data.route.split("?")[0]?.slice(0, 160) || "/",
+      route: normalizedRoute(data.route),
     });
     if (error) throw new Error(`Falha ao registrar métrica de desempenho: ${error.message}`);
     return { ok: true };
