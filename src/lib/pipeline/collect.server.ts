@@ -1,7 +1,9 @@
 import type { AdminDb } from "../admin-db";
 import { isCrossLeagueCompetitionName } from "../competition-kind";
-import { loadFiveDollarCacheRows } from "../raw-observations.server";
 import { activeFootballProvider } from "./provider.server";
+
+const COLLECT_BATCH_SIZE = 4;
+const COLLECT_MATCH_DONE_STEP = "COLLECT_MATCH_DONE";
 
 async function pipelineLog(
   db: AdminDb,
@@ -24,18 +26,57 @@ async function predictionAt(db: AdminDb, runId: string): Promise<string> {
   return fallback;
 }
 
+async function completedMatchIds(db: AdminDb, runId: string) {
+  const { data } = await db
+    .from("pipeline_logs")
+    .select("payload")
+    .eq("run_id", runId)
+    .eq("step", COLLECT_MATCH_DONE_STEP);
+  const ids = new Set<string>();
+  for (const row of data ?? []) {
+    const payload = row.payload as { matchId?: unknown } | null;
+    if (typeof payload?.matchId === "string") ids.add(payload.matchId);
+  }
+  return ids;
+}
+
+async function markMatchDone(db: AdminDb, runId: string, matchId: string, provider: string) {
+  await pipelineLog(db, runId, COLLECT_MATCH_DONE_STEP, "Coleta da partida concluída.", "INFO", { matchId, provider });
+}
+
+async function resetPartialMatchCollection(db: AdminDb, runId: string, matchId: string, source: string) {
+  // Uma partida só entra no marcador DONE depois de terminar por inteiro. Se a
+  // execução caiu no meio, o próximo lote remove apenas o parcial daquela
+  // partida e a refaz, sem duplicar observações já concluídas de outros jogos.
+  await db.from("raw_observations").delete().eq("run_id", runId).eq("match_id", matchId);
+  await db.from("source_fetches").delete().eq("run_id", runId).eq("match_id", matchId).eq("source", source);
+}
+
 export async function collectPipelineData(db: AdminDb, runId: string) {
   const provider = activeFootballProvider();
   const { data: matches } = await db
     .from("matches")
     .select("id,home_team,away_team,competition,kickoff_local,resolution_status")
-    .eq("run_id", runId);
+    .eq("run_id", runId)
+    .order("kickoff_local", { ascending: true })
+    .order("id", { ascending: true });
+
+  const allMatches = matches ?? [];
+  const doneBefore = await completedMatchIds(db, runId);
+  const pendingMatches = allMatches.filter((match) => !doneBefore.has(match.id));
+  if (pendingMatches.length === 0) {
+    return { provider, complete: true, processedMatches: 0, remainingMatches: 0, totalMatches: allMatches.length };
+  }
+
+  const batch = pendingMatches.slice(0, COLLECT_BATCH_SIZE);
   const runPredictionAt = await predictionAt(db, runId);
-  const matchIds = (matches ?? []).map((match) => match.id);
-  const { data: externalIds } = matchIds.length
-    ? await db.from("match_external_ids").select("match_id,source,external_id").in("match_id", matchIds)
+  const batchIds = batch.map((match) => match.id);
+  const { data: externalIds } = batchIds.length
+    ? await db.from("match_external_ids").select("match_id,source,external_id").in("match_id", batchIds)
     : { data: [] };
   const perSource: Record<string, number> = {};
+  const processed = new Set<string>();
+  let rateLimited = false;
 
   if (provider === "five_dollar") {
     const {
@@ -48,29 +89,17 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
     } = await import("../adapters/five_dollar.server");
     let observationsCount = 0;
     let insufficient = 0;
-    let reusedFromCache = 0;
-    let rateLimited = false;
 
-    if (fiveDollarConfigured()) {
-      const cacheKeys = [...new Set((externalIds ?? [])
-        .filter((entry) => entry.source === "five_dollar_team_home" || entry.source === "five_dollar_team_away")
-        .map((entry) => `five_dollar:${entry.external_id}:${runPredictionAt}`))];
-      const cachedRows = await loadFiveDollarCacheRows(
-        db,
-        FIVE_DOLLAR_SOURCE,
-        FIVE_DOLLAR_DEFINITION_VERSION,
-        cacheKeys,
-      );
-      const cacheIndex = new Map<string, typeof cachedRows>();
-      for (const row of cachedRows) {
-        const list = cacheIndex.get(row.cache_key) ?? [];
-        list.push(row);
-        cacheIndex.set(row.cache_key, list);
+    if (!fiveDollarConfigured()) {
+      for (const match of batch) {
+        await markMatchDone(db, runId, match.id, provider);
+        processed.add(match.id);
       }
-
+      await pipelineLog(db, runId, "COLLECT", "Provedor 5Dollar não configurado; lote concluído sem observações.", "WARN", { processedMatches: processed.size });
+    } else {
       const leagueHistoryCache = new Map<string, Awaited<ReturnType<typeof fiveDollarLeagueHistory>>>();
       const leagueTeamIds = new Map<string, Set<number>>();
-      for (const match of matches ?? []) {
+      for (const match of batch) {
         const leagueExternal = (externalIds ?? []).find(
           (entry) => entry.match_id === match.id && entry.source === "five_dollar_league",
         );
@@ -87,8 +116,9 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
         leagueTeamIds.set(key, set);
       }
 
-      for (const match of matches ?? []) {
+      for (const match of batch) {
         if (rateLimited) break;
+        await resetPartialMatchCollection(db, runId, match.id, FIVE_DOLLAR_SOURCE);
         const teams = (externalIds ?? []).filter(
           (entry) => entry.match_id === match.id
             && (entry.source === "five_dollar_team_home" || entry.source === "five_dollar_team_away"),
@@ -99,6 +129,8 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
         const crossLeague = isCrossLeagueCompetitionName(match.competition);
         if (teams.length === 0) {
           perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] = (perSource[`${FIVE_DOLLAR_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
+          await markMatchDone(db, runId, match.id, provider);
+          processed.add(match.id);
           continue;
         }
 
@@ -106,23 +138,6 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
           if (rateLimited) break;
           const scope = team.source === "five_dollar_team_home" ? "HOME" : "AWAY";
           const cacheKey = `five_dollar:${team.external_id}:${runPredictionAt}`;
-          const cached = cacheIndex.get(cacheKey);
-          if (cached?.length) {
-            reusedFromCache += cached.length;
-            observationsCount += cached.length;
-            await db.from("raw_observations").insert(cached.map((row) => ({
-              run_id: runId,
-              match_id: match.id,
-              source: FIVE_DOLLAR_SOURCE,
-              metric: row.metric,
-              raw_value: row.raw_value as never,
-              observed_at: row.observed_at,
-              fetched_at: row.fetched_at,
-              definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
-            })));
-            continue;
-          }
-
           let history;
           if (leagueExternal?.external_id && !crossLeague) {
             const key = `${leagueExternal.external_id}:${runPredictionAt}`;
@@ -192,6 +207,11 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
             })));
           }
         }
+
+        if (!rateLimited) {
+          await markMatchDone(db, runId, match.id, provider);
+          processed.add(match.id);
+        }
       }
 
       const usage = fiveDollarUsage();
@@ -217,7 +237,7 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
         db,
         runId,
         "COLLECT",
-        `${observationsCount} observações 5Dollar; ${reusedFromCache} de cache; ${insufficient} times com histórico insuficiente${rateLimited ? "; coleta parcial por rate limit" : ""}.`,
+        `${observationsCount} observações 5Dollar no lote; ${insufficient} times com histórico insuficiente${rateLimited ? "; lote interrompido por rate limit" : ""}.`,
         observationsCount ? "INFO" : "WARN",
         {
           provider,
@@ -225,6 +245,8 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
           requestsMade: usage.requestsMade,
           rateLimit: usage.rateLimit,
           rateLimitHits: usage.rateLimitHits,
+          batchSize: batch.length,
+          processedMatches: processed.size,
           bulkLeagues: leagueHistoryCache.size,
           uniqueHistoricalFixtures: [...leagueHistoryCache.values()].reduce((sum, history) => sum + history.fixtures.length, 0),
         },
@@ -240,15 +262,16 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
       API_FOOTBALL_DEFINITION_VERSION,
     } = await import("../adapters/api_football.server");
     let observationsCount = 0;
-    if (apiFootballConfigured()) {
-      for (const match of matches ?? []) {
+
+    for (const match of batch) {
+      if (apiFootballConfigured()) {
+        await resetPartialMatchCollection(db, runId, match.id, API_FOOTBALL_SOURCE);
         const teams = (externalIds ?? []).filter(
           (entry) => entry.match_id === match.id
             && (entry.source === "api_football_team_home" || entry.source === "api_football_team_away"),
         );
         if (teams.length === 0) {
           perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] = (perSource[`${API_FOOTBALL_SOURCE}:NO_FIXTURE`] ?? 0) + 1;
-          continue;
         }
         for (const team of teams) {
           const targetScope = team.source === "api_football_team_home" ? "HOME" : "AWAY";
@@ -291,24 +314,35 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
           }
         }
       }
-      await pipelineLog(
-        db,
-        runId,
-        "COLLECT",
-        `${observationsCount} observações coletadas na API-Football.`,
-        observationsCount ? "INFO" : "WARN",
-        { provider, predictionAt: runPredictionAt },
-      );
+      await markMatchDone(db, runId, match.id, provider);
+      processed.add(match.id);
     }
+
+    await pipelineLog(
+      db,
+      runId,
+      "COLLECT",
+      `${observationsCount} observações coletadas na API-Football no lote.`,
+      observationsCount ? "INFO" : "WARN",
+      { provider, predictionAt: runPredictionAt, processedMatches: processed.size },
+    );
   }
+
+  const doneAfter = new Set(doneBefore);
+  for (const id of processed) doneAfter.add(id);
+  const remainingMatches = Math.max(0, allMatches.length - doneAfter.size);
+  const complete = remainingMatches === 0;
 
   await pipelineLog(
     db,
     runId,
     "COLLECT",
-    "Coleta concluída usando um único provedor ativo.",
-    "INFO",
-    { provider, ...perSource },
+    complete
+      ? "Coleta concluída para todas as partidas da rodada."
+      : `Lote concluído; ${remainingMatches} partida(s) ainda aguardam coleta.`,
+    complete ? "INFO" : rateLimited ? "WARN" : "INFO",
+    { provider, complete, processedMatches: processed.size, remainingMatches, totalMatches: allMatches.length, rateLimited, ...perSource },
   );
-  return { provider, ...perSource };
+
+  return { provider, complete, processedMatches: processed.size, remainingMatches, totalMatches: allMatches.length, rateLimited, ...perSource };
 }
