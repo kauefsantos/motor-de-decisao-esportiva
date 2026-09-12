@@ -1,8 +1,16 @@
-// Leitura paginada do histórico bruto usado pelos modelos experimentais.
-// Evita truncar silenciosamente raw_observations quando a base cresce com o plano Pro.
+// Leituras do histórico bruto usadas pelos modelos experimentais.
+// A paginação preserva o histórico completo e o lookup de cache evita baixar
+// milhares de JSONs quando a aplicação precisa de poucas chaves específicas.
 
 type DbError = { message: string } | null;
 export type RawObservationValueRow = { match_id?: string | null; raw_value: unknown };
+export type RawCacheRow = {
+  cache_key: string;
+  metric: string;
+  raw_value: unknown;
+  observed_at: string;
+  fetched_at: string;
+};
 type QueryResult = { data: RawObservationValueRow[] | null; error: DbError };
 
 interface RawQuery extends PromiseLike<QueryResult> {
@@ -16,9 +24,27 @@ interface RawQuery extends PromiseLike<QueryResult> {
 
 interface RawDb {
   from(table: string): RawQuery;
+  rpc(fn: string, args?: Record<string, unknown>): PromiseLike<{ data: unknown; error: DbError }>;
 }
 
 const PAGE_SIZE = 1000;
+
+export async function loadFiveDollarCacheRows(
+  supabase: unknown,
+  source: string,
+  definitionVersion: string,
+  cacheKeys: string[],
+): Promise<RawCacheRow[]> {
+  if (!cacheKeys.length) return [];
+  const db = supabase as RawDb;
+  const { data, error } = await db.rpc("get_raw_observation_cache_rows", {
+    p_source: source,
+    p_definition_version: definitionVersion,
+    p_cache_keys: [...new Set(cacheKeys)],
+  });
+  if (error) throw new Error(`Falha ao consultar cache bruto indexado: ${error.message}`);
+  return (Array.isArray(data) ? data : []) as RawCacheRow[];
+}
 
 export async function loadFiveDollarRawValues(
   supabase: unknown,
