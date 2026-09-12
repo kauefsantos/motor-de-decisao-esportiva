@@ -9,30 +9,18 @@ import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { MetricHelp } from "@/components/MetricHelp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { collectAutomaticBet365Odds } from "@/lib/auto-bet365-odds.functions";
+import { useDecisionQueueActions } from "@/hooks/useDecisionQueueActions";
 import {
-  acceptDecisionOpportunity,
-  buildDecisionOpportunityQueue,
-  declineDecisionOpportunity,
-  finalizeDecisionSelection,
-  getDecisionQueueHistory,
-  getNextDecisionBatch,
-} from "@/lib/decision-queue.functions";
-import { passesExperimentalModelGate } from "@/lib/engine/market-policy";
+  DECISION_FAMILY_LABELS,
+  fallbackDecisionBatches,
+  formatDecisionDecimal,
+  formatDecisionPercent,
+  type DecisionQueueHistory,
+  type DecisionQueueRow,
+} from "@/lib/application/decision-queue/view-model";
+import { collectAutomaticBet365Odds } from "@/lib/auto-bet365-odds.functions";
+import { buildDecisionOpportunityQueue, getDecisionQueueHistory } from "@/lib/decision-queue.functions";
 import { prepareExperimentalMarketsRun } from "@/lib/experimental-markets-run.functions";
-
-const pct = (value: unknown, digits = 1) =>
-  value === null || value === undefined ? "—" : `${(Number(value) * 100).toFixed(digits)}%`;
-const dec = (value: unknown) =>
-  value === null || value === undefined ? "—" : Number(value).toFixed(2);
-
-const FAMILY_LABELS: Record<string, string> = {
-  CORNERS: "Escanteios",
-  CARDS: "Cartões",
-  GOALS: "Gols",
-  "1X2": "Resultado",
-  DOUBLE_CHANCE: "Dupla chance",
-};
 
 type AutoQuote = {
   predictionId: string;
@@ -43,41 +31,12 @@ type AutoQuote = {
   reason: string;
 };
 
-type QueueRow = {
-  id: string;
-  queue_state: "AVAILABLE" | "SHOWN" | "ACCEPTED" | "DECLINED" | "BLOCKED_CORRELATED";
-  rank_global: number;
-  match_label: string;
-  competition: string | null;
-  market_family: string;
-  market_label: string;
-  model_probability: number | string;
-  entry_odd: number | string;
-  fair_odd: number | string | null;
-  min_odd_target: number | string | null;
-  edge: number | string | null;
-  expected_value: number | string | null;
-};
-
-function fallbackBatches(candidates: Array<{ predictionId: string; probabilityExperimental: number }>, size = 10) {
-  const ids = candidates
-    .filter((candidate) => passesExperimentalModelGate(candidate.probabilityExperimental))
-    .map((candidate) => candidate.predictionId);
-  const batches: string[][] = [];
-  for (let index = 0; index < ids.length; index += size) batches.push(ids.slice(index, index + size));
-  return batches;
-}
-
 export function DecisionQueueFlow({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const prepare = useServerFn(prepareExperimentalMarketsRun);
   const collectAutoOdds = useServerFn(collectAutomaticBet365Odds);
   const buildQueue = useServerFn(buildDecisionOpportunityQueue);
   const loadHistory = useServerFn(getDecisionQueueHistory);
-  const loadNextBatch = useServerFn(getNextDecisionBatch);
-  const accept = useServerFn(acceptDecisionOpportunity);
-  const decline = useServerFn(declineDecisionOpportunity);
-  const finalize = useServerFn(finalizeDecisionSelection);
 
   const [odds, setOdds] = useState<Record<string, string>>({});
   const [autoQuotes, setAutoQuotes] = useState<Record<string, AutoQuote>>({});
@@ -85,8 +44,6 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
   const [visibleBatchCount, setVisibleBatchCount] = useState(1);
   const [autoLoading, setAutoLoading] = useState(false);
   const [building, setBuilding] = useState(false);
-  const [queueActionId, setQueueActionId] = useState<string | null>(null);
-  const [finalizing, setFinalizing] = useState(false);
   const [details, setDetails] = useState<Record<string, boolean>>({});
   const [emptyQueueMessage, setEmptyQueueMessage] = useState<string | null>(null);
   const autoStartedForRun = useRef<string | null>(null);
@@ -100,14 +57,18 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
   const historyQuery = useQuery({
     queryKey: ["decision-queue-history", runId],
-    queryFn: async () => (await loadHistory({ data: { runId } })).data,
+    queryFn: async () => (await loadHistory({ data: { runId } })).data as DecisionQueueHistory,
     staleTime: 0,
     retry: 1,
+  });
+  const actions = useDecisionQueueActions(runId, async () => {
+    const result = await historyQuery.refetch();
+    return { data: result.data };
   });
 
   const eligible = useMemo(() => preparationQuery.data?.candidates ?? [], [preparationQuery.data]);
   const history = historyQuery.data;
-  const queueRows = (history?.rows ?? []) as QueueRow[];
+  const queueRows = (history?.rows ?? []) as DecisionQueueRow[];
   const queueExists = queueRows.length > 0 || Boolean(history?.selectionFinalized);
 
   useEffect(() => {
@@ -134,14 +95,16 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
         const automaticValues: Record<string, string> = {};
         for (const quote of result.quotes) {
           byPrediction[quote.predictionId] = quote as AutoQuote;
-          if (quote.status === "MATCHED" && quote.odd !== null && quote.odd > 1) automaticValues[quote.predictionId] = String(quote.odd);
+          if (quote.status === "MATCHED" && quote.odd !== null && quote.odd > 1) {
+            automaticValues[quote.predictionId] = String(quote.odd);
+          }
         }
         setAutoQuotes(byPrediction);
         setManualBatches(result.manualBatches ?? []);
         setOdds(automaticValues);
       } catch (error) {
         if (!cancelled) {
-          setManualBatches(fallbackBatches(eligible));
+          setManualBatches(fallbackDecisionBatches(eligible));
           toast.error(error instanceof Error ? error.message : "Não foi possível buscar todas as odds automaticamente. Você pode preencher as que faltaram.");
         }
       } finally {
@@ -167,7 +130,11 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
   async function createDecisionQueue() {
     const entries = eligible
-      .map((candidate) => ({ predictionId: candidate.predictionId, odd: Number((odds[candidate.predictionId] ?? "").replace(",", ".")), lineAtEntry: candidate.lineCanonical }))
+      .map((candidate) => ({
+        predictionId: candidate.predictionId,
+        odd: Number((odds[candidate.predictionId] ?? "").replace(",", ".")),
+        lineAtEntry: candidate.lineCanonical,
+      }))
       .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1);
 
     if (entries.length === 0) {
@@ -180,65 +147,15 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       const result = await buildQueue({ data: { runId, entries } });
       setEmptyQueueMessage(result.data.totalQualified === 0 ? result.data.message : null);
       await historyQuery.refetch();
-      toast.success(result.data.totalQualified === 0 ? "Avaliação concluída: nenhuma opção passou por todos os critérios." : `${result.data.totalQualified} opção${result.data.totalQualified === 1 ? "" : "ões"} com valor encontrada${result.data.totalQualified === 1 ? "" : "s"}.`);
+      toast.success(
+        result.data.totalQualified === 0
+          ? "Avaliação concluída: nenhuma opção passou por todos os critérios."
+          : `${result.data.totalQualified} opção${result.data.totalQualified === 1 ? "" : "ões"} com valor encontrada${result.data.totalQualified === 1 ? "" : "s"}.`,
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível avaliar as odds. Nada foi alterado.");
     } finally {
       setBuilding(false);
-    }
-  }
-
-  async function nextBatch() {
-    try {
-      await loadNextBatch({ data: { runId } });
-      await historyQuery.refetch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível mostrar mais opções.");
-    }
-  }
-
-  async function acceptRow(queueId: string) {
-    setQueueActionId(queueId);
-    try {
-      await accept({ data: { queueId } });
-      await historyQuery.refetch();
-      toast.success("Opção escolhida e salva.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível escolher esta opção.");
-    } finally {
-      setQueueActionId(null);
-    }
-  }
-
-  async function declineRow(queueId: string) {
-    setQueueActionId(queueId);
-    try {
-      await decline({ data: { queueId } });
-      const refreshed = await historyQuery.refetch();
-      const fresh = refreshed.data;
-      const freshRows = ((fresh?.rows ?? []) as QueueRow[]);
-      const stillShown = freshRows.some((row) => row.queue_state === "SHOWN");
-      if (!stillShown && !fresh?.exhausted && (fresh?.acceptedCount ?? 0) < (fresh?.dailySelectionLimit ?? 3)) {
-        await loadNextBatch({ data: { runId } });
-        await historyQuery.refetch();
-      }
-      toast.success("Opção recusada. Sua escolha foi salva.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível recusar esta opção.");
-    } finally {
-      setQueueActionId(null);
-    }
-  }
-
-  async function finalizeChoices() {
-    setFinalizing(true);
-    try {
-      await finalize({ data: { runId } });
-      await historyQuery.refetch();
-      navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível confirmar suas escolhas.");
-      setFinalizing(false);
     }
   }
 
@@ -303,7 +220,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
               {acceptedRows.map((row) => (
                 <li key={row.id} className="py-2 first:pt-0 last:pb-0">
                   <p className="text-sm font-medium">{row.match_label}</p>
-                  <p className="text-xs text-muted-foreground">{row.market_label} · odd {dec(row.entry_odd)} · EV esperado {pct(row.expected_value)}</p>
+                  <p className="text-xs text-muted-foreground">{row.market_label} · odd {formatDecisionDecimal(row.entry_odd)} · EV esperado {formatDecisionPercent(row.expected_value)}</p>
                 </li>
               ))}
             </ul>
@@ -316,19 +233,19 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
               <article key={row.id} className="p-4 sm:p-5">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="text-xs text-muted-foreground">#{row.rank_global} · {row.competition ?? "Competição"} · {FAMILY_LABELS[row.market_family] ?? row.market_family}</p>
+                    <p className="text-xs text-muted-foreground">#{row.rank_global} · {row.competition ?? "Competição"} · {DECISION_FAMILY_LABELS[row.market_family] ?? row.market_family}</p>
                     <h3 className="mt-1 text-base font-semibold">{row.match_label}</h3>
                     <p className="text-sm text-muted-foreground">{row.market_label}</p>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Odd <span className="num text-foreground">{dec(row.entry_odd)}</span></span>
-                      <span>Chance <span className="num text-foreground">{pct(row.model_probability)}</span></span>
-                      <span className="inline-flex items-center">EV esperado <MetricHelp term="EV" /> <span className="num ml-1 text-success">{pct(row.expected_value)}</span></span>
-                      <span className="inline-flex items-center">Vantagem <MetricHelp term="Vantagem" /> <span className="num ml-1 text-foreground">{pct(row.edge)}</span></span>
+                      <span>Odd <span className="num text-foreground">{formatDecisionDecimal(row.entry_odd)}</span></span>
+                      <span>Chance <span className="num text-foreground">{formatDecisionPercent(row.model_probability)}</span></span>
+                      <span className="inline-flex items-center">EV esperado <MetricHelp term="EV" /> <span className="num ml-1 text-success">{formatDecisionPercent(row.expected_value)}</span></span>
+                      <span className="inline-flex items-center">Vantagem <MetricHelp term="Vantagem" /> <span className="num ml-1 text-foreground">{formatDecisionPercent(row.edge)}</span></span>
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <Button variant="outline" className="min-h-11" disabled={queueActionId !== null} onClick={() => void declineRow(row.id)}><X className="mr-1 size-4" aria-hidden /> Recusar</Button>
-                    <Button className="min-h-11" disabled={queueActionId !== null || acceptedCount >= dailyLimit} onClick={() => void acceptRow(row.id)}><Check className="mr-1 size-4" aria-hidden /> Escolher</Button>
+                    <Button variant="outline" className="min-h-11" disabled={actions.actionId !== null} onClick={() => void actions.declineRow(row.id)}><X className="mr-1 size-4" aria-hidden /> Recusar</Button>
+                    <Button className="min-h-11" disabled={actions.actionId !== null || acceptedCount >= dailyLimit} onClick={() => void actions.acceptRow(row.id)}><Check className="mr-1 size-4" aria-hidden /> Escolher</Button>
                   </div>
                 </div>
               </article>
@@ -337,7 +254,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
         )}
 
         {shown.length === 0 && !exhausted && acceptedCount < dailyLimit && (
-          <div className="p-5"><p className="text-sm text-muted-foreground">Você terminou este grupo. Ainda existem outras opções qualificadas.</p><Button className="mt-3" variant="outline" onClick={() => void nextBatch()}>Mostrar mais opções</Button></div>
+          <div className="p-5"><p className="text-sm text-muted-foreground">Você terminou este grupo. Ainda existem outras opções qualificadas.</p><Button className="mt-3" variant="outline" onClick={() => void actions.nextBatch()}>Mostrar mais opções</Button></div>
         )}
 
         {exhausted && acceptedCount === 0 && (
@@ -346,7 +263,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
         {canFinalize && (
           <div className="border-t border-border p-4 sm:p-5">
-            <Button className="min-h-12 w-full sm:w-auto" disabled={finalizing} onClick={() => void finalizeChoices()}>{finalizing ? "Salvando escolhas…" : `Revisar ${acceptedCount} escolha${acceptedCount === 1 ? "" : "s"}`}</Button>
+            <Button className="min-h-12 w-full sm:w-auto" disabled={actions.finalizing} onClick={() => void actions.finalizeChoices()}>{actions.finalizing ? "Salvando escolhas…" : `Revisar ${acceptedCount} escolha${acceptedCount === 1 ? "" : "s"}`}</Button>
           </div>
         )}
       </section>
@@ -381,7 +298,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
                   return (
                     <li key={candidate.predictionId} className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                       <div><p className="text-sm font-medium">{candidate.matchLabel}</p><p className="text-xs text-muted-foreground">{candidate.marketLabel}</p></div>
-                      <div className="sm:text-right"><p className="num text-sm font-semibold">odd {dec(quote?.odd)}</p><p className="text-[11px] text-muted-foreground">Bet365 · automática</p></div>
+                      <div className="sm:text-right"><p className="num text-sm font-semibold">odd {formatDecisionDecimal(quote?.odd)}</p><p className="type-caption text-muted-foreground">Bet365 · automática</p></div>
                     </li>
                   );
                 })}
@@ -399,9 +316,9 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
                   <div key={candidate.predictionId} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:p-5">
                     <div>
                       <p className="text-sm font-medium">{candidate.matchLabel}</p>
-                      <p className="text-xs text-muted-foreground">{candidate.marketLabel} · chance {pct(candidate.probabilityExperimental)}</p>
+                      <p className="text-xs text-muted-foreground">{candidate.marketLabel} · chance {formatDecisionPercent(candidate.probabilityExperimental)}</p>
                       {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-xs text-warning">A linha encontrada não corresponde à opção analisada. Informe a odd correta para esta linha.</p>}
-                      {open && <p id={detailId} className="mt-2 text-xs text-muted-foreground">Odd de referência {dec(candidate.fairOddExperimental)} · linha {candidate.lineCanonical ?? "—"}</p>}
+                      {open && <p id={detailId} className="mt-2 text-xs text-muted-foreground">Odd de referência {formatDecisionDecimal(candidate.fairOddExperimental)} · linha {candidate.lineCanonical ?? "—"}</p>}
                     </div>
                     <label className="text-sm text-muted-foreground">Odd Bet365
                       <Input inputMode="decimal" value={odds[candidate.predictionId] ?? ""} onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))} className="num mt-1 w-28" />
