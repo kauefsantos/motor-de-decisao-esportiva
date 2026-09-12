@@ -136,7 +136,18 @@ jobs:
         run: bunx vitest run src/lib/engine/experimental-pilot.e2e.test.ts
 
       - name: Unit tests
-        run: bunx vitest run
+        shell: bash
+        run: |
+          set -o pipefail
+          bunx vitest run 2>&1 | tee unit-tests.log
+
+      - name: Preserve unit test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unit-test-diagnostics
+          path: unit-tests.log
+          if-no-files-found: error
 
       - name: Build
         run: bun run build
