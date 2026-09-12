@@ -11,7 +11,7 @@ import {
 } from "@/lib/decision-queue.functions";
 import type { DecisionQueueHistory } from "@/lib/application/decision-queue/view-model";
 
-type RefetchHistory = () => Promise<{ data?: DecisionQueueHistory }>;
+type RefetchHistory = () => Promise<{ data: DecisionQueueHistory | undefined }>;
 
 export function useDecisionQueueActions(runId: string, refetchHistory: RefetchHistory) {
   const navigate = useNavigate();
