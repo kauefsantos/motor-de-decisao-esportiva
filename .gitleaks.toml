@@ -9,3 +9,10 @@ regexTarget = "line"
 regexes = [
   '''sb_publishable_[A-Za-z0-9_-]+'''
 ]
+
+[[allowlists]]
+description = "Empty documented secret placeholders are not credentials"
+regexTarget = "line"
+regexes = [
+  '''^LOVABLE_CRON_SECRET(?:_PREVIOUS)?=""$'''
+]
