@@ -50,14 +50,14 @@ const OUTCOME_SIDES: Record<string, readonly string[]> = {
 
 export const EXPERIMENTAL_QUOTE_CANDIDATES_PER_COMPLETE_MATCH = 20;
 /**
- * Regra operacional de confiança: 70,0% ainda reprova; só >70% pode ser
- * considerado direção forte/recomendação. A avaliação de value continua
- * separada e exige odd real + EV alvo.
+ * Regra operacional de confiança: a partir de 70,0% o contrato pode seguir
+ * para cotação. Value continua separado e exige odd real >= 1,70, EV >= 8%
+ * e edge >= 5 p.p. no Motor 2.
  */
 export const MODEL_LEAN_THRESHOLD = 0.70;
 
 export function passesExperimentalModelGate(probability: number | null | undefined): boolean {
-  return probability !== null && probability !== undefined && Number.isFinite(probability) && probability > MODEL_LEAN_THRESHOLD && probability <= 1;
+  return probability !== null && probability !== undefined && Number.isFinite(probability) && probability >= MODEL_LEAN_THRESHOLD && probability <= 1;
 }
 
 export function isTotalsMarket(market: string): market is TotalsMarket {
