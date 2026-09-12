@@ -1,21 +1,22 @@
 name: Apply architecture type fixes
 
 on:
-  push:
-    branches: [audit/architecture-quality-20260912]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'ci: run temporary architecture type fixes'
+    if: github.head_ref == 'audit/architecture-quality-20260912'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Checkout
+      - name: Checkout PR head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Apply reviewed codemod
@@ -33,4 +34,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src
           git commit -m "fix: resolve strict typecheck findings"
-          git push origin HEAD:audit/architecture-quality-20260912
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
