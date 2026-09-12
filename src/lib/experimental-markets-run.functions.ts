@@ -43,6 +43,7 @@ import {
 } from "./engine/cards";
 import {
   EV_TARGET,
+  MAX_SELECTIONS,
   evaluateValue,
   type ValueResult,
 } from "./engine/value";
@@ -165,13 +166,6 @@ function finiteNumber(value: unknown): number | null {
 
 function leagueFromExternalMatchId(externalMatchId: string): string {
   return externalMatchId.split(":")[0] ?? "";
-}
-
-function selectionLimitForDate(isoDate: string | null): number {
-  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return 2;
-  const [year, month, day] = isoDate.split("-").map(Number);
-  const weekday = new Date(Date.UTC(year!, month! - 1, day!)).getUTCDay();
-  return weekday === 0 || weekday === 6 ? 3 : 2;
 }
 
 function mostFrequentLeague(
@@ -676,7 +670,7 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
     }
 
     const targetDate = run?.target_date ?? null;
-    const selectionLimit = selectionLimitForDate(targetDate);
+    const selectionLimit = MAX_SELECTIONS;
     const portfolio = selectExperimentalPortfolio(results, selectionLimit);
     const selected = portfolio.selected as EnrichedValueResult[];
 
