@@ -176,10 +176,12 @@ export function evaluateValue(input: ValueInput): ValueResult {
     const l = lEff(dist);
     const ev = asianEV(dist, input.odd);
     const fair = asianFairOdd(dist);
+    const asianTarget = asianMinOdd(dist, EV_TARGET);
+    if (asianTarget === null) return { ...base, rejectionReason: "INSUFFICIENT_DATA" };
     const implied = 1 / input.odd;
     const edge = w - implied;
     const rejectionReason = rejectionForValue(ev, edge);
-    const minOdd = Math.max(MIN_ENTRY_ODD, asianMinOdd(dist, EV_TARGET), edgeOddTarget(w));
+    const minOdd = Math.max(MIN_ENTRY_ODD, asianTarget, edgeOddTarget(w));
     const hasValue = rejectionReason === null;
     return {
       ...base,
