@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { adminDb } from "./admin-db";
+import { captureClosingClv } from "./application/bankroll/capture-clv.server";
 import { BackendError } from "./backend-contract";
 import {
   calculateExperimentalAnalytics,
@@ -11,20 +12,35 @@ import {
   type BetStatus,
 } from "./domain/analytics";
 import { loadAnalyticsConfig, loadTrackingHistory } from "./repositories/analytics.repository.server";
+import { callRuntimeRpc } from "./repositories/runtime-rpc.server";
+
+async function retryDueClv(db: Awaited<ReturnType<typeof adminDb>>, userId: string) {
+  const { data, error } = await callRuntimeRpc<Array<{ id: string }>>(db, "get_due_clv_tracking_ids", {
+    p_owner_id: userId,
+    p_limit: 2,
+  });
+  if (error) return;
+  for (const row of data ?? []) {
+    try {
+      await captureClosingClv(db, row.id);
+    } catch (captureError) {
+      console.warn("[CLV] retry indisponível", captureError);
+    }
+  }
+}
 
 export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handler(async ({ context }) => {
   const userId = context.userId;
   if (!userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
   const db = await adminDb();
 
-  const [{ data: config, error: configError }, { data: allRows, error: trackingError }] = await Promise.all([
-    loadAnalyticsConfig(db, userId),
-    loadTrackingHistory(db, userId),
-  ]);
-
+  const { data: config, error: configError } = await loadAnalyticsConfig(db, userId);
   if (configError || !config) {
     throw new BackendError("INTERNAL_ERROR", "Falha ao carregar configuração do acompanhamento.", 500);
   }
+
+  await retryDueClv(db, userId);
+  const { data: allRows, error: trackingError } = await loadTrackingHistory(db, userId);
   if (trackingError) {
     throw new BackendError("INTERNAL_ERROR", "Falha ao carregar histórico experimental.", 500);
   }
