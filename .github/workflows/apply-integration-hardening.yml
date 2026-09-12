@@ -1,0 +1,31 @@
+name: Apply integration hardening
+
+on:
+  push:
+    branches: [fix/close-integrations-automation]
+    paths:
+      - "scripts/apply-integrations-automation-hardening.py"
+      - ".github/workflows/apply-integration-hardening.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[hardening-applied]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/close-integrations-automation
+          fetch-depth: 0
+      - name: Apply targeted patches
+        run: python3 scripts/apply-integrations-automation-hardening.py
+      - name: Commit patched tree
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Complete integrations automation resilience [hardening-applied]"
+          git push origin HEAD:fix/close-integrations-automation
