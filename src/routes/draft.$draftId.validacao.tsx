@@ -53,6 +53,22 @@ function currentValue(game: DraftGame, field: EditableField) {
   return String(game[field] ?? "");
 }
 
+function dateLabel(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const [year, month, day] = iso.slice(0, 10).split("-");
+  return `${day}/${month}/${year}`;
+}
+
+function kickoffLabel(iso: string | null | undefined) {
+  if (!iso) return null;
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date(iso));
+}
+
 function finalizeKey(draftId: string) {
   const storageKey = `analysis-finalize-key:${draftId}`;
   try {
@@ -94,6 +110,7 @@ function DraftValidationScreen() {
 
   const games = useMemo(() => (query.data?.games ?? []) as DraftGame[], [query.data?.games]);
   const invalidGames = games.filter((game) => game.validation_status !== "VALID");
+  const validCount = games.length - invalidGames.length;
   const ready = games.length > 0 && invalidGames.length === 0 && query.data?.draft.status === "READY";
 
   useEffect(() => {
@@ -128,7 +145,7 @@ function DraftValidationScreen() {
       await correctDraft({ data: { draftId, corrections } });
       await validateDraft({ data: { draftId } });
       await query.refetch();
-      toast.success("Correções validadas novamente.");
+      toast.success("Correções conferidas. A lista foi atualizada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível validar as correções.");
     } finally {
@@ -158,17 +175,26 @@ function DraftValidationScreen() {
   return (
     <AppShell stage="upload">
       <div className="mx-auto max-w-4xl">
-        <p className="label-eyebrow">Etapa 1 · validação</p>
-        <h1 className="page-heading mt-2">Conferir partidas antes de processar</h1>
+        <p className="label-eyebrow">Etapa 1 de 4 · enviar e validar</p>
+        <h1 className="page-heading mt-2">Conferir as partidas</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          O servidor compara cada jogo com a fonte esportiva. Quando houver dúvida, somente os campos identificados como corrigíveis ficam editáveis.
+          Conferimos os times, a competição e o horário. Se houver dúvida, apenas o que precisa de correção ficará editável.
         </p>
+
+        {query.data && (
+          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 rounded-xl bg-secondary/25 px-4 py-3 text-xs text-muted-foreground ring-1 ring-border/45">
+            <span>Rodada <strong className="font-medium text-foreground">{dateLabel(query.data.draft.target_date)}</strong></span>
+            <span>{games.length} jogo(s)</span>
+            <span className="text-success">{validCount} validado(s)</span>
+            {invalidGames.length > 0 && <span className="text-warning">{invalidGames.length} precisa(m) de atenção</span>}
+          </div>
+        )}
 
         <PushNotificationControl />
 
         {query.isLoading && (
-          <div className="panel mt-5 flex items-center gap-3 p-5 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Validando partidas e horários…
+          <div className="panel mt-5 flex items-center gap-3 p-5 text-sm text-muted-foreground" role="status">
+            <Loader2 className="size-4 animate-spin" /> Conferindo partidas e horários…
           </div>
         )}
 
@@ -177,8 +203,8 @@ function DraftValidationScreen() {
             <div className="flex items-start gap-3">
               <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
               <div className="min-w-0 flex-1">
-                <p className="font-medium">Não foi possível concluir a validação</p>
-                <p className="mt-1 text-sm text-muted-foreground">Nenhuma análise foi criada em duplicidade. Você pode tentar carregar a validação novamente.</p>
+                <p className="font-medium">Não foi possível concluir a conferência</p>
+                <p className="mt-1 text-sm text-muted-foreground">Tentar novamente não cria outra análise nem duplica o processamento.</p>
                 <Button className="mt-4" variant="outline" onClick={() => void query.refetch()}>Tentar novamente</Button>
               </div>
             </div>
@@ -191,7 +217,7 @@ function DraftValidationScreen() {
               <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
               <div>
                 <p className="font-medium">Todas as partidas foram identificadas</p>
-                <p className="mt-1 text-sm text-muted-foreground">A análise só será criada quando você continuar. A finalização é idempotente e já coloca o processamento na fila do servidor.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Ao continuar, esta rodada entra na preparação uma única vez.</p>
               </div>
             </div>
           </div>
@@ -202,13 +228,16 @@ function DraftValidationScreen() {
             {games.map((game) => {
               const editable = game.editable_fields ?? [];
               const valid = game.validation_status === "VALID";
+              const resolvedTime = kickoffLabel(game.resolved_kickoff);
+              const sourceTime = game.horario?.trim().slice(0, 5) || null;
+              const timeDiffers = Boolean(valid && resolvedTime && sourceTime && resolvedTime !== sourceTime);
               return (
                 <article key={game.id} className={`panel p-4 sm:p-5 ${valid ? "border-success/20" : "border-warning/30"}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-xs text-muted-foreground">Jogo {game.ordinal + 1}</p>
                       <h2 className="mt-1 font-semibold">{game.partida}</h2>
-                      <p className="mt-1 text-xs text-muted-foreground">{game.campeonato} · {game.target_date?.slice(0, 10) ?? "—"} · {game.horario}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{game.campeonato} · {dateLabel(game.target_date)} · CSV {game.horario}</p>
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${valid ? "bg-success/10 text-success" : "bg-warning/12 text-warning"}`}>
                       {valid ? "Validado" : "Precisa conferir"}
@@ -216,9 +245,11 @@ function DraftValidationScreen() {
                   </div>
 
                   {valid ? (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      Correspondência: {game.resolved_home_team ?? "—"} x {game.resolved_away_team ?? "—"} · {game.resolved_competition ?? game.campeonato}
-                    </p>
+                    <div className="mt-3 border-t border-border/60 pt-3 text-xs leading-relaxed text-muted-foreground">
+                      <p><span className="font-medium text-foreground">Encontramos:</span> {game.resolved_home_team ?? "—"} x {game.resolved_away_team ?? "—"}</p>
+                      <p className="mt-1">{game.resolved_competition ?? game.campeonato}{resolvedTime ? ` · horário confirmado ${resolvedTime}` : ""}</p>
+                      {timeDiffers && <p className="mt-1 text-warning">O horário encontrado ({resolvedTime}) difere do CSV ({sourceTime}). Revise antes de continuar se isso não era esperado.</p>}
+                    </div>
                   ) : (
                     <>
                       <div className="mt-3 rounded-lg border border-warning/25 bg-warning/8 p-3">
@@ -279,7 +310,7 @@ function DraftValidationScreen() {
         {!query.isLoading && !query.isError && invalidGames.length > 0 && (
           <div className="mt-5 flex flex-col gap-2 sm:flex-row">
             <Button className="min-h-12" onClick={() => void applyCorrections()} disabled={saving}>
-              {saving ? "Validando novamente…" : "VALIDAR CORREÇÕES"}
+              {saving ? "Conferindo novamente…" : `VALIDAR ${invalidGames.length} CORREÇÃO${invalidGames.length === 1 ? "" : "ÕES"}`}
             </Button>
             <Button variant="outline" className="min-h-12" onClick={() => navigate({ to: "/" })}>Enviar outro CSV</Button>
           </div>
@@ -287,7 +318,7 @@ function DraftValidationScreen() {
 
         {!query.isLoading && !query.isError && ready && (
           <Button className="mt-5 min-h-12 w-full sm:w-auto" onClick={() => void startAnalysis()} disabled={finalizing}>
-            {finalizing ? "Criando análise…" : "CONTINUAR PARA O PROCESSAMENTO"}
+            {finalizing ? "Iniciando preparação…" : "CONTINUAR PARA PREPARAR"}
           </Button>
         )}
       </div>
