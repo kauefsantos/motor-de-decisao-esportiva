@@ -1,0 +1,7 @@
+# Single-maintainer ownership. Add additional accountable reviewers here when the team grows.
+* @kauefsantos
+/supabase/ @kauefsantos
+/src/lib/engine/ @kauefsantos
+/src/lib/adapters/ @kauefsantos
+/docs/ @kauefsantos
+/.github/ @kauefsantos
