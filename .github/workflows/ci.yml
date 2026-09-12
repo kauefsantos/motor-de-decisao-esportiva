@@ -28,6 +28,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Dependency remediation preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun audit fix
+          echo "Automatic security remediation diff:"
+          git diff -- package.json bun.lock
+
       - name: Dependency vulnerability gate
         run: bun audit --audit-level=high
 
