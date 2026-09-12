@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test-and-build:
@@ -35,6 +35,25 @@ jobs:
           bun audit fix
           echo "Automatic security remediation diff:"
           git diff -- package.json bun.lock
+
+      - name: Persist dependency remediation
+        if: github.event_name == 'pull_request' && github.head_ref == 'security-hardening-2026-09-11'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp bun.lock /tmp/bun.lock
+          git reset --hard
+          git checkout -B security-hardening-2026-09-11 origin/security-hardening-2026-09-11
+          cp /tmp/bun.lock bun.lock
+          if git diff --quiet -- bun.lock; then
+            echo "No lockfile remediation to persist."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add bun.lock
+            git commit -m "Update vulnerable transitive dependencies"
+            git push origin HEAD:security-hardening-2026-09-11
+          fi
 
       - name: Dependency vulnerability gate
         run: bun audit --audit-level=high
