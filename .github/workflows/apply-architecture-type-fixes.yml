@@ -1,0 +1,36 @@
+name: Apply architecture type fixes
+
+on:
+  push:
+    branches: [audit/architecture-quality-20260912]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'ci: run temporary architecture type fixes'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Apply reviewed codemod
+        run: python3 scripts/apply-architecture-type-fixes.py
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src
+          git commit -m "fix: resolve strict typecheck findings"
+          git push origin HEAD:audit/architecture-quality-20260912
