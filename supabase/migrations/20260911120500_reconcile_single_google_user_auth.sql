@@ -1,9 +1,7 @@
--- Reconcile the versioned migration chain with the canonical Lovable Cloud auth boundary.
+-- Reconcile the versioned migration chain with the canonical single-user Google auth boundary.
 --
--- The live database already enforces the single approved Google account directly
--- on auth.users, complementing the server-side allowlist. The original migration
--- remained only on an old closed development branch, so reproduce that live state
--- here without changing the rule or migration metadata.
+-- The approved identity is derived from the first Google account already present in
+-- auth.users. No e-mail address or other account identifier is embedded in source.
 
 CREATE SCHEMA IF NOT EXISTS private;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
@@ -15,10 +13,18 @@ SECURITY DEFINER
 SET search_path TO ''
 AS $function$
 DECLARE
-  v_email text := lower(trim(coalesce(NEW.email, '')));
   v_provider text := coalesce(NEW.raw_app_meta_data ->> 'provider', '');
+  v_approved_user_id uuid;
 BEGIN
-  IF v_email <> 'kauefsantos3@gmail.com' OR v_provider <> 'google' THEN
+  SELECT u.id
+  INTO v_approved_user_id
+  FROM auth.users u
+  WHERE coalesce(u.raw_app_meta_data ->> 'provider', '') = 'google'
+  ORDER BY u.created_at, u.id
+  LIMIT 1;
+
+  IF v_provider <> 'google'
+     OR (v_approved_user_id IS NOT NULL AND NEW.id IS DISTINCT FROM v_approved_user_id) THEN
     RAISE EXCEPTION USING
       ERRCODE = '42501',
       MESSAGE = 'Account not authorized for this application';
