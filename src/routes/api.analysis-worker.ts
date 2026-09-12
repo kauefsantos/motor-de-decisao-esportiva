@@ -1,6 +1,107 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_WORKER_BODY_BYTES = 1024;
+const WORKER_RATE_LIMIT = 60;
+const WORKER_RATE_WINDOW_MS = 60_000;
+const MAX_RATE_BUCKETS = 2048;
+
+type RateBucket = { count: number; resetAt: number };
+const workerRateBuckets = new Map<string, RateBucket>();
+
+function clientRateKey(request: Request) {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const candidate =
+    request.headers.get("cf-connecting-ip")?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    forwarded ||
+    "unknown";
+  return candidate.slice(0, 128);
+}
+
+function pruneRateBuckets(now: number) {
+  for (const [key, bucket] of workerRateBuckets) {
+    if (bucket.resetAt <= now) workerRateBuckets.delete(key);
+  }
+
+  while (workerRateBuckets.size >= MAX_RATE_BUCKETS) {
+    const oldest = workerRateBuckets.keys().next().value as string | undefined;
+    if (!oldest) break;
+    workerRateBuckets.delete(oldest);
+  }
+}
+
+function enforceWorkerRateLimit(request: Request): Response | null {
+  const now = Date.now();
+  const key = clientRateKey(request);
+  let bucket = workerRateBuckets.get(key);
+
+  if (!bucket || bucket.resetAt <= now) {
+    if (workerRateBuckets.size >= MAX_RATE_BUCKETS) pruneRateBuckets(now);
+    bucket = { count: 1, resetAt: now + WORKER_RATE_WINDOW_MS };
+    workerRateBuckets.set(key, bucket);
+    return null;
+  }
+
+  bucket.count += 1;
+  if (bucket.count <= WORKER_RATE_LIMIT) return null;
+
+  const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+  return Response.json(
+    { status: "RATE_LIMITED" },
+    {
+      status: 429,
+      headers: {
+        "Cache-Control": "no-store",
+        "Retry-After": String(retryAfterSeconds),
+      },
+    },
+  );
+}
+
+async function readBoundedWorkerPayload(
+  request: Request,
+): Promise<{ runId?: unknown; dispatchToken?: unknown } | null> {
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") return null;
+
+  const contentLength = request.headers.get("content-length");
+  if (contentLength) {
+    const declaredBytes = Number(contentLength);
+    if (Number.isFinite(declaredBytes) && declaredBytes > MAX_WORKER_BODY_BYTES) return null;
+  }
+
+  if (!request.body) return null;
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let raw = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_WORKER_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      raw += decoder.decode(value, { stream: true });
+    }
+    raw += decoder.decode();
+  } catch {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as { runId?: unknown; dispatchToken?: unknown };
+  } catch {
+    return null;
+  }
+}
 
 export const Route = createFileRoute("/api/analysis-worker")({
   server: {
@@ -8,21 +109,28 @@ export const Route = createFileRoute("/api/analysis-worker")({
       GET: async () =>
         Response.json(
           { error: "Method Not Allowed" },
-          { status: 405, headers: { Allow: "POST" } },
+          { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } },
         ),
 
       POST: async ({ request }) => {
-        let body: { runId?: unknown; dispatchToken?: unknown };
-        try {
-          body = (await request.json()) as { runId?: unknown; dispatchToken?: unknown };
-        } catch {
-          return Response.json({ status: "IGNORED" }, { status: 202 });
+        const rateLimited = enforceWorkerRateLimit(request);
+        if (rateLimited) return rateLimited;
+
+        const body = await readBoundedWorkerPayload(request);
+        if (!body) {
+          return Response.json(
+            { status: "IGNORED" },
+            { status: 202, headers: { "Cache-Control": "no-store" } },
+          );
         }
 
         const runId = typeof body.runId === "string" ? body.runId : "";
         const dispatchToken = typeof body.dispatchToken === "string" ? body.dispatchToken : "";
         if (!UUID_RE.test(runId) || !UUID_RE.test(dispatchToken)) {
-          return Response.json({ status: "IGNORED" }, { status: 202 });
+          return Response.json(
+            { status: "IGNORED" },
+            { status: 202, headers: { "Cache-Control": "no-store" } },
+          );
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
