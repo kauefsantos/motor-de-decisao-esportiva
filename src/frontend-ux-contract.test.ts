@@ -170,12 +170,17 @@ describe("frontend iPhone mobile-first contract", () => {
     expect(styles).toContain("width: 100%");
   });
 
-  it("keeps the mobile session for 30 days while preserving server auth", () => {
+  it("keeps the session for 30 days with the server as the authority", () => {
     const auth = source("./components/AuthGate.tsx");
-    expect(auth).toContain("MOBILE_AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000");
+    const sessionPolicy = source("./integrations/supabase/session-policy.ts");
+    const authMiddleware = source("./integrations/supabase/auth-middleware.ts");
+
+    expect(sessionPolicy).toContain("SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60");
+    expect(auth).toContain("isAuthenticationFresh(claims)");
     expect(auth).toContain("supabase.auth.signOut()");
-    expect(auth).toContain("Seu acesso mobile de 30 dias terminou");
-    expect(auth).toContain("A sessão continua sendo validada no servidor");
+    expect(auth).toContain("Sua sessão de 30 dias terminou");
+    expect(auth).not.toContain("bet-value-mobile-auth-at");
+    expect(authMiddleware).toContain("isAuthenticationFresh(claims)");
   });
 
   it("uses branded icons for the installed app and in-app identity", () => {
