@@ -86,7 +86,6 @@ jobs:
             privacy_docs="$(printf '%s\n' "$changed" | grep -E '^docs/(PRIVACY\.md|PRIVACY_DATA_REGISTER\.md)$' || true)"
             if [ -z "$privacy_docs" ]; then
               echo "Privacy-sensitive code changed without privacy documentation update."
-              echo "$privacy_sensitive"
               exit 1
             fi
           fi
@@ -128,6 +127,12 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Client bundle performance budget
+        run: bun scripts/check-performance-budget.mjs
+
+      - name: Concurrent HTTP load smoke
+        run: bun scripts/load-smoke.mjs
+
   browser-compatibility:
     name: Browser compatibility and accessibility
     needs: test-and-build
@@ -156,5 +161,5 @@ jobs:
       - name: Install browser engines
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Responsive and accessibility browser matrix
+      - name: Responsive, accessibility and performance browser matrix
         run: npx playwright test
