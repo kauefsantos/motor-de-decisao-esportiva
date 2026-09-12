@@ -8,7 +8,7 @@ function source(path: string) {
 describe("frontend P0/P1 UX contract", () => {
   it("uses a single server-backed odds and decision flow", () => {
     const route = source("./routes/run.$runId.oportunidades.tsx");
-    expect(route.match(/<DecisionQueueFlow/g)?.length).toBe(1);
+    expect(route.match(/<DecisionQueueGate/g)?.length).toBe(1);
     expect(route).not.toContain("ExperimentalMarketsPilot");
     expect(route).not.toContain("analyzeOdds");
     expect(route).not.toContain("COMPARAR ODDS");
@@ -23,6 +23,14 @@ describe("frontend P0/P1 UX contract", () => {
     expect(flow).toContain("dailySelectionLimit ?? 3");
     expect(flow).not.toContain("COMPARAR ODDS DESTE LOTE");
     expect(flow).not.toContain("localStorage");
+  });
+
+  it("resumes persisted decisions without repeating preparation or quotes", () => {
+    const gate = source("./components/DecisionQueueGate.tsx");
+    expect(gate).toContain("getDecisionQueueHistory");
+    expect(gate).toContain("hasPersistedDecisionState");
+    expect(gate).toContain("Modelos, integrações externas e cotações não foram executados novamente");
+    expect(gate).toContain("return <DecisionQueueFlow runId={runId} />");
   });
 
   it("never presents a query failure as an empty model result", () => {
