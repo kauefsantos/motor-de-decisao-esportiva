@@ -24,13 +24,6 @@ type TrackingRow = {
   accepted_at: string | null;
 };
 
-type Config = {
-  initial_bankroll: number | string;
-  max_stake_pct: number | string;
-  fractional_kelly: number | string;
-  min_stake_brl: number | string;
-};
-
 type Db = {
   from: (table: string) => any;
   rpc: (fn: string, args?: Record<string, unknown>) => PromiseLike<{ data: any; error: { message: string } | null }>;
@@ -56,50 +49,20 @@ function operationalMaxStake(bankroll: number, maxStakePct: number, minStakeBrl:
   return Math.min(bankroll, Math.max(minStakeBrl, proportional));
 }
 
-async function ownedIds(rawDb: Db, userId: string) {
-  const { ownedRunIds } = await import("./authorization.server");
-  return ownedRunIds(rawDb, userId);
-}
-
 async function bankrollSnapshot(rawDb: Db, userId: string) {
-  const runIds = await ownedIds(rawDb, userId);
-  const configQuery = rawDb
-    .from("experimental_bankroll_config")
-    .select("initial_bankroll,max_stake_pct,fractional_kelly,min_stake_brl")
-    .eq("id", "main")
-    .eq("owner_id", userId)
-    .single();
-  const rowsQuery = runIds.length
-    ? rawDb
-        .from("experimental_bet_tracking")
-        .select("bet_status,stake_brl,profit_brl,result")
-        .in("run_id", runIds)
-    : Promise.resolve({ data: [], error: null });
+  const { data, error } = await rawDb.rpc("get_owner_bankroll_metrics", { p_owner_id: userId });
+  if (error) throw new Error(`Não foi possível calcular a banca: ${error.message}`);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error("Não foi possível carregar a configuração da banca.");
 
-  const [{ data: config, error: configError }, { data: rows, error: rowsError }] = await Promise.all([
-    configQuery,
-    rowsQuery,
-  ]);
-  if (configError || !config) throw new Error(`Não foi possível carregar a banca: ${configError?.message ?? "configuração ausente"}`);
-  if (rowsError) throw new Error(`Não foi possível calcular o saldo: ${rowsError.message}`);
-
-  const cfg = config as Config;
-  const all = (rows ?? []) as Array<Pick<TrackingRow, "bet_status" | "stake_brl" | "profit_brl" | "result">>;
-  const settledProfit = all
-    .filter((row) => row.bet_status === "SETTLED" || row.result !== "PENDING")
-    .reduce((sum, row) => sum + num(row.profit_brl), 0);
-  const locked = all
-    .filter((row) => row.bet_status === "OPEN" && row.result === "PENDING")
-    .reduce((sum, row) => sum + num(row.stake_brl), 0);
-  const equity = num(cfg.initial_bankroll) + settledProfit;
-  const available = Math.max(0, equity - locked);
-  const maxStakePct = num(cfg.max_stake_pct, 0.05);
-  const fractionalKelly = num(cfg.fractional_kelly, 0.25);
-  const minStakeBrl = num(cfg.min_stake_brl, 0.5);
+  const available = Math.max(0, num(row.available_bankroll));
+  const maxStakePct = num(row.max_stake_pct, 0.05);
+  const fractionalKelly = num(row.fractional_kelly, 0.25);
+  const minStakeBrl = num(row.min_stake_brl, 0.5);
   return {
-    equity,
+    equity: num(row.current_equity),
     available,
-    locked,
+    locked: num(row.locked_stake),
     maxStakePct,
     fractionalKelly,
     minStakeBrl,
@@ -213,19 +176,12 @@ export const getOpenExperimentalBets = createServerFn({ method: "GET" }).handler
   const userId = context.userId;
   if (!userId) throw new Error("Usuário não autenticado.");
   const rawDb = await db();
-  const snapshot = await bankrollSnapshot(rawDb, userId);
-  const runIds = await ownedIds(rawDb, userId);
-  if (!runIds.length) return { rows: [] as TrackingRow[], bankroll: snapshot };
-  const { data: rows, error } = await rawDb
-    .from("experimental_bet_tracking")
-    .select("*")
-    .in("run_id", runIds)
-    .eq("bet_status", "OPEN")
-    .eq("result", "PENDING")
-    .order("target_date", { ascending: true })
-    .order("accepted_at", { ascending: true });
-  if (error) throw new Error(`Não foi possível carregar as apostas abertas: ${error.message}`);
-  return { rows: (rows ?? []) as TrackingRow[], bankroll: snapshot };
+  const [snapshot, openResult] = await Promise.all([
+    bankrollSnapshot(rawDb, userId),
+    rawDb.rpc("get_owner_open_bets", { p_owner_id: userId }),
+  ]);
+  if (openResult.error) throw new Error(`Não foi possível carregar as apostas abertas: ${openResult.error.message}`);
+  return { rows: (openResult.data ?? []) as TrackingRow[], bankroll: snapshot };
 });
 
 async function captureClosingClv(rawDb: Db, trackingId: string) {
@@ -363,9 +319,6 @@ export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
     const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
     if (!row) throw new Error("O fechamento da aposta não retornou resultado.");
 
-    // Settlement is authoritative even if the external opening/closing benchmark
-    // is unavailable. Benchmark collection is best-effort and can never roll
-    // back or block the already-settled bet.
     let clv = null;
     try {
       clv = await captureClosingClv(rawDb, data.id);
