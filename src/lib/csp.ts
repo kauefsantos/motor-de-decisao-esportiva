@@ -20,9 +20,9 @@ export function buildContentSecurityPolicy(nonce: string): string {
     "font-src 'self' data:",
     "worker-src 'self'",
     "manifest-src 'self'",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.lovable.dev https://*.gptengineer.app",
     "form-action 'self' https://accounts.google.com",
-    "frame-src 'self' https://accounts.google.com https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",
+    "frame-src 'self' https://accounts.google.com https://*.lovable.dev https://*.gptengineer.app",
   ].join("; ");
 }
 
