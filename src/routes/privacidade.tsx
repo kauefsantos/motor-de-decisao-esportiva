@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 export const Route = createFileRoute("/privacidade")({
   head: () => ({
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/privacidade")({
   component: PrivacyNotice,
 });
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-t border-border pt-6">
       <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
