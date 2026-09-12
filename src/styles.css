@@ -45,34 +45,66 @@
   --color-grid: var(--grid);
 }
 
+/* Browser-safe fallbacks. Modern browsers override these inside @supports. */
 :root {
   --radius: 0.75rem;
-  --background: oklch(0.165 0.022 272);
-  --foreground: oklch(0.955 0.008 265);
-  --surface: oklch(0.215 0.026 271);
-  --surface-foreground: oklch(0.955 0.008 265);
-  --card: oklch(0.215 0.026 271);
-  --card-foreground: oklch(0.955 0.008 265);
-  --popover: oklch(0.225 0.028 271);
-  --popover-foreground: oklch(0.955 0.008 265);
-  --primary: oklch(0.69 0.19 282);
-  --primary-foreground: oklch(0.98 0.006 265);
-  --secondary: oklch(0.27 0.032 273);
-  --secondary-foreground: oklch(0.94 0.009 265);
-  --muted: oklch(0.25 0.026 272);
-  --muted-foreground: oklch(0.72 0.025 268);
-  --accent: oklch(0.77 0.125 205);
-  --accent-foreground: oklch(0.17 0.022 272);
-  --destructive: oklch(0.66 0.18 27);
-  --destructive-foreground: oklch(0.98 0.006 265);
-  --success: oklch(0.76 0.13 166);
-  --success-foreground: oklch(0.17 0.022 272);
-  --warning: oklch(0.8 0.12 82);
-  --warning-foreground: oklch(0.18 0.02 272);
-  --border: oklch(0.31 0.035 273);
-  --input: oklch(0.275 0.034 273);
-  --ring: oklch(0.73 0.17 282);
-  --grid: oklch(0.225 0.023 272);
+  --background: #171823;
+  --foreground: #f2f3f7;
+  --surface: #202230;
+  --surface-foreground: #f2f3f7;
+  --card: #202230;
+  --card-foreground: #f2f3f7;
+  --popover: #222433;
+  --popover-foreground: #f2f3f7;
+  --primary: #8a6ef2;
+  --primary-foreground: #fbfbfd;
+  --secondary: #2a2d3d;
+  --secondary-foreground: #eef0f4;
+  --muted: #272a38;
+  --muted-foreground: #a7aabd;
+  --accent: #55cbe5;
+  --accent-foreground: #171923;
+  --destructive: #e1645a;
+  --destructive-foreground: #fbfbfd;
+  --success: #55d8a5;
+  --success-foreground: #171923;
+  --warning: #e5c56a;
+  --warning-foreground: #1a1b24;
+  --border: #383c50;
+  --input: #303448;
+  --ring: #9a80f7;
+  --grid: #232634;
+}
+
+@supports (color: oklch(0.5 0.1 250)) {
+  :root {
+    --background: oklch(0.165 0.022 272);
+    --foreground: oklch(0.955 0.008 265);
+    --surface: oklch(0.215 0.026 271);
+    --surface-foreground: oklch(0.955 0.008 265);
+    --card: oklch(0.215 0.026 271);
+    --card-foreground: oklch(0.955 0.008 265);
+    --popover: oklch(0.225 0.028 271);
+    --popover-foreground: oklch(0.955 0.008 265);
+    --primary: oklch(0.69 0.19 282);
+    --primary-foreground: oklch(0.98 0.006 265);
+    --secondary: oklch(0.27 0.032 273);
+    --secondary-foreground: oklch(0.94 0.009 265);
+    --muted: oklch(0.25 0.026 272);
+    --muted-foreground: oklch(0.72 0.025 268);
+    --accent: oklch(0.77 0.125 205);
+    --accent-foreground: oklch(0.17 0.022 272);
+    --destructive: oklch(0.66 0.18 27);
+    --destructive-foreground: oklch(0.98 0.006 265);
+    --success: oklch(0.76 0.13 166);
+    --success-foreground: oklch(0.17 0.022 272);
+    --warning: oklch(0.8 0.12 82);
+    --warning-foreground: oklch(0.18 0.02 272);
+    --border: oklch(0.31 0.035 273);
+    --input: oklch(0.275 0.034 273);
+    --ring: oklch(0.73 0.17 282);
+    --grid: oklch(0.225 0.023 272);
+  }
 }
 
 .dark {
@@ -91,13 +123,13 @@
     background-color: var(--color-background);
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
   body {
     min-width: 320px;
     min-height: 100dvh;
     margin: 0;
-    overflow-x: hidden;
     overscroll-behavior-y: none;
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -107,6 +139,13 @@
       linear-gradient(90deg, color-mix(in oklab, var(--color-grid) 60%, transparent) 1px, transparent 1px);
     background-size: 64px 64px;
     background-position: -1px -1px;
+  }
+
+  img,
+  svg,
+  video,
+  canvas {
+    max-width: 100%;
   }
 
   button,
@@ -144,6 +183,7 @@
   h3 {
     letter-spacing: -0.025em;
     text-wrap: balance;
+    overflow-wrap: anywhere;
   }
 
   p {
@@ -163,10 +203,14 @@
 }
 
 @utility panel {
+  background-color: var(--color-surface);
   background-color: color-mix(in oklab, var(--color-surface) 94%, transparent);
+  border: 1px solid var(--color-border);
   border: 1px solid color-mix(in oklab, var(--color-border) 86%, transparent);
   border-radius: var(--radius-lg);
+  box-shadow: 0 12px 34px rgb(0 0 0 / 0.22);
   box-shadow: 0 12px 34px color-mix(in oklab, black 22%, transparent);
+  min-width: 0;
 }
 
 @utility num {
@@ -189,12 +233,14 @@
 }
 
 @utility metric-tile {
+  background-color: var(--color-secondary);
   background-color: color-mix(in oklab, var(--color-secondary) 52%, transparent);
+  border: 1px solid var(--color-border);
   border: 1px solid color-mix(in oklab, var(--color-border) 74%, transparent);
   border-radius: var(--radius-md);
 }
 
-/* Mobile-first rules for iPhone and other touch devices. */
+/* Mobile-first rules for narrow phones. */
 @media (max-width: 639px) {
   body {
     background-size: 48px 48px;
@@ -246,6 +292,31 @@
   [role="button"],
   summary {
     min-height: 44px;
+  }
+}
+
+/* Width alone does not tell us whether the user is using touch. Keep tablet
+ * controls finger-sized even after Tailwind switches to sm/md layouts. */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: 44px !important;
+    min-width: 44px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+
+  .metric-help-popover {
+    position: fixed;
+    left: 1rem;
+    right: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    margin-top: 0;
   }
 }
 
