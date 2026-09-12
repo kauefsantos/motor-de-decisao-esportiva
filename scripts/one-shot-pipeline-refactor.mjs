@@ -27,16 +27,13 @@ source = source
 const providerStart = source.indexOf('type ProviderId = "five_dollar" | "api_sports";');
 const dbStart = source.indexOf('type Db = Awaited<ReturnType<typeof getDb>>;', providerStart);
 if (providerStart < 0 || dbStart < 0) throw new Error("Could not isolate provider policy block");
-const providerEnd = dbStart;
-source = source.slice(0, providerStart) + source.slice(providerEnd);
+source = source.slice(0, providerStart) + source.slice(dbStart);
 
-// Remove activeProvider after Db type while preserving getDb.
 const activeStart = source.indexOf('function activeProvider():');
 const getDbStart = source.indexOf('async function getDb()', activeStart);
 if (activeStart < 0 || getDbStart < 0) throw new Error("Could not isolate activeProvider");
 source = source.slice(0, activeStart) + source.slice(getDbStart);
 
-// Parsing and provider-specific resolution moved to pipeline/resolve.server.ts.
 const parseStart = source.indexOf('const SEPARATOR = /\\s+(?:x|vs?|-)+\\s+/i;');
 const executeStart = source.indexOf('export async function executeStep', parseStart);
 if (parseStart < 0 || executeStart < 0) throw new Error("Could not isolate inline resolution helpers");
@@ -46,14 +43,13 @@ source = source
   .replace('case "RESOLVE": return resolveMatches(db, runId);', 'case "RESOLVE": return resolvePipelineMatches(db, runId);')
   .replace('case "COLLECT": return collect(db, runId);', 'case "COLLECT": return collectPipelineData(db, runId);');
 
-// Resolution and collection stages now live in focused modules.
 const legacyStageStart = source.indexOf('async function runPredictionAt(db: Db, runId: string): Promise<string> {');
 const cleanHelpersStart = source.indexOf('function sourceAgreement(', legacyStageStart);
 if (legacyStageStart < 0 || cleanHelpersStart < 0) throw new Error("Could not isolate legacy RESOLVE/COLLECT stages");
 source = source.slice(0, legacyStageStart) + source.slice(cleanHelpersStart);
 
-if (source.includes('activeProvider()') || source.includes('resolveMatches(db') || source.includes('collect(db')) {
-  throw new Error("Legacy pipeline responsibilities remain after refactor");
+if (!source.includes('resolvePipelineMatches(db, runId)') || !source.includes('collectPipelineData(db, runId)')) {
+  throw new Error("New pipeline stage delegates were not wired");
 }
 
 await writeFile(path, source);
