@@ -46,15 +46,18 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
   const trackingResult = runIds.length
     ? await db
         .from("experimental_bet_tracking")
-        .select("run_id,bet_status,stake_brl,profit_brl,result")
+        .select("run_id,bet_status,stake_brl,profit_brl,result,updated_at")
         .in("run_id", runIds)
+        .order("updated_at", { ascending: false })
     : { data: [], error: null };
 
   if (trackingResult.error) throw new Error("Não foi possível carregar suas pendências.");
 
   const tracking = (trackingResult.data ?? []) as DbRow[];
   const openCount = tracking.filter((row) => row.bet_status === "OPEN" && row.result === "PENDING").length;
-  const proposedCount = tracking.filter((row) => row.bet_status === "PROPOSED").length;
+  const proposed = tracking.filter((row) => row.bet_status === "PROPOSED");
+  const proposedCount = proposed.length;
+  const proposedRunId = proposed[0]?.run_id ? String(proposed[0].run_id) : null;
 
   let availableBankroll: number | null = null;
   if (!configResult.error && configResult.data) {
@@ -80,6 +83,7 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
     recentRuns,
     openBetsCount: openCount,
     proposedCount,
+    proposedRunId,
     availableBankroll,
   };
 });
