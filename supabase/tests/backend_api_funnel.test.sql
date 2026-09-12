@@ -106,19 +106,26 @@ begin
   select id into v_m3 from public.matches where run_id=v_run and raw_partida='E x F';
   select id into v_m4 from public.matches where run_id=v_run and raw_partida='G x H';
 
-  insert into public.model_predictions(run_id,match_id,prediction_id,market,side,model_probability,model_version,model_status,data_status)
+  insert into public.model_versions(market_family,model_version,calibration_version,validation_status,out_of_sample_metrics)
   values
-    (v_run,v_m1,'Q1','goals_match_total','OVER',0.76,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK'),
-    (v_run,v_m2,'Q2','corners_match_total','OVER',0.77,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK'),
-    (v_run,v_m3,'Q3','cards_match_total','OVER',0.78,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK'),
-    (v_run,v_m4,'Q4','1x2','HOME',0.79,'test-v1','EXPERIMENTAL_CURRENT_SEASON','OK');
+    ('GOALS','test-v1','cal-test-v1','PRODUCTION_VALIDATED','{"test":true}'::jsonb),
+    ('CORNERS','test-v1','cal-test-v1','PRODUCTION_VALIDATED','{"test":true}'::jsonb),
+    ('CARDS','test-v1','cal-test-v1','PRODUCTION_VALIDATED','{"test":true}'::jsonb),
+    ('1X2','test-v1','cal-test-v1','PRODUCTION_VALIDATED','{"test":true}'::jsonb);
+
+  insert into public.model_predictions(run_id,match_id,prediction_id,market,side,model_probability,p_cal,conservative_probability,model_version,calibration_version,model_status,data_status)
+  values
+    (v_run,v_m1,'Q1','goals_match_total','OVER',0.78,0.77,0.76,'test-v1','cal-test-v1','PRODUCTION_VALIDATED','OK'),
+    (v_run,v_m2,'Q2','corners_match_total','OVER',0.79,0.78,0.77,'test-v1','cal-test-v1','PRODUCTION_VALIDATED','OK'),
+    (v_run,v_m3,'Q3','cards_match_total','OVER',0.80,0.79,0.78,'test-v1','cal-test-v1','PRODUCTION_VALIDATED','OK'),
+    (v_run,v_m4,'Q4','1x2','HOME',0.81,0.80,0.79,'test-v1','cal-test-v1','PRODUCTION_VALIDATED','OK');
 
   begin
     perform public.replace_decision_queue_atomic(v_run,v_user,jsonb_build_array(
-      jsonb_build_object('match_id',v_m1,'prediction_id','Q1','rank_global',1,'match_label','A x B','competition','Liga','market_family','GOALS','market','goals_match_total','market_label','Mais de 2.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.76,'fair_odd',1.31,'entry_odd',2.10,'min_odd_target',1.70,'edge',0.20,'expected_value',0.25),
-      jsonb_build_object('match_id',v_m2,'prediction_id','Q2','rank_global',2,'match_label','C x D','competition','Liga','market_family','CORNERS','market','corners_match_total','market_label','Mais de 9.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.77,'fair_odd',1.30,'entry_odd',2.00,'min_odd_target',1.70,'edge',0.18,'expected_value',0.20),
-      jsonb_build_object('match_id',v_m3,'prediction_id','Q3','rank_global',3,'match_label','E x F','competition','Liga','market_family','CARDS','market','cards_match_total','market_label','Mais de 4.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.78,'fair_odd',1.28,'entry_odd',1.95,'min_odd_target',1.70,'edge',0.16,'expected_value',0.18),
-      jsonb_build_object('match_id',v_m4,'prediction_id','Q4','rank_global',4,'match_label','G x H','competition','Liga','market_family','1X2','market','1x2','market_label','G vence','side','HOME','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.79,'fair_odd',1.27,'entry_odd',1.90,'min_odd_target',1.70,'edge',0.14,'expected_value',0.15)
+      jsonb_build_object('match_id',v_m1,'prediction_id','Q1','rank_global',1,'match_label','A x B','competition','Liga','market_family','GOALS','market','goals_match_total','market_label','Mais de 2.5','side','OVER','model_version','test-v1','model_status','PRODUCTION_VALIDATED','model_probability',0.76,'fair_odd',1.31,'entry_odd',2.10,'min_odd_target',1.70,'edge',0.20,'expected_value',0.25),
+      jsonb_build_object('match_id',v_m2,'prediction_id','Q2','rank_global',2,'match_label','C x D','competition','Liga','market_family','CORNERS','market','corners_match_total','market_label','Mais de 9.5','side','OVER','model_version','test-v1','model_status','PRODUCTION_VALIDATED','model_probability',0.77,'fair_odd',1.30,'entry_odd',2.00,'min_odd_target',1.70,'edge',0.18,'expected_value',0.20),
+      jsonb_build_object('match_id',v_m3,'prediction_id','Q3','rank_global',3,'match_label','E x F','competition','Liga','market_family','CARDS','market','cards_match_total','market_label','Mais de 4.5','side','OVER','model_version','test-v1','model_status','PRODUCTION_VALIDATED','model_probability',0.78,'fair_odd',1.28,'entry_odd',1.95,'min_odd_target',1.70,'edge',0.16,'expected_value',0.18),
+      jsonb_build_object('match_id',v_m4,'prediction_id','Q4','rank_global',4,'match_label','G x H','competition','Liga','market_family','1X2','market','1x2','market_label','G vence','side','HOME','model_version','test-v1','model_status','PRODUCTION_VALIDATED','model_probability',0.79,'fair_odd',1.27,'entry_odd',1.90,'min_odd_target',1.70,'edge',0.14,'expected_value',0.15)
     ));
   exception when others then
     v_failed := true;
@@ -126,9 +133,9 @@ begin
   if not v_failed then raise exception 'queue incorrectly accepted more than three final opportunities'; end if;
 
   perform public.replace_decision_queue_atomic(v_run,v_user,jsonb_build_array(
-    jsonb_build_object('match_id',v_m1,'prediction_id','Q1','rank_global',1,'match_label','A x B','competition','Liga','market_family','GOALS','market','goals_match_total','market_label','Mais de 2.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.76,'fair_odd',1.31,'entry_odd',2.10,'min_odd_target',1.70,'edge',0.20,'expected_value',0.25),
-    jsonb_build_object('match_id',v_m2,'prediction_id','Q2','rank_global',2,'match_label','C x D','competition','Liga','market_family','CORNERS','market','corners_match_total','market_label','Mais de 9.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.77,'fair_odd',1.30,'entry_odd',2.00,'min_odd_target',1.70,'edge',0.18,'expected_value',0.20),
-    jsonb_build_object('match_id',v_m3,'prediction_id','Q3','rank_global',3,'match_label','E x F','competition','Liga','market_family','CARDS','market','cards_match_total','market_label','Mais de 4.5','side','OVER','model_version','test-v1','model_status','EXPERIMENTAL_CURRENT_SEASON','model_probability',0.78,'fair_odd',1.28,'entry_odd',1.95,'min_odd_target',1.70,'edge',0.16,'expected_value',0.18)
+    jsonb_build_object('match_id',v_m1,'prediction_id','Q1','rank_global',1,'match_label','A x B','competition','Liga','market_family','GOALS','market','goals_match_total','market_label','Mais de 2.5','side','OVER','model_version','test-v1','model_status','PRODUCTION_VALIDATED','model_probability',0.76,'fair_odd',1.31,'entry_odd',2.10,'min_odd_target',1.70,'edge',0.20,'expected_value',0.25),
+    jsonb_build_object('match_id',v_m2,'prediction_id','Q2','rank_global',2,'match_label','C x D','competition','Liga','market_family','CORNERS','market','corners_match_total','market_label','Mais de 9.5','side','OVER','model_version','test-v1','model_status','PRODUCTION_VALIDATED','model_probability',0.77,'fair_odd',1.30,'entry_odd',2.00,'min_odd_target',1.70,'edge',0.18,'expected_value',0.20),
+    jsonb_build_object('match_id',v_m3,'prediction_id','Q3','rank_global',3,'match_label','E x F','competition','Liga','market_family','CARDS','market','cards_match_total','market_label','Mais de 4.5','side','OVER','model_version','test-v1','model_status','PRODUCTION_VALIDATED','model_probability',0.78,'fair_odd',1.28,'entry_odd',1.95,'min_odd_target',1.70,'edge',0.16,'expected_value',0.18)
   ));
   select count(*) into v_n from public.next_decision_batch_atomic(v_run,v_user,10);
   if v_n<>3 then raise exception 'expected three final opportunities, got %',v_n; end if;
