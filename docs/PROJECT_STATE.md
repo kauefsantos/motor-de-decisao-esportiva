@@ -29,12 +29,16 @@ Este arquivo registra decisões vigentes. Auditorias datadas preservam a trilha 
 
 - autenticação global das server functions;
 - Google login com allowlist validada no servidor;
+- prazo absoluto de sessão de 30 dias validado no servidor pelo timestamp OAuth assinado no `amr` do JWT; `token_refresh` não reinicia o prazo;
+- `session_id` assinado é obrigatório nas operações autenticadas;
 - service role confinada a módulos server-side;
-- CSRF e headers/CSP endurecidos;
+- CSRF e headers/CSP endurecidos, incluindo `base-uri 'none'`, `script-src-attr 'none'`, bloqueio de objetos e ausência de `unsafe-eval`;
+- Web Push aceita somente endpoints HTTPS de provedores conhecidos e repete a validação imediatamente antes do `fetch`, com redirects bloqueados contra SSRF;
+- CI executa auditoria de dependências de alta severidade e Gitleaks sobre o histórico completo;
 - operações críticas de banca protegidas contra concorrência/duplicidade;
 - `/api/elo-sync` existe somente como fallback `POST` protegido; a rotina diária Elo roda por `pg_cron` no banco.
 
-Riscos residuais documentados são itens de manutenção, não blockers estruturais conhecidos.
+Riscos residuais documentados são itens de manutenção, não blockers estruturais conhecidos. `unsafe-inline` permanece temporariamente na CSP por compatibilidade do runtime TanStack/Lovable e o broker OAuth Lovable legado deve ser migrado separadamente, com validação de login em preview e produção. Referência: [SECURITY_HARDENING_2026-09-11.md](SECURITY_HARDENING_2026-09-11.md).
 
 ### Backend — fechado como eixo de implementação
 
@@ -54,7 +58,7 @@ Após a integração do Elo hierárquico, uma rodada adicional corrigiu a semân
 - telas de acompanhamento e analytics com papéis separados;
 - continuidade de rota após login;
 - interface mobile-first para iPhone com navegação inferior, safe areas do notch/Home Indicator e alvos de toque de 44–48 px;
-- autenticação mobile/standalone persiste a sessão e exige nova autenticação após 30 dias; esse temporizador é apenas UX e não substitui a validação Google/allowlist e das server functions;
+- autenticação mobile/standalone persiste a sessão, mas o prazo máximo de 30 dias não depende mais de `localStorage`: o browser apenas espelha a política e o servidor rejeita sessões que ultrapassam o timestamp OAuth assinado;
 - identidade visual instalada com ícones próprios do Bet Value em 32, 180, 192 e 512 px, incluindo `apple-touch-icon` e manifest;
 - metadados de instalação e `site.webmanifest` para uso em modo standalone ao adicionar a aplicação à Tela de Início do iOS;
 - a etapa de preparação não depende mais da aba permanecer aberta: o telefone enfileira o job e a tela apenas acompanha o estado persistido no servidor;
@@ -197,6 +201,7 @@ A preparação `RESOLVE → COLLECT → CLEAN → FEATURES → PROBABILITY → G
 - jobs `RUNNING` sem heartbeat por 20 minutos podem ser retomados; etapas já registradas em `completed_steps` não são repetidas;
 - a tela de processamento consulta `analysis_runs`, `analysis_jobs` e `pipeline_logs`; ao reabrir o app, reconstrói o progresso real e segue para odds quando o run chega a `READY_FOR_ODDS`;
 - subscriptions Web Push ficam em `push_subscriptions`, com RLS por `auth.uid()`; entrega é feita somente no servidor;
+- endpoint de subscription é validado por allowlist HTTPS de provedores Web Push no cadastro e novamente no envio; destinos legados não confiáveis são removidos e redirects HTTP são recusados para impedir SSRF;
 - o service worker `public/sw.js` recebe o evento `push`, exibe uma notificação visível e abre a análise ao toque;
 - a chave VAPID privada é derivada apenas no servidor a partir de segredo já existente, com separação de domínio; somente a chave pública é enviada ao browser;
 - Web Push é um complemento: falha, bloqueio ou recusa de notificação não altera o resultado da análise.
@@ -245,7 +250,10 @@ CI executa:
 
 ```text
 bun install --frozen-lockfile
+→ bun audit --audit-level=high
+→ Gitleaks no histórico completo
 → server secret boundary
+→ functional decision-flow E2E
 → experimental engine E2E
 → Vitest completo
 → production build

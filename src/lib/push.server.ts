@@ -5,6 +5,8 @@ import {
   sign as cryptoSign,
 } from "node:crypto";
 
+import { isTrustedPushEndpoint } from "./push-endpoint";
+
 const P256_ORDER = BigInt(
   "0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
 );
@@ -100,10 +102,20 @@ export async function sendAnalysisReadyPush(userId: string) {
   let failed = 0;
 
   for (const subscription of subscriptions) {
+    if (!isTrustedPushEndpoint(subscription.endpoint)) {
+      await db.from("push_subscriptions").delete().eq("id", subscription.id);
+      removed += 1;
+      console.warn("[Web Push] removed untrusted subscription endpoint", {
+        subscriptionId: subscription.id,
+      });
+      continue;
+    }
+
     try {
       const { authorization } = makeVapidAuthorization(subscription.endpoint);
       const response = await fetch(subscription.endpoint, {
         method: "POST",
+        redirect: "error",
         headers: {
           Authorization: authorization,
           TTL: "900",

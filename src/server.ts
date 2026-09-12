@@ -20,13 +20,19 @@ async function getServerEntry(): Promise<ServerEntry> {
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "base-uri 'self'",
+  "base-uri 'none'",
   "object-src 'none'",
   "frame-ancestors 'self' https://*.lovable.dev https://*.gptengineer.app",
+  // TanStack/Lovable hydration still emits framework-managed inline script/style
+  // blocks. Keep that compatibility for now, while forbidding inline event
+  // handlers explicitly; nonce/hash migration requires coordinated runtime tests.
   "script-src 'self' 'unsafe-inline'",
+  "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
+  "worker-src 'self'",
+  "manifest-src 'self'",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",
   "form-action 'self' https://accounts.google.com",
   "frame-src 'self' https://accounts.google.com https://oauth.lovable.app https://*.lovable.dev https://*.gptengineer.app",

@@ -83,7 +83,9 @@ jobs:
               && grep -qi '^permissions-policy: .*camera=()' <<<"$HEADERS" \
               && grep -qi '^content-security-policy:' <<<"$HEADERS" \
               && grep -qi "default-src 'self'" <<<"$HEADERS" \
+              && grep -qi "base-uri 'none'" <<<"$HEADERS" \
               && grep -qi "object-src 'none'" <<<"$HEADERS" \
+              && grep -qi "script-src-attr 'none'" <<<"$HEADERS" \
               && ! grep -qi "'unsafe-eval'" <<<"$HEADERS" \
               && [ "$cache_ok" = true ] \
               && [ "$referrer_ok" = true ]; then
