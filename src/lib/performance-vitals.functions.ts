@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 const vitalSchema = z.object({
-  metric: z.enum(["LCP", "CLS", "INP"]),
+  metric: z.enum(["LCP", "CLS", "INP", "TTFB"]),
   value: z.number().finite().min(0).max(1_000_000),
   rating: z.enum(["good", "needs-improvement", "poor"]),
   route: z.string().trim().min(1).max(160),
