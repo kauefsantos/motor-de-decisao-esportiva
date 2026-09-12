@@ -42,7 +42,8 @@ describe("background analysis contract", () => {
     expect(worker).toContain("fail_analysis_job_atomic");
     expect(worker).toContain("PIPELINE_STEPS.find");
     expect(worker).toContain("await executeStep(runId, nextStep.key)");
-    expect(worker).toContain('db.rpc("kick_analysis_worker")');
+    expect(worker).toContain('callAdminRuntimeRpc("kick_analysis_worker")');
+    expect(worker).not.toContain('db.rpc("kick_analysis_worker")');
     expect(worker).toContain("enqueue_push_delivery_event");
     expect(worker).toContain("kick_push_delivery_dispatcher");
     expect(worker).not.toContain("sendAnalysisReadyPush");
