@@ -27,8 +27,8 @@ describe("privacy telemetry redaction", () => {
       nested: { email: "user@example.com", safe: "ok" },
     }) as Record<string, unknown>;
 
-    expect(result.authorization).toBe("[redacted]");
-    expect(result.route).toBe("/run/[uuid]/resultado");
-    expect(result.nested).toEqual({ email: "[redacted]", safe: "ok" });
+    expect(result["authorization"]).toBe("[redacted]");
+    expect(result["route"]).toBe("/run/[uuid]/resultado");
+    expect(result["nested"]).toEqual({ email: "[redacted]", safe: "ok" });
   });
 });
