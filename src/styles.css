@@ -237,6 +237,59 @@
   font-weight: 700;
 }
 
+/* Semantic product typography. Prefer these to literal 10/11px utilities in new UI. */
+@utility type-page-title {
+  font-size: clamp(1.75rem, 7vw, 2.5rem);
+  line-height: 1.08;
+  font-weight: 700;
+}
+
+@utility type-section-title {
+  font-size: 1.125rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+@utility type-body {
+  font-size: 1rem;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+@utility type-label {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+@utility type-meta {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+  font-weight: 400;
+}
+
+@utility type-caption {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+}
+
+@utility type-metric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+@utility type-odds {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
 @utility metric-tile {
   background-color: var(--color-secondary);
   background-color: color-mix(in oklab, var(--color-secondary) 52%, transparent);
@@ -298,7 +351,8 @@
     border-radius: 0.875rem;
   }
 
-  .page-heading {
+  .page-heading,
+  .type-page-title {
     font-size: clamp(1.75rem, 8vw, 2.05rem);
     line-height: 1.08;
   }
