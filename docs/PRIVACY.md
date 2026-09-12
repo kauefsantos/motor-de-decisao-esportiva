@@ -46,6 +46,8 @@ A exclusão chama primeiro `erase_user_application_data(user_id)` e em seguida r
 
 Antes de qualquer envio aos hooks de runtime, `lovable-error-reporting.ts` remove email, tokens Bearer/JWT, endpoints Web Push, UUIDs e campos cujo nome indica segredo, autenticação ou identificador sensível. O banco da aplicação não mantém uma cópia própria dessa telemetria.
 
+Na revisão de Arquitetura e Qualidade do Código de 12/09/2026, a suíte `lovable-error-reporting.test.ts` foi ajustada apenas para acesso indexado às propriedades do objeto sanitizado, preservando integralmente os mesmos casos de teste e as mesmas expectativas de redação (`authorization`, `route` e `nested`). Não houve mudança na política, no conjunto de dados redigidos nem no comportamento de telemetria; o registro desta alteração existe para manter a documentação canônica sincronizada com o gate de privacidade do CI.
+
 ## Pontos externos que continuam sujeitos a evidência do fornecedor
 
 - localização física/região final de processamento do Lovable/Supabase;
