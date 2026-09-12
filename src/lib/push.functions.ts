@@ -1,8 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import { isTrustedPushEndpoint } from "./push-endpoint";
+
+const trustedPushEndpointSchema = z
+  .string()
+  .url()
+  .max(4096)
+  .refine(isTrustedPushEndpoint, "Endpoint Web Push não autorizado.");
+
 const subscriptionSchema = z.object({
-  endpoint: z.string().url().max(4096),
+  endpoint: trustedPushEndpointSchema,
   p256dh: z.string().min(1).max(512),
   auth: z.string().min(1).max(512),
   userAgent: z.string().max(1024).optional(),
