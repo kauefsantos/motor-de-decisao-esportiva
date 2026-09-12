@@ -120,7 +120,7 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
         sourceUnavailable: 0, fixturesRequested: 0, dayPagesRequested: 0,
         manualBatches: [] as string[][], manualFieldCount: 0,
         automaticallyPricedPredictionIds: [] as string[], priorCapture: null,
-        message: "Nenhuma opção passou pela regra de confiança >70% para buscar preço.",
+        message: "Nenhuma opção passou pela regra de confiança >=70% para buscar preço.",
       };
     }
 
@@ -269,6 +269,6 @@ export const collectAutomaticBet365Odds = createServerFn({ method: "POST" })
       noPrice: count("NO_PRICE"), sourceUnavailable: count("SOURCE_UNAVAILABLE"), fixturesRequested,
       dayPagesRequested: day.fetches.length, manualBatches, manualFieldCount: manualBatches.flat().length,
       automaticallyPricedPredictionIds, priorCapture,
-      message: "Somente opções com chance do modelo >70% seguem para cotação; depois disso, a odd real ainda precisa atingir EV mínimo de 2%.",
+      message: "Somente opções com chance do modelo >=70% seguem para cotação; depois disso, a odd real precisa ser >=1,70, com EV >=8% e edge >=5 p.p.",
     };
   });
