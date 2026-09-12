@@ -220,8 +220,6 @@ export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handle
   const userId = context.userId;
   if (!userId) throw new Error("Usuário não autenticado.");
   const supabase = await db();
-  const { ownedRunIds } = await import("./authorization.server");
-  const runIds = await ownedRunIds(supabase, userId);
 
   const configQuery = supabase
     .from("experimental_bankroll_config")
@@ -229,15 +227,10 @@ export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handle
     .eq("id", "main")
     .eq("owner_id", userId)
     .single();
-  const trackingQuery = runIds.length
-    ? supabase
-        .from("experimental_bet_tracking")
-        .select("*")
-        .in("run_id", runIds)
-        .order("target_date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(5000)
-    : Promise.resolve({ data: [], error: null });
+  const trackingQuery = supabase.rpc("get_owner_tracking_history", {
+    p_owner_id: userId,
+    p_limit: 5000,
+  });
 
   const [{ data: configData, error: configError }, { data: trackingData, error: trackingError }] =
     await Promise.all([configQuery, trackingQuery]);
