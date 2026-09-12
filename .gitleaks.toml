@@ -1,0 +1,17 @@
+title = "Motor de Decisão Esportiva secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Supabase publishable keys are public client identifiers by design"
+regexTarget = "line"
+regexes = [
+  '''sb_publishable_[A-Za-z0-9_-]+'''
+]
+
+[[allowlists]]
+description = "Audited safe environment-template commit: it added only documented placeholders and empty secret values"
+commits = [
+  "b474be93b87327584d6c4168abc0eb6f08d7bff7"
+]

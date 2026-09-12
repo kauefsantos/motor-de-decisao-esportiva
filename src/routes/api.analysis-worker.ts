@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import {
+  createFixedWindowRequestLimiter,
+  readBoundedJsonObject,
+} from "@/lib/analysis-worker-security";
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const enforceWorkerRateLimit = createFixedWindowRequestLimiter();
 
 export const Route = createFileRoute("/api/analysis-worker")({
   server: {
@@ -8,21 +14,28 @@ export const Route = createFileRoute("/api/analysis-worker")({
       GET: async () =>
         Response.json(
           { error: "Method Not Allowed" },
-          { status: 405, headers: { Allow: "POST" } },
+          { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } },
         ),
 
       POST: async ({ request }) => {
-        let body: { runId?: unknown; dispatchToken?: unknown };
-        try {
-          body = (await request.json()) as { runId?: unknown; dispatchToken?: unknown };
-        } catch {
-          return Response.json({ status: "IGNORED" }, { status: 202 });
+        const rateLimited = enforceWorkerRateLimit(request);
+        if (rateLimited) return rateLimited;
+
+        const body = await readBoundedJsonObject(request);
+        if (!body) {
+          return Response.json(
+            { status: "IGNORED" },
+            { status: 202, headers: { "Cache-Control": "no-store" } },
+          );
         }
 
         const runId = typeof body.runId === "string" ? body.runId : "";
         const dispatchToken = typeof body.dispatchToken === "string" ? body.dispatchToken : "";
         if (!UUID_RE.test(runId) || !UUID_RE.test(dispatchToken)) {
-          return Response.json({ status: "IGNORED" }, { status: 202 });
+          return Response.json(
+            { status: "IGNORED" },
+            { status: 202, headers: { "Cache-Control": "no-store" } },
+          );
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
