@@ -1,26 +1,40 @@
 import type { AdminDb } from "../../admin-db";
 
+function retryAt(attempt: number) {
+  if (attempt >= 3) return null;
+  const minutes = attempt === 1 ? 15 : 30;
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+async function markUnavailable(db: AdminDb, trackingId: string, attempt: number, fetchedAt = new Date().toISOString()) {
+  await db.from("experimental_bet_tracking").update({
+    clv_status: "SOURCE_UNAVAILABLE",
+    clv_attempts: attempt,
+    clv_next_retry_at: retryAt(attempt),
+    closing_source: "five_dollar_bet365",
+    closing_fetched_at: fetchedAt,
+    updated_at: new Date().toISOString(),
+  }).eq("id", trackingId);
+  return { status: "SOURCE_UNAVAILABLE" as const, clvPct: null, impliedDelta: null };
+}
+
 export async function captureClosingClv(db: AdminDb, trackingId: string) {
   const { data: bet, error: betError } = await db
     .from("experimental_bet_tracking")
-    .select("id,run_id,match_id,prediction_id,market,side,line_canonical,entry_odd")
+    .select("id,run_id,match_id,prediction_id,market,side,line_canonical,entry_odd,clv_attempts")
     .eq("id", trackingId)
     .single();
   if (betError || !bet) return null;
-  if (!bet.match_id) {
-    await db.from("experimental_bet_tracking").update({
-      clv_status: "SOURCE_UNAVAILABLE",
-      closing_source: "five_dollar_bet365",
-      closing_fetched_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }).eq("id", trackingId);
-    return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
-  }
+  const attempt = Math.min(3, Number(bet.clv_attempts ?? 0) + 1);
+
+  if (!bet.match_id) return markUnavailable(db, trackingId, attempt);
 
   const supported = new Set(["1x2", "goals_match_total", "corners_match_total", "cards_match_total"]);
   if (!supported.has(String(bet.market))) {
     await db.from("experimental_bet_tracking").update({
       clv_status: "UNSUPPORTED",
+      clv_attempts: 3,
+      clv_next_retry_at: null,
       closing_source: "five_dollar_bet365",
       closing_fetched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -35,15 +49,7 @@ export async function captureClosingClv(db: AdminDb, trackingId: string) {
     .eq("source", "five_dollar_fixture")
     .maybeSingle();
   const fixtureId = Number(externalId?.external_id);
-  if (!Number.isFinite(fixtureId)) {
-    await db.from("experimental_bet_tracking").update({
-      clv_status: "SOURCE_UNAVAILABLE",
-      closing_source: "five_dollar_bet365",
-      closing_fetched_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }).eq("id", trackingId);
-    return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
-  }
+  if (!Number.isFinite(fixtureId)) return markUnavailable(db, trackingId, attempt);
 
   const [oddsModule, benchmarkModule, clvModule] = await Promise.all([
     import("../../bet365-odds.server"),
@@ -62,13 +68,7 @@ export async function captureClosingClv(db: AdminDb, trackingId: string) {
   });
 
   if (fetched.status !== "OK" || fetched.payload === null) {
-    await db.from("experimental_bet_tracking").update({
-      clv_status: "SOURCE_UNAVAILABLE",
-      closing_source: "five_dollar_bet365",
-      closing_fetched_at: fetched.fetchedAt,
-      updated_at: new Date().toISOString(),
-    }).eq("id", trackingId);
-    return { status: "SOURCE_UNAVAILABLE", clvPct: null, impliedDelta: null };
+    return markUnavailable(db, trackingId, attempt, fetched.fetchedAt);
   }
 
   const candidate = {
@@ -102,6 +102,7 @@ export async function captureClosingClv(db: AdminDb, trackingId: string) {
         sourceStatus: statusMap[closing.status],
       });
 
+  const retryable = result.status === "SOURCE_UNAVAILABLE" || result.status === "NO_CLOSING_PRICE";
   await db.from("experimental_bet_tracking").update({
     opening_odd: opening.status === "MATCHED" ? opening.odd : null,
     opening_line: opening.offeredLine,
@@ -111,6 +112,8 @@ export async function captureClosingClv(db: AdminDb, trackingId: string) {
     clv_pct: result.clvPct,
     clv_implied_delta: result.impliedDelta,
     clv_status: result.status,
+    clv_attempts: attempt,
+    clv_next_retry_at: retryable ? retryAt(attempt) : null,
     closing_fetched_at: fetched.fetchedAt,
     closing_source: "five_dollar_bet365",
     updated_at: new Date().toISOString(),
