@@ -48,18 +48,20 @@ select lives_ok(
   'retention cleanup executes successfully'
 );
 select lives_ok(
-  $$do $test$
-    declare
-      v_user uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid;
-      v_run uuid;
-    begin
-      insert into public.analysis_runs(owner_id,status) values(v_user,'CREATED') returning id into v_run;
-      perform public.erase_user_application_data(v_user);
-      if exists(select 1 from public.analysis_runs where id=v_run) then
-        raise exception 'owned run was not erased';
-      end if;
-    end
-  $test$$$,
+  $outer$
+  do $test$
+  declare
+    v_user uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid;
+    v_run uuid;
+  begin
+    insert into public.analysis_runs(owner_id,status) values(v_user,'CREATED') returning id into v_run;
+    perform public.erase_user_application_data(v_user);
+    if exists(select 1 from public.analysis_runs where id=v_run) then
+      raise exception 'owned run was not erased';
+    end if;
+  end
+  $test$
+  $outer$,
   'account erasure removes owned runs and their cascaded data'
 );
 
