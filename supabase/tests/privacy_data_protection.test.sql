@@ -54,15 +54,39 @@ select lives_ok(
     v_user uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid;
     v_run uuid;
   begin
-    insert into public.analysis_runs(owner_id,status) values(v_user,'CREATED') returning id into v_run;
-    perform public.erase_user_application_data(v_user);
+    insert into auth.users(
+      id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+    ) values (
+      v_user,
+      'authenticated',
+      'authenticated',
+      'privacy-test@example.invalid',
+      '{"provider":"google","providers":["google"]}'::jsonb,
+      '{"name":"Should Be Removed","picture":"https://example.invalid/avatar.png"}'::jsonb,
+      now(),
+      now()
+    );
+
+    if coalesce((select raw_user_meta_data ?| array['name','picture'] from auth.users where id=v_user), true) then
+      raise exception 'profile minimization did not run';
+    end if;
+
+    insert into public.analysis_runs(owner_id,status)
+    values(v_user,'CREATED')
+    returning id into v_run;
+
+    delete from auth.users where id=v_user;
+
+    if exists(select 1 from auth.users where id=v_user) then
+      raise exception 'auth user was not erased';
+    end if;
     if exists(select 1 from public.analysis_runs where id=v_run) then
-      raise exception 'owned run was not erased';
+      raise exception 'owned run was not erased before restricted auth delete';
     end if;
   end
   $test$
   $outer$,
-  'account erasure removes owned runs and their cascaded data'
+  'full auth deletion removes owned runs and minimizes profile metadata'
 );
 
 select * from finish();
