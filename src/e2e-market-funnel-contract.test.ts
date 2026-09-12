@@ -58,6 +58,21 @@ describe("production E2E market funnel contract", () => {
     expect(migration).toContain("interval '10 minutes'");
   });
 
+  it("does not retain the legacy weekday/weekend quota or stale threshold copy", () => {
+    const experimental = source("./lib/experimental-markets-run.functions.ts");
+    const automaticOdds = source("./lib/auto-bet365-odds.functions.ts");
+
+    expect(experimental).toContain("MAX_SELECTIONS");
+    expect(experimental).toContain("const selectionLimit = MAX_SELECTIONS");
+    expect(experimental).not.toContain("selectionLimitForDate");
+    expect(experimental).not.toContain("return weekday === 0 || weekday === 6 ? 3 : 2");
+
+    expect(automaticOdds).toContain("confiança >=70%");
+    expect(automaticOdds).toContain("odd real precisa ser >=1,70, com EV >=8% e edge >=5 p.p.");
+    expect(automaticOdds).not.toContain("confiança >70%");
+    expect(automaticOdds).not.toContain("EV mínimo de 2%");
+  });
+
   it("treats zero qualified opportunities as a legitimate result", () => {
     const queue = source("./lib/decision-queue.functions.ts");
     const gate = source("./components/DecisionQueueGate.tsx");
