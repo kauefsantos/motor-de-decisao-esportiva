@@ -7,6 +7,7 @@ export type BankrollTrackingRow = {
   competition: string | null;
   market_family: string;
   market_label: string;
+  model_status: string;
   model_probability: number | string;
   entry_odd: number | string;
   expected_value: number | string | null;
@@ -41,11 +42,25 @@ export function buildStakeSuggestion(
   fractionalKelly: number,
   minStakeBrl: number,
 ) {
+  const maxAllowed = operationalMaxStake(bankroll, maxStakePct, minStakeBrl);
+  if (row.model_status !== "PRODUCTION_VALIDATED") {
+    return {
+      suggestedStake: 0,
+      maxAllowedStake: maxAllowed,
+      minimumStake: minStakeBrl,
+      stakePolicy: "OBSERVATION_ONLY" as const,
+    };
+  }
+
   const odd = bankrollNumber(row.entry_odd);
   const expectedValue = Math.max(0, bankrollNumber(row.expected_value));
-  const maxAllowed = operationalMaxStake(bankroll, maxStakePct, minStakeBrl);
   if (maxAllowed <= 0 || expectedValue <= 0) {
-    return { suggestedStake: 0, maxAllowedStake: maxAllowed, minimumStake: minStakeBrl };
+    return {
+      suggestedStake: 0,
+      maxAllowedStake: maxAllowed,
+      minimumStake: minStakeBrl,
+      stakePolicy: "VALIDATED_KELLY" as const,
+    };
   }
 
   const edgeFraction = odd > 1 ? expectedValue / (odd - 1) : 0;
@@ -59,5 +74,6 @@ export function buildStakeSuggestion(
     suggestedStake,
     maxAllowedStake: maxAllowed,
     minimumStake: minStakeBrl,
+    stakePolicy: "VALIDATED_KELLY" as const,
   };
 }
