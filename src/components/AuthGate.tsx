@@ -3,52 +3,26 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { isAuthenticationFresh } from "@/integrations/supabase/session-policy";
 
 type AuthState = "loading" | "signed-out" | "authorized";
-
-const MOBILE_AUTH_KEY = "bet-value-mobile-auth-at";
-const MOBILE_AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function currentReturnUrl() {
   const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   return new URL(destination || "/", window.location.origin).toString();
 }
 
-function isMobileExperience() {
-  if (typeof window === "undefined") return false;
-  const nav = window.navigator as Navigator & { standalone?: boolean };
-  return (
-    nav.standalone === true ||
-    window.matchMedia?.("(display-mode: standalone)")?.matches === true ||
-    window.matchMedia?.("(max-width: 767px) and (pointer: coarse)")?.matches === true
-  );
-}
-
-function readMobileAuthAt() {
+function decodeTokenClaims(token: string): Record<string, unknown> | null {
   try {
-    const raw = window.localStorage.getItem(MOBILE_AUTH_KEY);
-    if (!raw) return null;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : null;
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const padding = "=".repeat((4 - (payload.length % 4)) % 4);
+    const base64 = (payload + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(window.atob(base64), (char) => char.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
-  }
-}
-
-function writeMobileAuthAt() {
-  try {
-    window.localStorage.setItem(MOBILE_AUTH_KEY, String(Date.now()));
-  } catch {
-    // Storage can be unavailable in hardened/private browser modes. The
-    // Supabase session remains the security boundary even without this UX timer.
-  }
-}
-
-function clearMobileAuthAt() {
-  try {
-    window.localStorage.removeItem(MOBILE_AUTH_KEY);
-  } catch {
-    // Nothing else to do when browser storage is unavailable.
   }
 }
 
@@ -63,14 +37,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
     async function applySession(session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]) {
       if (!active) return;
       if (!session) {
-        if (isMobileExperience()) clearMobileAuthAt();
         setState("signed-out");
         return;
       }
 
-      // The browser gate is UX only. The actual allowlist is enforced twice on
-      // trusted boundaries: auth.users in the database and requireSupabaseAuth
-      // before every serverFn. Do not expose the private allowlisted email here.
+      // The browser gate is UX only. The actual allowlist and absolute session
+      // lifetime are enforced on the trusted server boundary before every serverFn.
       const provider = String(session.user.app_metadata?.provider ?? "");
       if (provider !== "google") {
         setMessage("Esta sessão não tem acesso ao painel.");
@@ -79,18 +51,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (isMobileExperience()) {
-        const authenticatedAt = readMobileAuthAt();
-        if (authenticatedAt !== null && Date.now() - authenticatedAt >= MOBILE_AUTH_MAX_AGE_MS) {
-          clearMobileAuthAt();
-          await supabase.auth.signOut();
-          if (active) {
-            setMessage("Seu acesso mobile de 30 dias terminou. Entre novamente para continuar.");
-            setState("signed-out");
-          }
-          return;
+      const claims = decodeTokenClaims(session.access_token);
+      if (!claims || !isAuthenticationFresh(claims)) {
+        await supabase.auth.signOut();
+        if (active) {
+          setMessage("Sua sessão de 30 dias terminou. Entre novamente com o Google para continuar.");
+          setState("signed-out");
         }
-        if (authenticatedAt === null) writeMobileAuthAt();
+        return;
       }
 
       setMessage(null);
@@ -170,7 +138,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           Bet Value Engine
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Entre com a conta Google autorizada. No mobile, o acesso fica ativo por até 30 dias antes de pedir uma nova autenticação.
+          Entre com a conta Google autorizada. A sessão tem prazo máximo de 30 dias, validado pelo servidor antes de operações com os dados.
         </p>
 
         {message && (
