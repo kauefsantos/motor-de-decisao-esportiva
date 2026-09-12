@@ -17,6 +17,7 @@ import { Route as PrivacidadeRouteImport } from './routes/privacidade'
 import { Route as ApiAnalysisWorkerRouteImport } from './routes/api.analysis-worker'
 import { Route as ApiEloSyncRouteImport } from './routes/api.elo-sync'
 import { Route as ApiFiveDollarMaintenanceRouteImport } from './routes/api.five-dollar-maintenance'
+import { Route as ApiPushDispatchRouteImport } from './routes/api.push-dispatch'
 import { Route as RunRunIdOportunidadesRouteImport } from './routes/run.$runId.oportunidades'
 import { Route as RunRunIdProcessamentoRouteImport } from './routes/run.$runId.processamento'
 import { Route as RunRunIdResultadoRouteImport } from './routes/run.$runId.resultado'
@@ -30,6 +31,7 @@ const PrivacidadeRoute = PrivacidadeRouteImport.update({ id: '/privacidade', pat
 const ApiAnalysisWorkerRoute = ApiAnalysisWorkerRouteImport.update({ id: '/api/analysis-worker', path: '/api/analysis-worker', getParentRoute: () => rootRouteImport } as any)
 const ApiEloSyncRoute = ApiEloSyncRouteImport.update({ id: '/api/elo-sync', path: '/api/elo-sync', getParentRoute: () => rootRouteImport } as any)
 const ApiFiveDollarMaintenanceRoute = ApiFiveDollarMaintenanceRouteImport.update({ id: '/api/five-dollar-maintenance', path: '/api/five-dollar-maintenance', getParentRoute: () => rootRouteImport } as any)
+const ApiPushDispatchRoute = ApiPushDispatchRouteImport.update({ id: '/api/push-dispatch', path: '/api/push-dispatch', getParentRoute: () => rootRouteImport } as any)
 const RunRunIdOportunidadesRoute = RunRunIdOportunidadesRouteImport.update({ id: '/run/$runId/oportunidades', path: '/run/$runId/oportunidades', getParentRoute: () => rootRouteImport } as any)
 const RunRunIdProcessamentoRoute = RunRunIdProcessamentoRouteImport.update({ id: '/run/$runId/processamento', path: '/run/$runId/processamento', getParentRoute: () => rootRouteImport } as any)
 const RunRunIdResultadoRoute = RunRunIdResultadoRouteImport.update({ id: '/run/$runId/resultado', path: '/run/$runId/resultado', getParentRoute: () => rootRouteImport } as any)
@@ -44,6 +46,7 @@ export interface FileRoutesByFullPath {
   '/api/analysis-worker': typeof ApiAnalysisWorkerRoute
   '/api/elo-sync': typeof ApiEloSyncRoute
   '/api/five-dollar-maintenance': typeof ApiFiveDollarMaintenanceRoute
+  '/api/push-dispatch': typeof ApiPushDispatchRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
   '/run/$runId/processamento': typeof RunRunIdProcessamentoRoute
   '/run/$runId/resultado': typeof RunRunIdResultadoRoute
@@ -82,6 +85,7 @@ export interface RootRouteChildren {
   ApiAnalysisWorkerRoute: typeof ApiAnalysisWorkerRoute
   ApiEloSyncRoute: typeof ApiEloSyncRoute
   ApiFiveDollarMaintenanceRoute: typeof ApiFiveDollarMaintenanceRoute
+  ApiPushDispatchRoute: typeof ApiPushDispatchRoute
   RunRunIdOportunidadesRoute: typeof RunRunIdOportunidadesRoute
   RunRunIdProcessamentoRoute: typeof RunRunIdProcessamentoRoute
   RunRunIdResultadoRoute: typeof RunRunIdResultadoRoute
@@ -98,6 +102,7 @@ declare module '@tanstack/react-router' {
     '/api/analysis-worker': { id: '/api/analysis-worker'; path: '/api/analysis-worker'; fullPath: '/api/analysis-worker'; preLoaderRoute: typeof ApiAnalysisWorkerRouteImport; parentRoute: typeof rootRouteImport }
     '/api/elo-sync': { id: '/api/elo-sync'; path: '/api/elo-sync'; fullPath: '/api/elo-sync'; preLoaderRoute: typeof ApiEloSyncRouteImport; parentRoute: typeof rootRouteImport }
     '/api/five-dollar-maintenance': { id: '/api/five-dollar-maintenance'; path: '/api/five-dollar-maintenance'; fullPath: '/api/five-dollar-maintenance'; preLoaderRoute: typeof ApiFiveDollarMaintenanceRouteImport; parentRoute: typeof rootRouteImport }
+    '/api/push-dispatch': { id: '/api/push-dispatch'; path: '/api/push-dispatch'; fullPath: '/api/push-dispatch'; preLoaderRoute: typeof ApiPushDispatchRouteImport; parentRoute: typeof rootRouteImport }
     '/run/$runId/oportunidades': { id: '/run/$runId/oportunidades'; path: '/run/$runId/oportunidades'; fullPath: '/run/$runId/oportunidades'; preLoaderRoute: typeof RunRunIdOportunidadesRouteImport; parentRoute: typeof rootRouteImport }
     '/run/$runId/processamento': { id: '/run/$runId/processamento'; path: '/run/$runId/processamento'; fullPath: '/run/$runId/processamento'; preLoaderRoute: typeof RunRunIdProcessamentoRouteImport; parentRoute: typeof rootRouteImport }
     '/run/$runId/resultado': { id: '/run/$runId/resultado'; path: '/run/$runId/resultado'; fullPath: '/run/$runId/resultado'; preLoaderRoute: typeof RunRunIdResultadoRouteImport; parentRoute: typeof rootRouteImport }
@@ -114,6 +119,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAnalysisWorkerRoute,
   ApiEloSyncRoute,
   ApiFiveDollarMaintenanceRoute,
+  ApiPushDispatchRoute,
   RunRunIdOportunidadesRoute,
   RunRunIdProcessamentoRoute,
   RunRunIdResultadoRoute,

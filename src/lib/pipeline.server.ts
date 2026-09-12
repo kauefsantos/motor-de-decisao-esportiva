@@ -4,6 +4,7 @@
 import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
 import { isCrossLeagueCompetitionName } from "./competition-kind";
+import { saoPauloLocalDateTimeToIso } from "./sao-paulo-time";
 
 export type { PipelineStepKey } from "./pipeline.steps";
 import type { PipelineStepKey } from "./pipeline.steps";
@@ -48,7 +49,7 @@ function parseKickoff(targetDate: string | null, horario: string): string | null
   const m = horario.match(/(\d{1,2})[:h](\d{2})/);
   if (!m || !targetDate) return null;
   const hh = m[1]!.padStart(2, "0");
-  return `${targetDate}T${hh}:${m[2]}:00-03:00`;
+  return saoPauloLocalDateTimeToIso(targetDate, `${hh}:${m[2]}`);
 }
 
 export async function executeStep(runId: string, step: PipelineStepKey) {
