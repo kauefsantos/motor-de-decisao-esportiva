@@ -26,9 +26,13 @@ describe("frontend/backend flow synchronization", () => {
 
   it("uses the persistent decision queue instead of the legacy experimental result flow", () => {
     const opportunities = source("./routes/run.$runId.oportunidades.tsx");
+    const gate = source("./components/DecisionQueueGate.tsx");
     const queue = source("./components/DecisionQueueFlow.tsx");
-    expect(opportunities).toContain("DecisionQueueFlow");
+    expect(opportunities).toContain("DecisionQueueGate");
     expect(opportunities).not.toContain("ExperimentalMarketsPilot");
+    expect(gate).toContain("getDecisionQueueHistory");
+    expect(gate).toContain("hasPersistedDecisionState");
+    expect(gate).toContain("Modelos, integrações externas e cotações não foram executados novamente");
     expect(queue).toContain("buildDecisionOpportunityQueue");
     expect(queue).toContain("getDecisionQueueHistory");
     expect(queue).toContain("dailySelectionLimit");
