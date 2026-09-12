@@ -71,12 +71,22 @@ jobs:
             base="HEAD^"
           fi
           changed="$(git diff --name-only "$base"...HEAD 2>/dev/null || git diff --name-only HEAD^ HEAD)"
-          protected="$(printf '%s\n' "$changed" | grep -E '^(supabase/migrations/|src/lib/engine/|src/lib/adapters/|src/lib/(authorization|bankroll|analytics)|\.github/workflows/)' || true)"
+          protected="$(printf '%s\n' "$changed" | grep -E '^(supabase/migrations/|src/lib/engine/|src/lib/adapters/|src/lib/(authorization|bankroll|analytics|privacy|lovable-error-reporting)|src/components/(AuthGate|AppShell)|src/routes/(privacidade|conta)|\.github/workflows/)' || true)"
           if [ -n "$protected" ]; then
-            docs="$(printf '%s\n' "$changed" | grep -E '^docs/(PROJECT_STATE\.md|GOVERNANCE\.md|METRICS_GLOSSARY\.md|DATA_CATALOG\.md|governance/)' || true)"
+            docs="$(printf '%s\n' "$changed" | grep -E '^docs/(PROJECT_STATE\.md|GOVERNANCE\.md|METRICS_GLOSSARY\.md|DATA_CATALOG\.md|PRIVACY\.md|PRIVACY_DATA_REGISTER\.md|governance/)' || true)"
             if [ -z "$docs" ]; then
               echo "Governed code changed without canonical governance/documentation update."
               echo "$protected"
+              exit 1
+            fi
+          fi
+
+          privacy_sensitive="$(printf '%s\n' "$changed" | grep -E '^(src/lib/privacy|src/lib/lovable-error-reporting|src/components/AuthGate|src/routes/(privacidade|conta)|supabase/migrations/.*privacy)' || true)"
+          if [ -n "$privacy_sensitive" ]; then
+            privacy_docs="$(printf '%s\n' "$changed" | grep -E '^docs/(PRIVACY\.md|PRIVACY_DATA_REGISTER\.md)$' || true)"
+            if [ -z "$privacy_docs" ]; then
+              echo "Privacy-sensitive code changed without privacy documentation update."
+              echo "$privacy_sensitive"
               exit 1
             fi
           fi
