@@ -27,7 +27,9 @@ describe("performance and scalability contracts", () => {
   });
 
   it("moves home aggregation to a server-only database aggregate", () => {
-    expect(home).toContain('db.rpc("get_owner_home_metrics"');
+    expect(home).toContain('from "./repositories/runtime-rpc.server"');
+    expect(home).toContain('"get_owner_home_metrics"');
+    expect(home).not.toContain('db.rpc("get_owner_home_metrics"');
     expect(home).not.toContain('select("id").eq("owner_id"');
   });
 
