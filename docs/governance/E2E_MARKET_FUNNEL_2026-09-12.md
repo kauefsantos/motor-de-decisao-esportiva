@@ -45,6 +45,8 @@ A regra é repetida em três camadas:
 2. Seletor de portfólio (`src/lib/engine/portfolio-selection.ts`) — revalida os gates, correlação e top-3 antes de espelhar para a interface.
 3. Lovable Cloud (`replace_decision_queue_atomic`) — rejeita persistência privilegiada se qualquer threshold ou limite estrutural for violado.
 
+A compatibilidade de linha também é protegida na persistência por `trg_decision_queue_line_compatibility`: a linha canônica da fila deve ser exatamente a mesma da previsão do mesmo run, partida e `prediction_id`, inclusive quando a gravação é privilegiada. Esse controle foi adicionado após um teste transacional pós-merge demonstrar que a função anterior aceitava `line_canonical` divergente; o teste de regressão reproduz a tentativa e exige bloqueio antes de aceitar a linha modelada correta.
+
 A tela `/diagnostico` mede a mesma lógica usada pelo backend e sinaliza qualquer seleção persistida fora da régua.
 
 ## Coleta retomável
@@ -62,6 +64,7 @@ Antes de refazer uma partida que não possui marcador de conclusão, somente os 
 - EV 7,99% vs 8,00%;
 - edge 4,99 p.p. vs 5,00 p.p.;
 - linha alterada depois da modelagem;
+- tentativa de persistência privilegiada com `line_canonical` diferente da previsão;
 - dado com status não aprovado;
 - odd automática expirada;
 - duas oportunidades do mesmo jogo;
