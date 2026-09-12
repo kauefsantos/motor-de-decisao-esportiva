@@ -1,35 +1,33 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
+
 export const Route = createFileRoute("/api/elo-sync")({
   server: {
     handlers: {
-      // Secret seeding is intentionally not exposed over HTTP. The live Elo jobs
-      // run directly inside PostgreSQL/pg_cron, so this endpoint is only a
-      // protected fallback for an explicit server-side sync request.
-      GET: async () =>
-        Response.json(
-          { error: "Method Not Allowed" },
-          { status: 405, headers: { Allow: "POST" } },
-        ),
-
-      POST: async ({ request }) => {
-        const { authenticateCronRequest } = await import(
-          "@/integrations/supabase/cron-auth"
+      GET: async () => {
+        const requestId = backendRequestId();
+        return Response.json(
+          { ok: false, error: { code: "VALIDATION_ERROR", message: "Method Not Allowed" }, requestId },
+          { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } },
         );
+      },
+      POST: async ({ request }) => {
+        const requestId = backendRequestId();
+        const { authenticateCronRequest } = await import("@/integrations/supabase/cron-auth");
         const denied = await authenticateCronRequest(request);
-        if (denied) return denied;
-
+        if (denied) {
+          return Response.json(
+            { ok: false, error: { code: "FORBIDDEN", message: "Solicitação não autorizada." }, requestId },
+            { status: denied.status, headers: { "Cache-Control": "no-store" } },
+          );
+        }
         try {
-          // Keep server-only modules out of the route's browser module graph.
           const { syncEloFromFiveDollar } = await import("@/lib/elo-sync.server");
-          const result = await syncEloFromFiveDollar();
-          return Response.json(result);
+          return backendJson(await syncEloFromFiveDollar(), undefined, requestId);
         } catch (error) {
           console.error("[Elo sync] protected sync failed", error);
-          return Response.json(
-            { status: "ERROR", error: "Não foi possível executar a sincronização Elo." },
-            { status: 500 },
-          );
+          return backendErrorResponse(error, requestId);
         }
       },
     },
