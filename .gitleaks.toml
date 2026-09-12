@@ -1,0 +1,11 @@
+title = "Motor de Decisão Esportiva secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Supabase publishable keys are public client identifiers by design"
+regexTarget = "line"
+regexes = [
+  '''sb_publishable_[A-Za-z0-9_-]+'''
+]
