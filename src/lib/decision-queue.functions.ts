@@ -34,6 +34,14 @@ type Prediction = {
   model_version: string | null;
 };
 
+type DecisionMatchRow = {
+  id: string;
+  raw_partida: string;
+  home_team: string | null;
+  away_team: string | null;
+  competition: string | null;
+};
+
 type Ranked = ValueResult & {
   matchId: string | null;
   matchLabel: string;
@@ -96,7 +104,7 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
 
     const quotePredictions = filterQuoteAnchorPredictions((predictions ?? []) as Prediction[]);
     const byId = new Map(quotePredictions.map((row) => [row.prediction_id, row]));
-    const matchById = new Map((matches ?? []).map((match: any) => [match.id, match]));
+    const matchById = new Map(((matches ?? []) as DecisionMatchRow[]).map((match) => [match.id, match]));
     const evaluated: Ranked[] = [];
 
     for (const entry of data.entries) {

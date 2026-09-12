@@ -1,10 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
 import { createFixedWindowRequestLimiter } from "@/lib/analysis-worker-security";
+import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
+import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const limitPushDispatch = createFixedWindowRequestLimiter({ limit: 12, windowMs: 60_000 });
+
+type PushDeliveryState = { resolvedSubscriptionIds?: string[] } | null;
+type PushDeliveryEvent = {
+  id: string;
+  user_id: string;
+  lock_token: string;
+  delivery_state: PushDeliveryState;
+};
 
 export const Route = createFileRoute("/api/push-dispatch")({
   server: {
@@ -19,12 +28,16 @@ export const Route = createFileRoute("/api/push-dispatch")({
         if (!UUID_RE.test(token)) return Response.json({ ok: false, error: { code: "FORBIDDEN", message: "Solicitação não autorizada." }, requestId }, { status: 403, headers: { "Cache-Control": "no-store" } });
 
         try {
-          const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-          const db = supabaseAdmin as any;
-          const { data: allowed, error: authError } = await db.rpc("validate_push_dispatch_token", { p_token: token });
+          const { data: allowed, error: authError } = await callAdminRuntimeRpc<boolean>(
+            "validate_push_dispatch_token",
+            { p_token: token },
+          );
           if (authError || allowed !== true) return Response.json({ ok: false, error: { code: "FORBIDDEN", message: "Solicitação não autorizada." }, requestId }, { status: 403, headers: { "Cache-Control": "no-store" } });
 
-          const { data: events, error: claimError } = await db.rpc("claim_push_delivery_batch", { p_limit: 5 });
+          const { data: events, error: claimError } = await callAdminRuntimeRpc<PushDeliveryEvent[]>(
+            "claim_push_delivery_batch",
+            { p_limit: 5 },
+          );
           if (claimError) throw claimError;
           const { deliverAnalysisReadyPush } = await import("@/lib/push.server");
           let sent = 0;
@@ -35,7 +48,7 @@ export const Route = createFileRoute("/api/push-dispatch")({
             const result = await deliverAnalysisReadyPush(event.user_id, event.delivery_state);
             sent += result.sent;
             if (result.transientFailed > 0) {
-              await db.rpc("fail_push_delivery_event", {
+              await callAdminRuntimeRpc("fail_push_delivery_event", {
                 p_id: event.id,
                 p_lock_token: event.lock_token,
                 p_error: result.lastError ?? "Falha temporária no Web Push.",
@@ -44,7 +57,7 @@ export const Route = createFileRoute("/api/push-dispatch")({
               });
               retried += 1;
             } else if (result.permanentFailed > 0) {
-              await db.rpc("fail_push_delivery_event", {
+              await callAdminRuntimeRpc("fail_push_delivery_event", {
                 p_id: event.id,
                 p_lock_token: event.lock_token,
                 p_error: result.lastError ?? "Falha permanente no Web Push.",
@@ -53,7 +66,11 @@ export const Route = createFileRoute("/api/push-dispatch")({
               });
               dead += 1;
             } else {
-              await db.rpc("complete_push_delivery_event", { p_id: event.id, p_lock_token: event.lock_token, p_delivery_state: result.deliveryState });
+              await callAdminRuntimeRpc("complete_push_delivery_event", {
+                p_id: event.id,
+                p_lock_token: event.lock_token,
+                p_delivery_state: result.deliveryState,
+              });
             }
           }
 

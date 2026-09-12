@@ -63,11 +63,12 @@ export function WebVitalsReporter() {
         ["CLS", cls],
         ["INP", inp],
         ["TTFB", ttfb],
-      ].filter(([, value]) => value > 0) as Array<[VitalMetric, number]>;
-      if (!metrics.length) return;
+      ];
+      const positiveMetrics = metrics.filter(([, value]) => value > 0);
+      if (!positiveMetrics.length) return;
       try {
         const { reportPerformanceVital } = await import("@/lib/performance-vitals.functions");
-        await Promise.all(metrics.map(([metric, value]) => reportPerformanceVital({
+        await Promise.all(positiveMetrics.map(([metric, value]) => reportPerformanceVital({
           data: { metric, value, rating: rating(metric, value), route: window.location.pathname },
         }).catch(() => undefined)));
       } catch {

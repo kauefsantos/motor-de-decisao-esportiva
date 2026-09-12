@@ -26,6 +26,9 @@ export const Route = createFileRoute("/")({
   component: UploadScreen,
 });
 
+type HomeSummary = Awaited<ReturnType<typeof getHomeSummary>>;
+type RecentRun = HomeSummary["recentRuns"][number];
+
 function dateLabel(iso: string | null | undefined) {
   if (!iso) return "—";
   const [year, month, day] = iso.slice(0, 10).split("-");
@@ -44,7 +47,8 @@ function runStatusLabel(status: string) {
   return "Em andamento";
 }
 
-function ResumeRunLink({ run }: { run: any }) {
+function ResumeRunLink({ run }: { run: RecentRun | null | undefined }) {
+  if (!run) return null;
   if (run.selection_finalized_at) {
     return <Link to="/run/$runId/resultado" params={{ runId: run.id }} search={{ mode: "experimental" }}>Abrir resultado</Link>;
   }
@@ -117,6 +121,7 @@ function UploadScreen() {
 
   const summary = summaryQuery.data;
   const primaryPending = summary?.pendingDraft ?? summary?.resumableRun ?? null;
+  const recentRuns = summary?.recentRuns ?? [];
 
   return (
     <AppShell stage="upload">
@@ -301,10 +306,10 @@ function UploadScreen() {
           </ol>
         </CollapsiblePanel>
 
-        {summary?.recentRuns?.length > 0 && (
-          <CollapsiblePanel className="mt-4" title="Análises recentes" description="Retome ou consulte as últimas rodadas" meta={summary.recentRuns.length}>
+        {recentRuns.length > 0 && (
+          <CollapsiblePanel className="mt-4" title="Análises recentes" description="Retome ou consulte as últimas rodadas" meta={recentRuns.length}>
             <ul className="divide-y divide-border">
-              {summary.recentRuns.map((run: any) => (
+              {recentRuns.map((run) => (
                 <li key={run.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-medium">Rodada {dateLabel(run.target_date)}</p>

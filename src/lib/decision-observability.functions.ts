@@ -128,6 +128,9 @@ async function buildFunnel(rawDb: { from: (table: string) => any }, run: RunRow)
     const probability = numberOrNull(prediction?.model_probability);
     const odd = numberOrNull(row.odd);
     return (
+      probability !== null &&
+      probability !== null &&
+      probability !== null &&
       passesExperimentalModelGate(probability) &&
       odd !== null &&
       probability * odd - 1 >= EV_TARGET

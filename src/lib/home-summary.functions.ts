@@ -1,6 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 
-type DbRow = Record<string, any>;
+import { adminDb } from "./admin-db";
+import { BackendError } from "./backend-contract";
+import { callRuntimeRpc } from "./repositories/runtime-rpc.server";
+
+type HomeMetricsRow = {
+  open_bets_count: number | string | null;
+  proposed_count: number | string | null;
+  settled_profit: number | string | null;
+  locked_stake: number | string | null;
+};
 
 function num(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -9,13 +18,12 @@ function num(value: unknown, fallback = 0) {
 
 export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({ context }) => {
   const userId = context.userId;
-  if (!userId) throw new Error("Usuário não autenticado.");
+  if (!userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
 
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const db = supabaseAdmin as any;
+  const db = await adminDb();
 
   const [metricsResult, recentRunsResult, draftResult, configResult] = await Promise.all([
-    db.rpc("get_owner_home_metrics", { p_owner_id: userId }),
+    callRuntimeRpc<HomeMetricsRow[]>(db, "get_owner_home_metrics", { p_owner_id: userId }),
     db
       .from("analysis_runs")
       .select("id,target_date,status,current_step,matches_total,matches_resolved,matches_failed,selections_count,selection_finalized_at,created_at,updated_at")
@@ -38,11 +46,11 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
       .maybeSingle(),
   ]);
 
-  if (metricsResult.error) throw new Error("Não foi possível carregar suas pendências.");
-  if (recentRunsResult.error) throw new Error("Não foi possível carregar suas análises recentes.");
-  if (draftResult.error) throw new Error("Não foi possível carregar o rascunho em andamento.");
+  if (metricsResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar suas pendências.", 500);
+  if (recentRunsResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar suas análises recentes.", 500);
+  if (draftResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar o rascunho em andamento.", 500);
 
-  const metrics = (Array.isArray(metricsResult.data) ? metricsResult.data[0] : metricsResult.data) as DbRow | null;
+  const metrics = metricsResult.data?.[0] ?? null;
   const openCount = num(metrics?.open_bets_count);
   const proposedCount = num(metrics?.proposed_count);
   const settledProfit = num(metrics?.settled_profit);
@@ -54,7 +62,7 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
     availableBankroll = Math.max(0, initial + settledProfit - locked);
   }
 
-  const recentRuns = (recentRunsResult.data ?? []) as DbRow[];
+  const recentRuns = recentRunsResult.data ?? [];
   const resumableRun = recentRuns.find((run) => {
     if (run.selection_finalized_at) return false;
     return run.status === "RUNNING" || run.status === "READY_FOR_ODDS";

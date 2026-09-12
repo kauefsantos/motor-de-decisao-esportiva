@@ -91,11 +91,11 @@ export function countDistributionMetadata(input: {
 export function distributionFromStoredOutcome(outcome: unknown): Map<number, number> | null {
   if (!outcome || typeof outcome !== "object" || Array.isArray(outcome)) return null;
   const record = outcome as Record<string, unknown>;
-  const lambdaRaw = typeof record.lambda === "number" ? record.lambda : Number(record.lambda);
+  const lambdaRaw = typeof record["lambda"] === "number" ? record["lambda"] : Number(record["lambda"]);
   if (!Number.isFinite(lambdaRaw) || lambdaRaw <= 0) return null;
 
-  const kind = record.distribution;
-  const alphaApplied = finiteNonNegative(record.alpha_applied);
+  const kind = record["distribution"];
+  const alphaApplied = finiteNonNegative(record["alpha_applied"]);
   if (kind === "negative_binomial" && alphaApplied > 1e-8) {
     return countDistribution(lambdaRaw, alphaApplied);
   }

@@ -391,7 +391,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const supabase = await db();
     const { assertRunOwner } = await import("./authorization.server");
-    await assertRunOwner(supabase as unknown as { from: (table: string) => any }, context.userId, data.runId);
+    await assertRunOwner(supabase, context.userId, data.runId);
     const { data: run } = await supabase.from("analysis_runs").select("notes, created_at").eq("id", data.runId).single();
     const storedPredictionAt = (run?.notes as { prediction_at?: unknown } | null)?.prediction_at;
     const predictionAt = typeof storedPredictionAt === "string" && Number.isFinite(Date.parse(storedPredictionAt)) ? storedPredictionAt : run?.created_at ?? new Date().toISOString();
@@ -648,7 +648,7 @@ export const analyzeExperimentalMarketsOdds = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const supabase = await db();
     const { assertRunOwner } = await import("./authorization.server");
-    await assertRunOwner(supabase as unknown as { from: (table: string) => any }, context.userId, data.runId);
+    await assertRunOwner(supabase, context.userId, data.runId);
     const [{ data: predictions }, { data: run }] = await Promise.all([
       supabase.from("model_predictions").select("prediction_id, market, participant, side, line_raw, line_canonical, model_probability, outcome_distribution, model_status, data_status, match_id, model_version").eq("run_id", data.runId).eq("model_status", EXPERIMENTAL_MARKETS_STATUS),
       supabase.from("analysis_runs").select("target_date").eq("id", data.runId).single(),

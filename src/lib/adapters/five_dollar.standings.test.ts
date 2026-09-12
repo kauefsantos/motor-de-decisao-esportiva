@@ -39,7 +39,7 @@ describe("5Dollar league prior parser", () => {
       averageFor: 6,
       averageAgainst: 4,
     });
-    expect(rows[0]?.raw.first_half).toEqual({ total_for: 55, average_for: 2.75 });
+    expect(rows[0]?.raw["first_half"]).toEqual({ total_for: 55, average_for: 2.75 });
   });
 
   it("rejects a response with a different table type", () => {

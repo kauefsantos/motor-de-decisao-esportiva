@@ -41,6 +41,14 @@ type PredictionForAnalysis = {
   model_version: string | null;
 };
 
+type ExperimentalMatchRow = {
+  id: string;
+  raw_partida: string;
+  home_team: string | null;
+  away_team: string | null;
+  competition: string | null;
+};
+
 type ReferenceAlternative = {
   matchId: string;
   market: string;
@@ -207,7 +215,7 @@ export const analyzeExperimentalMarketsOddsPersisted = createServerFn({ method: 
   .inputValidator((input: unknown) => oddsSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const supabase = supabaseAdmin as any;
+    const supabase = supabaseAdmin;
     const { assertRunOwner } = await import("./authorization.server");
     await assertRunOwner(supabase, context.userId, data.runId);
 
@@ -220,7 +228,7 @@ export const analyzeExperimentalMarketsOddsPersisted = createServerFn({ method: 
       supabase.from("matches").select("id, raw_partida, home_team, away_team, competition").eq("run_id", data.runId),
     ]);
 
-    const matchById = new Map((matches ?? []).map((match: any) => [match.id, match]));
+    const matchById = new Map(((matches ?? []) as ExperimentalMatchRow[]).map((match) => [match.id, match]));
     const quotePredictions = filterQuoteAnchorPredictions((predictions ?? []) as PredictionForAnalysis[]);
     const byId = new Map(quotePredictions.map((prediction) => [prediction.prediction_id, prediction]));
     const results: EnrichedValueResult[] = [];

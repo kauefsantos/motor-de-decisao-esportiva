@@ -1,6 +1,6 @@
-// Live-schema augmentation for the generated Supabase types.
-// This bridges Lovable Cloud schema changes that are newer than types.ts.
-// When types.ts is regenerated from production, this file can be collapsed.
+// Canonical database type facade for the Lovable Cloud runtime schema.
+// `types.ts` remains the generated schema snapshot; runtime code imports Database from this file.
+// Schema additions newer than the generated snapshot are centralized here until the snapshot is regenerated.
 
 import type { Database as GeneratedDatabase, Json } from './types';
 
@@ -8,10 +8,56 @@ type BaseTables = GeneratedDatabase['public']['Tables'];
 type BaseFunctions = GeneratedDatabase['public']['Functions'];
 
 type AnalysisRunsTable = {
-  Row: BaseTables['analysis_runs']['Row'] & { owner_id: string };
-  Insert: BaseTables['analysis_runs']['Insert'] & { owner_id?: string };
-  Update: BaseTables['analysis_runs']['Update'] & { owner_id?: string };
+  Row: BaseTables['analysis_runs']['Row'] & { owner_id: string; selection_finalized_at: string | null };
+  Insert: BaseTables['analysis_runs']['Insert'] & { owner_id?: string; selection_finalized_at?: string | null };
+  Update: BaseTables['analysis_runs']['Update'] & { owner_id?: string; selection_finalized_at?: string | null };
   Relationships: BaseTables['analysis_runs']['Relationships'];
+};
+
+type AnalysisDraftsTable = {
+  Row: {
+    id: string;
+    owner_id: string;
+    client_request_id: string;
+    filename: string;
+    target_date: string | null;
+    headers: Json;
+    leagues: Json;
+    invalid_count: number;
+    status: string;
+    final_run_id: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  Insert: {
+    id?: string;
+    owner_id: string;
+    client_request_id: string;
+    filename: string;
+    target_date?: string | null;
+    headers?: Json;
+    leagues?: Json;
+    invalid_count?: number;
+    status?: string;
+    final_run_id?: string | null;
+    created_at?: string;
+    updated_at?: string;
+  };
+  Update: {
+    id?: string;
+    owner_id?: string;
+    client_request_id?: string;
+    filename?: string;
+    target_date?: string | null;
+    headers?: Json;
+    leagues?: Json;
+    invalid_count?: number;
+    status?: string;
+    final_run_id?: string | null;
+    created_at?: string;
+    updated_at?: string;
+  };
+  Relationships: [];
 };
 
 type RawObservationsTable = {
@@ -178,6 +224,7 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
       'analysis_runs' | 'raw_observations' | 'experimental_bankroll_config' | 'experimental_bet_tracking'
     > & {
       analysis_runs: AnalysisRunsTable;
+      analysis_drafts: AnalysisDraftsTable;
       raw_observations: RawObservationsTable;
       experimental_bankroll_config: ExperimentalBankrollConfigTable;
       experimental_bet_tracking: ExperimentalBetTrackingTable;
