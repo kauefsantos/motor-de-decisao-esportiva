@@ -15,6 +15,12 @@ type ClaimedAnalysisJob = {
 };
 
 type AcceptedRow = { accepted?: boolean | null };
+type ResumableStepResult = { complete?: boolean; remainingMatches?: number; processedMatches?: number };
+
+function isPartialStep(step: string, result: unknown): result is ResumableStepResult {
+  if (step !== "COLLECT" || typeof result !== "object" || result === null) return false;
+  return (result as ResumableStepResult).complete === false;
+}
 
 export const Route = createFileRoute("/api/analysis-worker")({
   server: {
@@ -83,9 +89,10 @@ export const Route = createFileRoute("/api/analysis-worker")({
             }
           };
           const heartbeatTimer = setInterval(() => void heartbeat(), 25_000);
+          let stepResult: unknown;
 
           try {
-            await executeStep(runId, nextStep.key);
+            stepResult = await executeStep(runId, nextStep.key);
           } catch (error) {
             const message = error instanceof Error ? error.message : "Falha desconhecida no processamento.";
             const { data: failedRows } = await callAdminRuntimeRpc<AcceptedRow[]>("fail_analysis_job_atomic", {
@@ -101,6 +108,27 @@ export const Route = createFileRoute("/api/analysis-worker")({
           }
 
           if (leaseLost) return backendJson({ status: "LEASE_LOST" as const, runId, step: nextStep.key }, { status: 202 }, requestId);
+
+          if (isPartialStep(nextStep.key, stepResult)) {
+            const { data: partialRows, error: partialError } = await callAdminRuntimeRpc<AcceptedRow[]>(
+              "complete_analysis_job_step_atomic",
+              { p_run_id: runId, p_lease_token: leaseToken, p_step: null, p_finished: false },
+            );
+            if (partialError) throw partialError;
+            if (!partialRows?.[0]?.accepted) {
+              return backendJson({ status: "LEASE_LOST" as const, runId, step: nextStep.key }, { status: 202 }, requestId);
+            }
+            const { error: kickError } = await callAdminRuntimeRpc("kick_analysis_worker");
+            if (kickError) console.error("[Analysis worker] resumable-step dispatch failed", kickError);
+            return backendJson({
+              status: "STEP_PARTIAL" as const,
+              runId,
+              step: nextStep.key,
+              processedMatches: stepResult.processedMatches ?? 0,
+              remainingMatches: stepResult.remainingMatches ?? null,
+            }, undefined, requestId);
+          }
+
           completed.add(nextStep.key);
           const finished = completed.size === PIPELINE_STEPS.length;
           const { data: completeRows, error: completeError } = await callAdminRuntimeRpc<AcceptedRow[]>(
