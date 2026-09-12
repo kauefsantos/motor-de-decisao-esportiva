@@ -258,13 +258,18 @@ function DraftValidationScreen() {
                         ))}
                       </div>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        {editable.map((field) => {
+                        {editable.map((field, fieldIndex) => {
                           const key = `${game.id}:${field}`;
+                          const isLastField = fieldIndex === editable.length - 1;
                           return (
                             <label key={field} className="text-xs text-muted-foreground">
                               {fieldLabel(field)}
                               <Input
                                 className="mt-1"
+                                type={field === "target_date" ? "date" : field === "horario" ? "time" : "text"}
+                                inputMode={field === "horario" ? "numeric" : undefined}
+                                enterKeyHint={isLastField ? "done" : "next"}
+                                autoComplete="off"
                                 value={values[key] ?? currentValue(game, field)}
                                 onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))}
                               />

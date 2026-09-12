@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { BarChart3, Clock3, LogOut, Search, ShieldCheck } from "lucide-react";
 
@@ -16,6 +16,27 @@ type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics" | "ac
 export function AppShell({ stage, children }: { stage: StageKey; children: ReactNode }) {
   const showAnalysisProgress = STAGES.some((item) => item.key === stage);
   const activeStageIndex = STAGES.findIndex((item) => item.key === stage);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const update = () => {
+      const coveredHeight = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setKeyboardOpen(coveredHeight > 120);
+    };
+
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -23,23 +44,23 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
   }
 
   const mobileNavClass = (active: boolean) =>
-    `flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-[11px] font-medium transition-colors ${
+    `touch-target flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-[11px] font-medium transition-colors ${
       active ? "bg-primary/12 text-primary" : "text-muted-foreground active:bg-secondary/70"
     }`;
 
   const desktopNavClass = (active: boolean) =>
-    `flex min-h-9 items-center justify-center rounded-lg px-3.5 text-xs font-medium transition-colors ${
+    `touch-target flex min-h-9 items-center justify-center rounded-lg px-3.5 text-xs font-medium transition-colors ${
       active
         ? "bg-background text-foreground shadow-sm ring-1 ring-border"
         : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
     }`;
 
   return (
-    <div className="min-h-[100dvh]">
+    <div className="min-h-[100dvh]" data-keyboard-open={keyboardOpen ? "true" : "false"}>
       <header className="sticky top-0 z-20 border-b border-border/80 bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
         <div className="mx-auto max-w-[1280px] px-4 py-2 sm:px-6 sm:py-2.5 lg:px-8">
           <div className="flex items-center justify-between gap-3">
-            <Link to="/" className="flex min-h-11 min-w-0 items-center gap-2.5" aria-label="Ir para o início">
+            <Link to="/" className="touch-target flex min-h-11 min-w-0 items-center gap-2.5" aria-label="Ir para o início">
               <img src="/icons/favicon-32.png" alt="" className="size-7 shrink-0 rounded-lg ring-1 ring-primary/15 sm:size-8 sm:rounded-xl" aria-hidden />
               <span className="min-w-0">
                 <span className="num block truncate text-sm font-semibold tracking-tight text-primary">
@@ -75,7 +96,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
             <div className="flex items-center gap-1">
               <a
                 href="/conta"
-                className={`flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary ${stage === "account" ? "text-primary" : "text-muted-foreground sm:hover:text-foreground"}`}
+                className={`touch-target flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary ${stage === "account" ? "text-primary" : "text-muted-foreground sm:hover:text-foreground"}`}
                 aria-label="Conta e privacidade"
                 aria-current={stage === "account" ? "page" : undefined}
               >
@@ -85,7 +106,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
               <button
                 type="button"
                 onClick={() => void signOut()}
-                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary sm:hover:text-foreground"
+                className="touch-target flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary sm:hover:text-foreground"
                 aria-label="Sair da conta"
               >
                 <LogOut className="size-4" aria-hidden />
@@ -164,20 +185,21 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
+      <main className="mx-auto min-w-0 max-w-[1400px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
         {children}
       </main>
 
       <footer className="mx-auto hidden max-w-[1400px] px-4 pb-8 sm:block sm:px-6 lg:px-8">
         <details className="text-xs text-muted-foreground">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center py-2">Bet365 Brasil · Horário de Brasília · Apostas simples</summary>
+          <summary className="touch-target flex min-h-11 cursor-pointer list-none items-center py-2">Bet365 Brasil · Horário de Brasília · Apostas simples</summary>
           <p className="max-w-2xl pb-2">O sistema organiza a análise e o histórico; não faz apostas por você. <a href="/privacidade" className="underline underline-offset-4">Privacidade</a></p>
         </details>
       </footer>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-border/80 bg-background/96 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:hidden"
+        className={`${keyboardOpen ? "hidden" : "fixed"} inset-x-0 bottom-0 z-30 border-t border-border/80 bg-background/96 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:hidden`}
         aria-label="Navegação principal"
+        aria-hidden={keyboardOpen || undefined}
       >
         <div className="mx-auto grid max-w-lg grid-cols-3 gap-1">
           <Link to="/" aria-current={showAnalysisProgress ? "page" : undefined} className={mobileNavClass(showAnalysisProgress)}>
