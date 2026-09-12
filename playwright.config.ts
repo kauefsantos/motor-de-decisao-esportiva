@@ -4,6 +4,7 @@ const desktop = { viewport: { width: 1366, height: 768 } };
 
 export default defineConfig({
   testDir: "./tests/browser",
+  testMatch: "**/*.pw.ts",
   timeout: 30_000,
   expect: { timeout: 5_000 },
   retries: process.env.CI ? 1 : 0,
