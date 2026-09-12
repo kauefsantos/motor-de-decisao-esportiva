@@ -14,6 +14,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthGate } from "@/components/AuthGate";
 import { ExperimentalResultHydrator } from "@/components/ExperimentalResultHydrator";
+import { WebVitalsReporter } from "@/components/WebVitalsReporter";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -99,7 +100,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap",
       },
       { rel: "icon", href: "/icons/favicon-32.png", type: "image/png", sizes: "32x32" },
       { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png", sizes: "180x180" },
@@ -136,6 +137,7 @@ function RootComponent() {
         <Outlet />
       ) : (
         <AuthGate>
+          <WebVitalsReporter />
           <ExperimentalResultHydrator>
             <Outlet />
           </ExperimentalResultHydrator>
