@@ -41,12 +41,18 @@ begin
   where run_id=v_run
   limit 1;
 
+  insert into public.model_versions(
+    market_family,model_version,calibration_version,validation_status,out_of_sample_metrics
+  ) values (
+    'CORNERS','test-line-v1','cal-line-v1','PRODUCTION_VALIDATED','{"test":true}'::jsonb
+  );
+
   insert into public.model_predictions(
     run_id,match_id,prediction_id,market,participant,side,line_raw,line_canonical,
-    model_probability,model_version,model_status,data_status
+    model_probability,p_cal,conservative_probability,model_version,calibration_version,model_status,data_status
   ) values (
     v_run,v_match,'LINE-GUARD-1','corners_team_total','Time A','OVER','4.5',4.5,
-    0.75,'test-line-v1','EXPERIMENTAL_CURRENT_SEASON','OK'
+    0.78,0.76,0.75,'test-line-v1','cal-line-v1','PRODUCTION_VALIDATED','OK'
   );
 
   begin
@@ -66,13 +72,13 @@ begin
         'side','OVER',
         'line_canonical',9.5,
         'model_version','test-line-v1',
-        'model_status','EXPERIMENTAL_CURRENT_SEASON',
+        'model_status','PRODUCTION_VALIDATED',
         'model_probability',0.75,
-        'fair_odd',1.33,
+        'fair_odd',1.333333,
         'entry_odd',2.00,
         'min_odd_target',1.70,
-        'edge',0.10,
-        'expected_value',0.20
+        'edge',0.25,
+        'expected_value',0.50
       ))
     );
   exception when others then
@@ -103,13 +109,13 @@ begin
       'side','OVER',
       'line_canonical',4.5,
       'model_version','test-line-v1',
-      'model_status','EXPERIMENTAL_CURRENT_SEASON',
+      'model_status','PRODUCTION_VALIDATED',
       'model_probability',0.75,
-      'fair_odd',1.33,
+      'fair_odd',1.333333,
       'entry_odd',2.00,
       'min_odd_target',1.70,
-      'edge',0.10,
-      'expected_value',0.20
+      'edge',0.25,
+      'expected_value',0.50
     ))
   );
 
@@ -120,12 +126,12 @@ begin
       and prediction_id='LINE-GUARD-1'
       and line_canonical=4.5
   ) <> 1 then
-    raise exception 'matching modelled line was not persisted';
+    raise exception 'matching validated modelled line was not persisted';
   end if;
 end
 $test$
 $outer$,
-'Lovable Cloud rejects a forged line and accepts the modelled line'
+'Lovable Cloud rejects a forged line and accepts the validated modelled line'
 );
 
 select * from finish();
