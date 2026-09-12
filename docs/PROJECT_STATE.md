@@ -1,6 +1,6 @@
 # Motor de Decisão Esportiva — estado canônico
 
-> Atualizado: 11/09/2026  
+> Atualizado: 12/09/2026  
 > Repositório: `kauefsantos/motor-de-decisao-esportiva`  
 > Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a`  
 > URL publicada: `https://quant-football-insights.lovable.app/`  
@@ -28,17 +28,18 @@ Este arquivo registra decisões vigentes. Auditorias datadas preservam a trilha 
 ### Segurança — fechado
 
 - autenticação global das server functions;
-- Google login com allowlist validada no servidor;
+- login Google usa OAuth nativo do Supabase, sem dependência do broker legado `@lovable.dev/cloud-auth-js`;
+- a identidade aprovada não fica codificada em e-mail/UUID nas superfícies atuais: a autorização é validada por RPC booleano no banco e falha fechada quando não pode ser confirmada;
 - prazo absoluto de sessão de 30 dias validado no servidor pelo timestamp OAuth assinado no `amr` do JWT; `token_refresh` não reinicia o prazo;
 - `session_id` assinado é obrigatório nas operações autenticadas;
 - service role confinada a módulos server-side;
-- CSRF e headers/CSP endurecidos, incluindo `base-uri 'none'`, `script-src-attr 'none'`, bloqueio de objetos e ausência de `unsafe-eval`;
+- CSRF e headers/CSP endurecidos, com nonce criptográfico por resposta para `script`/`style`, `base-uri 'none'`, `script-src-attr 'none'`, `style-src-attr 'none'`, bloqueio de objetos e ausência de `unsafe-inline`/`unsafe-eval`;
 - Web Push aceita somente endpoints HTTPS de provedores conhecidos e repete a validação imediatamente antes do `fetch`, com redirects bloqueados contra SSRF;
 - CI executa auditoria de dependências de alta severidade e Gitleaks sobre o histórico completo;
 - operações críticas de banca protegidas contra concorrência/duplicidade;
 - `/api/elo-sync` existe somente como fallback `POST` protegido; a rotina diária Elo roda por `pg_cron` no banco.
 
-Riscos residuais documentados são itens de manutenção, não blockers estruturais conhecidos. `unsafe-inline` permanece temporariamente na CSP por compatibilidade do runtime TanStack/Lovable e o broker OAuth Lovable legado deve ser migrado separadamente, com validação de login em preview e produção. Referência: [SECURITY_HARDENING_2026-09-11.md](SECURITY_HARDENING_2026-09-11.md).
+Os achados residuais da auditoria de Segurança da Informação foram fechados no estado atual. A definição de “100% fechado” aplica-se aos achados identificados nesta auditoria e não representa garantia de ausência de vulnerabilidades futuras. Referência: [SECURITY_AUDIT_CLOSURE_2026-09-12.md](SECURITY_AUDIT_CLOSURE_2026-09-12.md).
 
 ### Backend — fechado como eixo de implementação
 
