@@ -4,6 +4,8 @@ import { z } from "zod";
 const RESULT_VALUES = ["PENDING", "WIN", "LOSS", "PUSH", "VOID"] as const;
 type TrackingResult = (typeof RESULT_VALUES)[number];
 type BetStatus = "PROPOSED" | "OPEN" | "DECLINED" | "SETTLED";
+type DecisionPolicyVersion = "decision-v1-legacy-pre-strict70" | "decision-v2-strict70";
+const CURRENT_DECISION_POLICY: DecisionPolicyVersion = "decision-v2-strict70";
 
 type TrackingRow = {
   id: string;
@@ -40,6 +42,7 @@ type TrackingRow = {
   created_at: string;
   updated_at: string;
   settled_at: string | null;
+  decision_policy_version: DecisionPolicyVersion;
 };
 
 type BankrollConfig = {
@@ -150,15 +153,17 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
     .sort((a, b) => b.selections - a.selections || a.family.localeCompare(b.family));
 
   const buckets = [
-    { key: "65–69%", min: 0.65, max: 0.70 },
     { key: "70–74%", min: 0.70, max: 0.75 },
     { key: "75–79%", min: 0.75, max: 0.80 },
-    { key: "80%+", min: 0.80, max: 1.001 },
+    { key: "80–84%", min: 0.80, max: 0.85 },
+    { key: "85%+", min: 0.85, max: 1.001 },
   ];
   const calibration = buckets.map((bucket) => {
     const bucketRows = decided.filter((row) => {
       const probability = n(row.model_probability);
-      return probability >= bucket.min && probability < bucket.max;
+      return probability > bucket.min || (bucket.min > 0.70 && probability >= bucket.min)
+        ? probability < bucket.max
+        : false;
     });
     const bucketWins = bucketRows.filter((row) => row.result === "WIN").length;
     return {
@@ -171,12 +176,12 @@ function analytics(rows: TrackingRow[], config: BankrollConfig) {
 
   const sampleMessage =
     decided.length === 0
-      ? "Ainda não há resultados fechados. O painel começa a ganhar valor a partir das primeiras apostas confirmadas."
+      ? "Ainda não há resultados fechados na política atual."
       : decided.length < 30
-        ? "Amostra inicial: acompanhe tendência, preço de fechamento e disciplina, sem concluir ainda que o modelo é lucrativo."
+        ? "Amostra inicial da política atual: acompanhe tendência, preço de fechamento e disciplina, sem concluir ainda que o modelo é lucrativo."
         : decided.length < 100
-          ? "Amostra em formação: já dá para comparar mercados e calibração, mas ainda há bastante variância."
-          : "Amostra mais informativa: continue avaliando retorno, calibração, preço de fechamento e estabilidade por mercado.";
+          ? "Amostra em formação da política atual: já dá para comparar mercados e calibração, mas ainda há bastante variância."
+          : "Amostra mais informativa da política atual: continue avaliando retorno, calibração, preço de fechamento e estabilidade por mercado.";
 
   return {
     summary: {
@@ -242,13 +247,25 @@ export const getExperimentalAnalytics = createServerFn({ method: "GET" }).handle
 
   const config = configData as BankrollConfig;
   const allRows = (trackingData ?? []) as TrackingRow[];
-  const rows = allRows.filter(
+  const inConfiguredPeriod = allRows.filter((row) => typeof row.target_date === "string" && row.target_date >= config.start_date);
+  const legacyRows = inConfiguredPeriod.filter((row) => row.decision_policy_version !== CURRENT_DECISION_POLICY);
+  const rows = inConfiguredPeriod.filter(
     (row) =>
-      typeof row.target_date === "string" &&
-      row.target_date >= config.start_date &&
+      row.decision_policy_version === CURRENT_DECISION_POLICY &&
       (row.bet_status === "OPEN" || row.bet_status === "SETTLED" || row.result !== "PENDING" || n(row.stake_brl) > 0),
   );
-  return { rows, ...analytics(rows, config) };
+
+  return {
+    rows,
+    policyVersion: CURRENT_DECISION_POLICY,
+    legacy: {
+      rows: legacyRows,
+      count: legacyRows.length,
+      decided: legacyRows.filter((row) => row.result === "WIN" || row.result === "LOSS").length,
+      note: "Legado preservado para rastreabilidade e excluído dos indicadores da política atual.",
+    },
+    ...analytics(rows, config),
+  };
 });
 
 const settleSchema = z.object({
