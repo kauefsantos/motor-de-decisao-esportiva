@@ -43,9 +43,7 @@ function isQualified(row: ValueResult) {
  */
 export function selectExperimentalPortfolio<T extends PortfolioCandidate>(
   results: T[],
-  legacyLimit = MAX_SELECTIONS,
 ): PortfolioSelectionResult<T> {
-  void legacyLimit;
   const qualified = results.filter(isQualified).sort(valueOrder);
   const selected: T[] = [];
   const selectedMatches = new Set<string>();

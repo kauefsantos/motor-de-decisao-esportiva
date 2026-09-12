@@ -37,13 +37,15 @@ describe("production E2E market funnel contract", () => {
   it("mirrors only the final portfolio to the decision queue", () => {
     const portfolio = source("./lib/engine/portfolio-selection.ts");
     const queue = source("./lib/decision-queue.functions.ts");
+    const queueRepository = source("./lib/repositories/decision-queue.repository.server.ts");
 
     expect(portfolio).toContain("selected.length >= MAX_SELECTIONS");
     expect(portfolio).toContain("selectedMatches.has(row.matchId)");
     expect(portfolio).toContain("familyCount >= 2");
     expect(portfolio).toContain("correlatedAlternates: []");
     expect(queue).toContain("selectExperimentalPortfolio");
-    expect(queue).toContain("replace_decision_queue_atomic");
+    expect(queue).toContain("replaceDecisionQueue");
+    expect(queueRepository).toContain('"replace_decision_queue_atomic"');
   });
 
   it("enforces the same business rule in the Lovable Cloud migration", () => {

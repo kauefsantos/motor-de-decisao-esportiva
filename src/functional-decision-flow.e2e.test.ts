@@ -64,7 +64,7 @@ describe("functional decision flow E2E", () => {
     expect(rows[5]?.rejectionReason).toBe("ODD_BELOW_MINIMUM");
     expect(rows.slice(0, 5).every((row) => row?.valueStatus === "TEM_VALOR")).toBe(true);
 
-    const portfolio = selectExperimentalPortfolio(rows, 3);
+    const portfolio = selectExperimentalPortfolio(rows);
     expect(portfolio.selected).toHaveLength(3);
     expect(new Set(portfolio.selected.map((row) => row.matchId)).size).toBe(3);
     expect(portfolio.selected.every((row) => row.odd >= 1.70)).toBe(true);

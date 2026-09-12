@@ -74,3 +74,11 @@ Regras operacionais:
 - qualquer alteração que aumente deliberadamente o bundle acima do orçamento deve justificar o impacto no PR e ajustar o budget de forma explícita, nunca silenciosamente.
 
 Baseline medida antes deste pacote: banco ~296 MB, `raw_observations` ~239 MB, análise recente ~381–390 s, consulta de 22.788 raws ~2,53 s e maiores chunks client ~100/90 KiB gzip. A comparação pós-ajuste deve usar a mesma família de medições.
+
+## Arquitetura e qualidade do código (2026-09-12)
+
+As fronteiras críticas do motor são governadas por tipagem explícita e separação de responsabilidades. A fila de decisão não pode depender de `any`; RPCs mais novos que o snapshot gerado do Lovable Cloud ficam encapsulados em repositories server-only e o schema runtime conhecido deve permanecer tipado. O gate `check:architecture` cobre a fronteira da decision queue além das camadas application/domain/repositories.
+
+O fluxo de mercados experimentais deve manter responsabilidades separadas entre construção de datasets, serviço de predição, persistência e avaliação/tracking. Refatorações dessa área não podem alterar silenciosamente thresholds, probabilidades, EV, edge, limite canônico de 3 seleções, máximo de uma escolha principal por partida ou máximo de duas por família. O seletor de portfólio recebe somente os candidatos; `MAX_SELECTIONS` é a fonte única do limite operacional.
+
+A ordem de substituição das previsões também faz parte do comportamento: previsões experimentais antigas são limpas antes do novo cálculo, preservando a semântica histórica de falha e impedindo que dados antigos permaneçam aparentando ser resultado de uma tentativa nova que falhou.

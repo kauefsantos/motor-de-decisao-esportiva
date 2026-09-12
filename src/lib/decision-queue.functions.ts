@@ -1,12 +1,21 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import { adminDb, type AdminDb } from "./admin-db";
 import { backendOk, BackendError } from "./backend-contract";
 import { familyForMarket } from "./engine/experimental-goal-markets";
 import { filterQuoteAnchorPredictions, formatBookmakerLine } from "./engine/market-policy";
 import { selectExperimentalPortfolio } from "./engine/portfolio-selection";
 import { evaluateValue, type ValueResult } from "./engine/value";
 import { EXPERIMENTAL_MARKETS_STATUS } from "./experimental-markets-run.functions";
+import {
+  acceptDecisionQueueItem,
+  declineDecisionQueueItem,
+  finalizeDecisionQueueSelection,
+  findOwnedDecisionRun,
+  nextDecisionBatch,
+  replaceDecisionQueue,
+} from "./repositories/decision-queue.repository.server";
 
 const inputSchema = z.object({
   runId: z.string().uuid(),
@@ -61,9 +70,14 @@ function finite(value: unknown, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function labelFor(market: string, participant: string | null, side: string | null, line: string | null) {
-  const n = line === null ? null : Number(line);
-  const formatted = n !== null && Number.isFinite(n) ? formatBookmakerLine(n) : "";
+function labelFor(
+  market: string,
+  participant: string | null,
+  side: string | null,
+  line: string | null,
+) {
+  const number = line === null ? null : Number(line);
+  const formatted = number !== null && Number.isFinite(number) ? formatBookmakerLine(number) : "";
   if (market === "corners_match_total") return `Escanteios da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${formatted}`.trim();
   if (market === "corners_team_total") return `Escanteios ${participant ?? "time"} ${side === "UNDER" ? "Menos de" : "Mais de"} ${formatted}`.trim();
   if (market === "cards_match_total") return `Cartões da partida ${side === "UNDER" ? "Menos de" : "Mais de"} ${formatted}`.trim();
@@ -75,36 +89,37 @@ function labelFor(market: string, participant: string | null, side: string | nul
   return market;
 }
 
-async function db() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin as any;
-}
-
-async function owner(db: any, runId: string, userId: string) {
-  const { data, error } = await db.from("analysis_runs").select("id,target_date,selection_finalized_at").eq("id", runId).eq("owner_id", userId).single();
-  if (error || !data) throw new BackendError("NOT_FOUND", "Análise não encontrada.", 404);
-  return data;
+async function owner(db: AdminDb, runId: string, userId: string) {
+  const run = await findOwnedDecisionRun(db, runId, userId);
+  if (!run) throw new BackendError("NOT_FOUND", "Análise não encontrada.", 404);
+  return run;
 }
 
 export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
-    const rawDb = await db();
-    await owner(rawDb, data.runId, context.userId);
+    const db = await adminDb();
+    await owner(db, data.runId, context.userId);
 
     const [{ data: predictions, error: predictionError }, { data: matches, error: matchError }] = await Promise.all([
-      rawDb.from("model_predictions")
+      db.from("model_predictions")
         .select("prediction_id,match_id,market,participant,side,line_raw,line_canonical,model_probability,model_status,data_status,model_version")
         .eq("run_id", data.runId)
         .eq("model_status", EXPERIMENTAL_MARKETS_STATUS),
-      rawDb.from("matches").select("id,raw_partida,home_team,away_team,competition").eq("run_id", data.runId),
+      db.from("matches")
+        .select("id,raw_partida,home_team,away_team,competition")
+        .eq("run_id", data.runId),
     ]);
-    if (predictionError || matchError) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar os modelos da rodada.", 500);
+    if (predictionError || matchError) {
+      throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar os modelos da rodada.", 500);
+    }
 
     const quotePredictions = filterQuoteAnchorPredictions((predictions ?? []) as Prediction[]);
     const byId = new Map(quotePredictions.map((row) => [row.prediction_id, row]));
-    const matchById = new Map(((matches ?? []) as DecisionMatchRow[]).map((match) => [match.id, match]));
+    const matchById = new Map(
+      ((matches ?? []) as DecisionMatchRow[]).map((match) => [match.id, match]),
+    );
     const evaluated: Ranked[] = [];
 
     for (const entry of data.entries) {
@@ -129,10 +144,19 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
       evaluated.push({
         ...result,
         matchId: prediction.match_id,
-        matchLabel: match ? (match.home_team && match.away_team ? `${match.home_team} x ${match.away_team}` : match.raw_partida) : "—",
+        matchLabel: match
+          ? match.home_team && match.away_team
+            ? `${match.home_team} x ${match.away_team}`
+            : match.raw_partida
+          : "—",
         competition: match?.competition ?? "",
         market: prediction.market,
-        marketLabel: labelFor(prediction.market, prediction.participant, prediction.side, prediction.line_raw),
+        marketLabel: labelFor(
+          prediction.market,
+          prediction.participant,
+          prediction.side,
+          prediction.line_raw,
+        ),
         participant: prediction.participant,
         side: prediction.side,
         lineCanonical: prediction.line_canonical === null ? null : Number(prediction.line_canonical),
@@ -142,9 +166,12 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
       });
     }
 
-    const portfolio = selectExperimentalPortfolio(evaluated, Math.max(1, evaluated.length));
+    const portfolio = selectExperimentalPortfolio(evaluated);
     const qualified = ([...portfolio.selected, ...portfolio.correlatedAlternates] as Ranked[])
-      .sort((a, b) => (b.evCons ?? -Infinity) - (a.evCons ?? -Infinity) || (b.edgeCons ?? -Infinity) - (a.edgeCons ?? -Infinity));
+      .sort(
+        (a, b) => (b.evCons ?? -Infinity) - (a.evCons ?? -Infinity) ||
+          (b.edgeCons ?? -Infinity) - (a.edgeCons ?? -Infinity),
+      );
     const queueRows = qualified.map((row, index) => ({
       match_id: row.matchId,
       prediction_id: row.predictionId,
@@ -167,15 +194,21 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
       expected_value: row.evCons,
     }));
 
-    const { data: count, error: replaceError } = await rawDb.rpc("replace_decision_queue_atomic", {
-      p_run_id: data.runId,
-      p_owner_id: context.userId,
-      p_rows: queueRows,
+    const replaceResult = await replaceDecisionQueue(db, {
+      runId: data.runId,
+      ownerId: context.userId,
+      rows: queueRows,
     });
-    if (replaceError) throw new BackendError("CONFLICT", "A fila de opções já possui escolhas e não pode ser reconstruída.", 409);
+    if (replaceResult.error) {
+      throw new BackendError(
+        "CONFLICT",
+        "A fila de opções já possui escolhas e não pode ser reconstruída.",
+        409,
+      );
+    }
 
-    const evaluatedCount = Number(count ?? queueRows.length);
-    const { error: markerError } = await rawDb.from("pipeline_logs").insert({
+    const evaluatedCount = Number(replaceResult.data ?? queueRows.length);
+    const { error: markerError } = await db.from("pipeline_logs").insert({
       run_id: data.runId,
       step: DECISION_QUEUE_EVALUATED_STEP,
       level: "INFO",
@@ -184,21 +217,30 @@ export const buildDecisionOpportunityQueue = createServerFn({ method: "POST" })
         : `Fila de decisão avaliada com ${evaluatedCount} opção(ões) qualificadas.`,
       payload: { totalQualified: evaluatedCount },
     });
-    if (markerError) throw new BackendError("INTERNAL_ERROR", "A avaliação foi concluída, mas seu estado não pôde ser persistido.", 500);
+    if (markerError) {
+      throw new BackendError(
+        "INTERNAL_ERROR",
+        "A avaliação foi concluída, mas seu estado não pôde ser persistido.",
+        500,
+      );
+    }
 
-    const { data: batch, error: batchError } = await rawDb.rpc("next_decision_batch_atomic", {
-      p_run_id: data.runId,
-      p_owner_id: context.userId,
-      p_limit: 10,
+    const batchResult = await nextDecisionBatch(db, {
+      runId: data.runId,
+      ownerId: context.userId,
+      limit: 10,
     });
-    if (batchError) throw new BackendError("INTERNAL_ERROR", "Não foi possível abrir o primeiro lote de opções.", 500);
+    if (batchResult.error) {
+      throw new BackendError("INTERNAL_ERROR", "Não foi possível abrir o primeiro lote de opções.", 500);
+    }
+    const batch = batchResult.data ?? [];
 
     return backendOk({
       runId: data.runId,
       totalQualified: evaluatedCount,
-      batch: batch ?? [],
-      batchSize: (batch ?? []).length,
-      exhausted: queueRows.length <= (batch ?? []).length,
+      batch,
+      batchSize: batch.length,
+      exhausted: queueRows.length <= batch.length,
       dailySelectionLimit: 3,
       correlatedAlternatesDeferred: portfolio.correlatedAlternates.length,
       message: queueRows.length === 0
@@ -213,23 +255,45 @@ export const getNextDecisionBatch = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => runSchema.parse(input))
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
-    const rawDb = await db();
-    const run = await owner(rawDb, data.runId, context.userId);
+    const db = await adminDb();
+    const run = await owner(db, data.runId, context.userId);
     if (run.selection_finalized_at) {
-      const { count: accepted } = await rawDb.from("decision_opportunity_queue").select("id", { count: "exact", head: true }).eq("run_id", data.runId).eq("queue_state", "ACCEPTED");
-      return backendOk({ batch: [], exhausted: false, acceptedCount: Number(accepted ?? 0), selectionFinalized: true, canProceedToStake: Number(accepted ?? 0) > 0, dailySelectionLimit: 3 });
+      const { count: accepted } = await db
+        .from("decision_opportunity_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("run_id", data.runId)
+        .eq("queue_state", "ACCEPTED");
+      return backendOk({
+        batch: [],
+        exhausted: false,
+        acceptedCount: Number(accepted ?? 0),
+        selectionFinalized: true,
+        canProceedToStake: Number(accepted ?? 0) > 0,
+        dailySelectionLimit: 3,
+      });
     }
-    const { data: batch, error } = await rawDb.rpc("next_decision_batch_atomic", {
-      p_run_id: data.runId,
-      p_owner_id: context.userId,
-      p_limit: 10,
+    const batchResult = await nextDecisionBatch(db, {
+      runId: data.runId,
+      ownerId: context.userId,
+      limit: 10,
     });
-    if (error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar o próximo lote.", 500);
-    const { count: available } = await rawDb.from("decision_opportunity_queue").select("id", { count: "exact", head: true }).eq("run_id", data.runId).eq("queue_state", "AVAILABLE");
-    const { count: accepted } = await rawDb.from("decision_opportunity_queue").select("id", { count: "exact", head: true }).eq("run_id", data.runId).eq("queue_state", "ACCEPTED");
+    if (batchResult.error) {
+      throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar o próximo lote.", 500);
+    }
+    const batch = batchResult.data ?? [];
+    const { count: available } = await db
+      .from("decision_opportunity_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("run_id", data.runId)
+      .eq("queue_state", "AVAILABLE");
+    const { count: accepted } = await db
+      .from("decision_opportunity_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("run_id", data.runId)
+      .eq("queue_state", "ACCEPTED");
     return backendOk({
-      batch: batch ?? [],
-      exhausted: (batch ?? []).length === 0 && Number(available ?? 0) === 0,
+      batch,
+      exhausted: batch.length === 0 && Number(available ?? 0) === 0,
       acceptedCount: Number(accepted ?? 0),
       selectionFinalized: false,
       canProceedToStake: false,
@@ -241,19 +305,24 @@ export const declineDecisionOpportunity = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => queueSchema.parse(input))
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
-    const rawDb = await db();
-    const { data: rows, error } = await rawDb.rpc("decline_decision_opportunity_atomic", {
-      p_queue_id: data.queueId,
-      p_owner_id: context.userId,
+    const db = await adminDb();
+    const result = await declineDecisionQueueItem(db, {
+      queueId: data.queueId,
+      ownerId: context.userId,
     });
-    if (error) throw new BackendError("CONFLICT", "Essa opção não está mais disponível para recusa.", 409);
+    if (result.error) {
+      throw new BackendError("CONFLICT", "Essa opção não está mais disponível para recusa.", 409);
+    }
+    const rows = result.data;
     const row = Array.isArray(rows) ? rows[0] : rows;
     return backendOk({
       declined: Boolean(row?.declined),
       exhausted: Boolean(row?.exhausted),
       acceptedCount: Number(row?.accepted_count ?? 0),
       canProceedToStake: Boolean(row?.exhausted) && Number(row?.accepted_count ?? 0) > 0,
-      message: row?.exhausted ? "Não há mais opções qualificadas. Você pode voltar ao histórico ou seguir com as escolhas já feitas." : null,
+      message: row?.exhausted
+        ? "Não há mais opções qualificadas. Você pode voltar ao histórico ou seguir com as escolhas já feitas."
+        : null,
     });
   });
 
@@ -261,12 +330,19 @@ export const acceptDecisionOpportunity = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => queueSchema.parse(input))
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
-    const rawDb = await db();
-    const { data: rows, error } = await rawDb.rpc("accept_decision_opportunity_atomic", {
-      p_queue_id: data.queueId,
-      p_owner_id: context.userId,
+    const db = await adminDb();
+    const result = await acceptDecisionQueueItem(db, {
+      queueId: data.queueId,
+      ownerId: context.userId,
     });
-    if (error) throw new BackendError("CONFLICT", "A opção não pôde ser selecionada, há outra escolha do mesmo jogo ou o limite diário de três escolhas foi atingido.", 409);
+    if (result.error) {
+      throw new BackendError(
+        "CONFLICT",
+        "A opção não pôde ser selecionada, há outra escolha do mesmo jogo ou o limite diário de três escolhas foi atingido.",
+        409,
+      );
+    }
+    const rows = result.data;
     const row = Array.isArray(rows) ? rows[0] : rows;
     return backendOk({
       accepted: Boolean(row?.accepted),
@@ -280,13 +356,20 @@ export const finalizeDecisionSelection = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => runSchema.parse(input))
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
-    const rawDb = await db();
-    await owner(rawDb, data.runId, context.userId);
-    const { data: rows, error } = await rawDb.rpc("finalize_decision_selection_atomic", {
-      p_run_id: data.runId,
-      p_owner_id: context.userId,
+    const db = await adminDb();
+    await owner(db, data.runId, context.userId);
+    const result = await finalizeDecisionQueueSelection(db, {
+      runId: data.runId,
+      ownerId: context.userId,
     });
-    if (error) throw new BackendError("CONFLICT", "Escolha ao menos uma e no máximo três apostas antes de continuar.", 409);
+    if (result.error) {
+      throw new BackendError(
+        "CONFLICT",
+        "Escolha ao menos uma e no máximo três apostas antes de continuar.",
+        409,
+      );
+    }
+    const rows = result.data;
     const row = Array.isArray(rows) ? rows[0] : rows;
     return backendOk({
       finalized: Boolean(row?.finalized),
@@ -300,16 +383,28 @@ export const getDecisionQueueHistory = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => runSchema.parse(input))
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
-    const rawDb = await db();
-    const run = await owner(rawDb, data.runId, context.userId);
+    const db = await adminDb();
+    const run = await owner(db, data.runId, context.userId);
     const [queueResult, evaluationResult] = await Promise.all([
-      rawDb.from("decision_opportunity_queue").select("*").eq("run_id", data.runId).order("rank_global"),
-      rawDb.from("pipeline_logs").select("id", { count: "exact", head: true }).eq("run_id", data.runId).eq("step", DECISION_QUEUE_EVALUATED_STEP),
+      db
+        .from("decision_opportunity_queue")
+        .select("*")
+        .eq("run_id", data.runId)
+        .order("rank_global"),
+      db
+        .from("pipeline_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("run_id", data.runId)
+        .eq("step", DECISION_QUEUE_EVALUATED_STEP),
     ]);
-    if (queueResult.error || evaluationResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível recuperar o histórico da fila.", 500);
+    if (queueResult.error || evaluationResult.error) {
+      throw new BackendError("INTERNAL_ERROR", "Não foi possível recuperar o histórico da fila.", 500);
+    }
     const history = queueResult.data ?? [];
-    const acceptedCount = history.filter((row: any) => row.queue_state === "ACCEPTED").length;
-    const exhausted = !history.some((row: any) => row.queue_state === "AVAILABLE" || row.queue_state === "SHOWN");
+    const acceptedCount = history.filter((row) => row.queue_state === "ACCEPTED").length;
+    const exhausted = !history.some(
+      (row) => row.queue_state === "AVAILABLE" || row.queue_state === "SHOWN",
+    );
     const selectionFinalized = Boolean(run.selection_finalized_at);
     const decisionQueueEvaluated = history.length > 0 || Number(evaluationResult.count ?? 0) > 0;
     return backendOk({

@@ -24,6 +24,7 @@ const criticalTypedFiles = new Set([
   "src/lib/analytics.functions.ts",
   "src/lib/bankroll.functions.ts",
   "src/lib/authorization.server.ts",
+  "src/lib/decision-queue.functions.ts",
 ]);
 
 for (const absolute of files) {

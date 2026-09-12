@@ -37,24 +37,25 @@ function candidate(
 
 describe("experimental portfolio selection", () => {
   it("keeps only one automatic selection per match and hides the correlated one", () => {
-    const result = selectExperimentalPortfolio(
-      [candidate("m1-best", "m1", 0.30), candidate("m1-second", "m1", 0.25), candidate("m2", "m2", 0.20)],
-      3,
-    );
+    const result = selectExperimentalPortfolio([
+      candidate("m1-best", "m1", 0.30),
+      candidate("m1-second", "m1", 0.25),
+      candidate("m2", "m2", 0.20),
+    ]);
     expect(result.selected.map((row) => row.predictionId)).toEqual(["m1-best", "m2"]);
     expect(result.correlatedAlternates).toEqual([]);
   });
 
   it("does not force three selections", () => {
-    const result = selectExperimentalPortfolio([candidate("only", "m1", 0.10)], 3);
+    const result = selectExperimentalPortfolio([candidate("only", "m1", 0.10)]);
     expect(result.selected).toHaveLength(1);
   });
 
   it("accepts exactly 70% but rejects below 70%", () => {
-    const result = selectExperimentalPortfolio(
-      [candidate("below", "m1", 0.50, 0.6999), candidate("seventy", "m2", 0.19, 0.70, 1.70)],
-      3,
-    );
+    const result = selectExperimentalPortfolio([
+      candidate("below", "m1", 0.50, 0.6999),
+      candidate("seventy", "m2", 0.19, 0.70, 1.70),
+    ]);
     expect(result.selected.map((row) => row.predictionId)).toEqual(["seventy"]);
   });
 
@@ -86,7 +87,11 @@ describe("experimental portfolio selection", () => {
   });
 
   it("keeps zero qualified bets as a valid outcome", () => {
-    const noValue = { ...candidate("no-value", "m3", 0), valueStatus: "SEM_VALOR" as const, executionStatus: "NAO_EXECUTAR" as const };
+    const noValue = {
+      ...candidate("no-value", "m3", 0),
+      valueStatus: "SEM_VALOR" as const,
+      executionStatus: "NAO_EXECUTAR" as const,
+    };
     const result = selectExperimentalPortfolio([noValue]);
     expect(result.selected).toEqual([]);
     expect(result.correlatedAlternates).toEqual([]);
