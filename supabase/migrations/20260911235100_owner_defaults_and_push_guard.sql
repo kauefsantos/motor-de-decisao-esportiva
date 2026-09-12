@@ -10,9 +10,8 @@ set search_path = ''
 as $$
   select u.id
   from auth.users u
-  where lower(trim(coalesce(u.email, ''))) = 'kauefsantos3@gmail.com'
-    and coalesce(u.raw_app_meta_data ->> 'provider', '') = 'google'
-  order by u.created_at
+  where coalesce(u.raw_app_meta_data ->> 'provider', '') = 'google'
+  order by u.created_at, u.id
   limit 1;
 $$;
 
