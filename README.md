@@ -1,42 +1,64 @@
 # Motor de Decisão Esportiva
 
-> **Case de produto low-code com engenharia de dados, regras quantitativas, integrações externas e governança de software.**
+> **Case full-stack de engenharia de produto, dados e decisão quantitativa aplicado a futebol.**
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111)
 ![TanStack Start](https://img.shields.io/badge/TanStack-Start-FF4154?logo=reactquery&logoColor=white)
-![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3FCF8E?logo=supabase&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/Lovable_Cloud-PostgreSQL-3FCF8E)
 ![Lovable](https://img.shields.io/badge/Lovable-Low--code-6C5CE7)
 ![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
 
-O **Motor de Decisão Esportiva** é uma aplicação full-stack para análise pré-jogo de futebol. O projeto começou com uma abordagem low-code e foi evoluindo até se tornar um produto versionado, testado e auditável, com backend próprio, banco PostgreSQL/Supabase, integrações com API esportiva, regras de negócio determinísticas, autenticação, CI e controles de segurança.
+O **Motor de Decisão Esportiva** é uma aplicação full-stack para análise pré-jogo de futebol. Ela recebe partidas, resolve entidades, coleta e normaliza dados, produz probabilidades experimentais, confronta essas probabilidades com odds reais e aplica regras determinísticas antes de apresentar qualquer oportunidade.
 
-A proposta de portfólio aqui não é apenas mostrar uma interface criada com low-code, mas demonstrar como **low-code + código tradicional** podem trabalhar juntos: rapidez de prototipação onde faz sentido e engenharia explícita nos pontos em que confiabilidade, dados, segurança e regras de negócio importam.
+O projeto começou com uma abordagem low-code e evoluiu para uma arquitetura versionada com **React, TanStack Start, TypeScript, Lovable Cloud, PostgreSQL, APIs externas, migrations, testes automatizados, CI e governança técnica**.
 
-**A aplicação publicada permanece protegida por autenticação.** O repositório existe como case técnico e de produto, documentando arquitetura, decisões e evolução.
+A aplicação publicada é protegida por autenticação e **não executa apostas**. O objetivo deste repositório é demonstrar engenharia de produto, dados, backend, modelagem quantitativa, segurança e capacidade de transformar um protótipo low-code em software auditável.
 
-[Ver case de portfólio](docs/CASE_STUDY.md) · [Ver arquitetura](docs/ARCHITECTURE.md) · [Índice técnico](docs/README.md)
-
----
-
-## O problema que o projeto resolve
-
-Analisar uma lista de jogos exige combinar informações de várias fontes, padronizar partidas e competições, modelar probabilidades, comparar essas probabilidades com preços reais e ainda manter rastreabilidade sobre o que foi calculado.
-
-O sistema transforma esse processo em um fluxo guiado:
-
-1. **Enviar jogos** — upload de CSV com `Data`, `Partida`, `Horário` e `Campeonato`.
-2. **Preparar análise** — resolução das partidas, coleta e higienização dos dados e geração das probabilidades.
-3. **Conferir odds** — preenchimento automático quando existe preço seguro; conferência manual apenas quando necessário.
-4. **Analisar valor** — comparação entre probabilidade modelada e odd disponível.
-5. **Ver sugestões** — seleção final limitada por critérios de valor e correlação.
-6. **Acompanhar banca** — registro das apostas realmente feitas fora do sistema e leitura do desempenho.
-
-O produto **não executa apostas** e não força seleções quando os critérios não são atendidos.
+**Aplicação:** https://quant-football-insights.lovable.app  
+**Case de portfólio:** [docs/CASE_STUDY.md](docs/CASE_STUDY.md)  
+**Arquitetura:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
+**Estado operacional:** [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md)
 
 ---
 
-## Arquitetura do produto
+## Status técnico
+
+| Área | Estado |
+| --- | --- |
+| Aplicação full-stack | Operacional |
+| Autenticação e autorização | Implementadas e cobertas por regressões |
+| Lovable Cloud / migrations | Versionadas e testadas em CI |
+| Pipeline de análise | Operacional com checkpoints e retomada |
+| Elo hierárquico | Atualização automatizada e auditoria diária |
+| Motor de valor | Regras determinísticas de odd, EV e edge |
+| Probabilidades esportivas | **Experimentais; não devem ser confundidas com modelos production-validated** |
+| Execução de apostas | Não existe; decisões são registradas para acompanhamento |
+
+Essa distinção é deliberada: **um modelo implementado não é automaticamente um modelo validado**. O repositório preserva essa diferença em status, documentação e testes.
+
+---
+
+## Problema tratado
+
+Uma análise pré-jogo séria precisa coordenar várias etapas que normalmente ficam espalhadas:
+
+1. importar uma agenda de jogos;
+2. resolver corretamente times, competição, mando e horário;
+3. coletar somente informação disponível antes da previsão;
+4. normalizar definições de dados entre fornecedores;
+5. transformar histórico em distribuições e probabilidades;
+6. consultar ou receber uma odd real;
+7. calcular fair odd, edge e valor esperado;
+8. bloquear contratos sem dados, settlement compatível ou validação suficiente;
+9. limitar concentração e correlação das escolhas;
+10. registrar decisão, stake, resultado e métricas posteriores.
+
+O produto organiza esse processo em um fluxo único e auditável.
+
+---
+
+## Arquitetura
 
 ```mermaid
 flowchart LR
@@ -50,198 +72,185 @@ flowchart LR
     H --> I[Portfolio Selection]
     I --> J[Banca e Analytics]
 
-    K[(Supabase / PostgreSQL)] --- B
+    K[(Lovable Cloud / PostgreSQL)] --- B
     K --- C
     K --- E
     K --- H
     K --- J
 ```
 
-A separação entre **probabilidade** e **preço** é uma regra estrutural do sistema: a odd da casa não entra como feature no modelo de probabilidade. Primeiro o sistema estima o cenário esportivo; só depois compara esse cenário com o preço disponível.
+### Princípio central
+
+**Probabilidade e preço são separados.** A odd da casa não entra como feature no motor esportivo. Primeiro o sistema estima o cenário; depois compara a estimativa com o preço disponível.
 
 ---
 
-## Onde entra o low-code
+## Regra atual do funil final
 
-| Camada | Abordagem | Papel no projeto |
-| --- | --- | --- |
-| Interface e iteração rápida | **Lovable + React/Tailwind** | Prototipação, refinamento visual e velocidade de entrega |
-| Regras de negócio | **TypeScript versionado** | Probabilidade, EV, seleção, banca e contratos de mercado |
-| Dados | **Supabase / PostgreSQL** | Persistência, transações, RLS e auditoria |
-| Integrações | **APIs externas + adapters** | Coleta esportiva e odds Bet365 via 5DollarFootballAPI |
-| Qualidade | **Vitest + GitHub Actions** | Testes, build e validações automatizadas |
-| Segurança | **Auth + RLS + server boundary** | Controle de acesso e isolamento de credenciais |
+Uma oportunidade só pode chegar à fila principal quando atende simultaneamente aos controles canônicos:
 
-A principal decisão de arquitetura foi não deixar a lógica crítica presa ao construtor visual. A interface pode evoluir rapidamente no Lovable, enquanto regras quantitativas, migrations, testes e contratos permanecem versionados no GitHub.
+- probabilidade do modelo **≥ 70%**;
+- odd real **≥ 1,70**;
+- valor esperado **≥ 8%**;
+- edge **≥ 5 pontos percentuais**;
+- dados aprovados;
+- linha recebida igual à linha modelada;
+- prediction pertencente à run e partida corretas;
+- odd automática ainda fresca;
+- no máximo **3** oportunidades finais;
+- no máximo **1 por partida**;
+- no máximo **2 da mesma família**.
 
----
+**Zero apostas é um resultado válido.** O sistema não preenche uma cota artificial de recomendações.
 
-## Destaques funcionais
-
-- Upload e validação de CSV.
-- Resolução e normalização de partidas.
-- Integração com dados esportivos e odds da Bet365.
-- Modelos para gols, escanteios e cartões.
-- Elo hierárquico point-in-time como feature auxiliar para comparações domésticas e cross-league.
-- Probabilidade, fair odd, edge e EV calculados no backend.
-- Funil progressivo de odds manuais quando a API não possui preço seguro.
-- Seleção com controle de correlação entre apostas do mesmo jogo.
-- Limite operacional de sugestões por dia.
-- Banca experimental com confirmação e settlement transacionais.
-- Analytics somente leitura com histórico de performance.
-- CLV e métricas de acompanhamento para evolução quantitativa.
+Essas regras são protegidas tanto no código quanto no Lovable Cloud.
 
 ---
 
-## Destaques de engenharia
+## Modelagem quantitativa
 
-### Separação de responsabilidades
+O repositório contém infraestrutura para:
 
-O projeto possui dois estágios distintos:
+- gols com baseline Poisson, shrinkage, recência e ajuste Elo;
+- escanteios com Poisson/Negative Binomial e dispersão estimada apenas no treino;
+- cartões com proxy explicitamente marcado quando o fornecedor não reproduz exatamente o settlement da casa;
+- Elo doméstico e hierárquico point-in-time;
+- Brier score, log loss, MAE e calibração para validação temporal;
+- versionamento de modelo e status de validação.
 
-**Motor de probabilidade**
+A política de governança é conservadora: quando calibração, dados ou equivalência de settlement não são suficientes, o correto é **bloquear o mercado**, não inventar uma probabilidade.
 
-- trabalha sem conhecer a odd da casa;
-- usa somente dados disponíveis antes do momento da previsão;
-- bloqueia mercados quando os dados não sustentam uma previsão confiável.
+---
 
-**Motor de valor**
+## Engenharia e qualidade
 
-- recebe a odd real depois da previsão;
-- calcula preço justo, edge e valor esperado;
-- só seleciona uma aposta quando os critérios continuam válidos.
-
-### Integridade e segurança
-
-- Google login com autorização validada no servidor.
-- Service role restrita ao backend.
-- RLS habilitado nas tabelas públicas.
-- Browser sem privilégios diretos sobre o banco operacional.
-- Operações de banca serializadas no banco.
-- Limite diário protegido também no banco, não apenas na interface.
-- Headers de segurança, CSP e políticas de cache configurados no servidor.
-
-### Qualidade contínua
-
-O GitHub Actions executa:
+O CI executa uma cadeia ampla de gates antes de um merge:
 
 ```text
-Install dependencies
-→ Server secret boundary
-→ Experimental engine E2E
-→ Unit tests
-→ Production build
+lint + typecheck + architecture boundaries
+→ dependency vulnerability gate
+→ secret scan
+→ server secret boundary
+→ governance documentation gate
+→ database migrations + regressions
+→ functional E2E
+→ experimental engine E2E
+→ unit tests
+→ production build
+→ bundle budget
+→ concurrent load smoke
+→ Chromium + Firefox + WebKit
+→ responsive + accessibility checks
 ```
 
-As mudanças relevantes passaram por auditorias separadas de **RLS, Segurança, Backend e Frontend**, seguidas por validação específica da integração Elo e uma rodada de limpeza de código/documentação.
+O projeto também mantém:
+
+- branch `main` protegida;
+- CODEOWNERS;
+- migrations versionadas;
+- regressões SQL;
+- PRs focados por eixo;
+- documentação de governança;
+- política de segurança;
+- distinção explícita entre **implementado, testado, mergeado, publicado e validado em produção**.
 
 ---
 
 ## Stack
 
-**Frontend**
+| Camada | Tecnologias |
+| --- | --- |
+| Frontend | React 19, TanStack Start/Router, TypeScript, Tailwind CSS |
+| Backend | TanStack server functions, TypeScript |
+| Dados | Lovable Cloud, PostgreSQL, RPCs, triggers, migrations |
+| Integrações | 5DollarFootballAPI e adapters server-side |
+| Qualidade | Vitest, pgTAP, Playwright, axe, GitHub Actions |
+| Produto / low-code | Lovable |
 
-- React 19
-- TanStack Start / Router
-- TypeScript
-- Tailwind CSS
-- Lovable
-
-**Backend e dados**
-
-- TanStack server functions
-- Supabase / PostgreSQL
-- PostgreSQL RPCs, triggers e migrations versionadas
-- 5DollarFootballAPI Pro
-
-**Qualidade e entrega**
-
-- Vitest
-- GitHub Actions
-- Bun
-- Lovable Cloud
+A lógica crítica não fica dependente do construtor visual: regras quantitativas, autorização, migrations, integrações, testes e contratos permanecem versionados no GitHub.
 
 ---
 
-## Estrutura do repositório
+## Estrutura
 
 ```text
 src/
-  components/               UI específica da aplicação
-  integrations/             Lovable e Supabase
-  lib/adapters/             integrações e normalização de dados
-  lib/engine/               regras e modelos quantitativos
-  lib/*.functions.ts        server functions
-  routes/                   rotas TanStack
+  components/                 interface
+  integrations/               integração técnica do runtime
+  lib/adapters/               provedores e normalização
+  lib/application/            casos de uso
+  lib/domain/                 regras de domínio
+  lib/engine/                 modelos e regras quantitativas puras
+  lib/repositories/           persistência
+  routes/                     rotas TanStack
 
 supabase/
-  migrations/               evolução versionada do banco
-  tests/                    testes de segurança/RLS
+  migrations/                 migrations do Lovable Cloud
+  tests/                      regressões SQL/RLS
 
 docs/
-  CASE_STUDY.md             leitura de portfólio
-  ARCHITECTURE.md           arquitetura e decisões
-  ELO.md                    arquitetura canônica do Elo
-  ELO_RUNBOOK.md            operação do Elo
-  README.md                 índice da documentação técnica
-  PROJECT_STATE.md          estado operacional canônico
+  CASE_STUDY.md               narrativa de portfólio
+  ARCHITECTURE.md             arquitetura e boundaries
+  ELO.md                      arquitetura do Elo
+  ELO_RUNBOOK.md              operação e troubleshooting
+  PROJECT_STATE.md            continuidade operacional
+  governance/                 evidências e decisões auditáveis
 ```
 
 ---
 
-## Rodando localmente
+## Executando localmente
 
 ```bash
 bun install
 bun run dev
 ```
 
-Validação completa:
+Validação principal:
 
 ```bash
+bun run check
 bunx vitest run
 bun run build
-bun run lint
 ```
 
-> O ambiente completo depende de variáveis de integração e banco. Credenciais reais não ficam versionadas no repositório.
+O ambiente completo depende de integrações externas e do Lovable Cloud. **Credenciais reais não são versionadas.**
 
 ---
 
-## Documentação
+## Documentação principal
 
 | Documento | Conteúdo |
 | --- | --- |
-| [Case Study](docs/CASE_STUDY.md) | problema, abordagem low-code, decisões e aprendizados |
+| [Case Study](docs/CASE_STUDY.md) | problema, evolução low-code → engenharia e aprendizados |
 | [Arquitetura](docs/ARCHITECTURE.md) | fluxo técnico, boundaries e fontes de verdade |
-| [Índice técnico](docs/README.md) | mapa da documentação existente |
-| [Estado do projeto](docs/PROJECT_STATE.md) | continuidade operacional do sistema |
-| [Elo](docs/ELO.md) | arquitetura atual, point-in-time e integração cross-league |
+| [Estado do projeto](docs/PROJECT_STATE.md) | estado operacional canônico |
+| [Elo](docs/ELO.md) | Elo doméstico, hierárquico e point-in-time |
 | [Runbook Elo](docs/ELO_RUNBOOK.md) | jobs, auditoria e troubleshooting |
-| [Política de mercados](docs/BACKEND_MARKET_POLICY_2026-09-10.md) | contratos e linhas experimentais |
-| [Validação quantitativa](docs/BACKEND_ROUND3_QUANT_VALIDATION_2026-09-10.md) | evidências e políticas dos modelos de contagem |
-| [Auditoria de segurança](docs/SECURITY_AUDIT_2026-09-10.md) | hardening e riscos residuais |
+| [Política de mercados](docs/BACKEND_MARKET_POLICY_2026-09-10.md) | contratos e linhas |
+| [Validação quantitativa](docs/BACKEND_ROUND3_QUANT_VALIDATION_2026-09-10.md) | evidências e critérios de modelos |
+| [Segurança](SECURITY.md) | política de reporte e expectativas de segurança |
+| [Contribuição](CONTRIBUTING.md) | padrão de branches, PRs, testes e governança |
 
 ---
 
 ## O que este projeto demonstra
 
-Este repositório foi estruturado para mostrar competências que vão além da construção de telas:
+- transformar um processo ambíguo em regras de negócio explícitas;
+- usar low-code como acelerador sem delegar lógica crítica ao construtor;
+- integrar APIs externas com lineage e normalização;
+- modelar processamento resiliente com checkpoint e retomada;
+- aplicar TypeScript e PostgreSQL em regras transacionais;
+- separar previsão, preço, decisão e execução;
+- construir CI com segurança, regressão, performance, browsers e acessibilidade;
+- manter limitações quantitativas visíveis em vez de mascará-las como certeza.
 
-- transformar uma ideia em produto funcional usando low-code de forma pragmática;
-- traduzir regras de negócio em software versionado;
-- integrar APIs e dados externos com normalização e rastreabilidade;
-- modelar dados e regras transacionais em PostgreSQL;
-- criar uma camada de segurança coerente com o risco do produto;
-- evoluir UX com auditorias e testes de regressão;
-- usar IA e ferramentas low-code como aceleradores, sem abrir mão de governança técnica.
-
-O resultado é um **case de product engineering low-code**, em que velocidade de construção e controle técnico coexistem no mesmo fluxo de desenvolvimento.
+O resultado é um **case de product engineering orientado por dados**, com foco em rastreabilidade, disciplina técnica e evolução contínua.
 
 ---
 
 ## Uso e licença
 
-Este repositório é publicado como **case de portfólio**. A aplicação e os modelos permanecem experimentais e não constituem recomendação financeira ou garantia de resultado.
+Este repositório é publicado como **case de portfólio**. A aplicação e seus modelos são experimentais e não constituem recomendação financeira, garantia de resultado ou serviço de execução de apostas.
 
-O repositório não possui licença open source explícita; a publicação do código não implica autorização automática para reutilização, redistribuição ou exploração comercial.
+Não há licença open source explícita. A publicação do código não implica autorização automática para reutilização, redistribuição ou exploração comercial.
