@@ -23,11 +23,51 @@ describe("security hardening contracts", () => {
     expect(pushServer).toContain('redirect: "error"');
   });
 
-  it("keeps the hardened CSP directives", () => {
+  it("keeps a nonce-based CSP without unsafe inline execution", () => {
     const server = source("src/server.ts");
-    expect(server).toContain("base-uri 'none'");
-    expect(server).toContain("script-src-attr 'none'");
-    expect(server).toContain("object-src 'none'");
-    expect(server).not.toContain("unsafe-eval");
+    const csp = source("src/lib/csp.ts");
+
+    expect(server).toContain("buildContentSecurityPolicy(nonce)");
+    expect(server).toContain("injectCspNonce(await response.text(), nonce)");
+    expect(csp).toContain("base-uri 'none'");
+    expect(csp).toContain("script-src-attr 'none'");
+    expect(csp).toContain("style-src-attr 'none'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("'nonce-${nonce}'");
+    expect(csp).not.toContain("unsafe-inline");
+    expect(csp).not.toContain("unsafe-eval");
+  });
+
+  it("uses native Supabase Google OAuth without the deprecated Lovable broker", () => {
+    const authGate = source("src/components/AuthGate.tsx");
+    const packageJson = source("package.json");
+    const lockfile = source("bun.lock");
+
+    expect(authGate).toContain("supabase.auth.signInWithOAuth");
+    expect(authGate).toContain('provider: "google"');
+    expect(authGate).not.toContain("@/integrations/lovable");
+    expect(packageJson).not.toContain("@lovable.dev/cloud-auth-js");
+    expect(lockfile).not.toContain("@lovable.dev/cloud-auth-js");
+  });
+
+  it("keeps the approved identity in the database instead of source literals", () => {
+    const middleware = source("src/integrations/supabase/auth-middleware.ts");
+    const initialAuthMigration = source(
+      "supabase/migrations/20260911120500_reconcile_single_google_user_auth.sql",
+    );
+    const ownerMigration = source(
+      "supabase/migrations/20260911235100_owner_defaults_and_push_guard.sql",
+    );
+    const closureMigration = source(
+      "supabase/migrations/20260912012500_remove_public_authorized_identity.sql",
+    );
+
+    expect(middleware).not.toContain("ALLOWED_EMAIL");
+    expect(middleware).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    expect(middleware).toContain("is_approved_app_user");
+    expect(initialAuthMigration).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    expect(ownerMigration).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    expect(closureMigration).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    expect(closureMigration).toContain("public.is_approved_app_user");
   });
 });

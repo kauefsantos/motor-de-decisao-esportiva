@@ -6,6 +6,13 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/production-smoke.yml"
+      - "src/server.ts"
+      - "src/lib/csp.ts"
+      - "src/components/AuthGate.tsx"
+      - "src/integrations/supabase/auth-middleware.ts"
+      - "supabase/migrations/**"
+      - "package.json"
+      - "bun.lock"
 
 permissions:
   contents: read
@@ -28,13 +35,16 @@ jobs:
             exit 1
           fi
 
-          # Lovable publishes snapshots. Retries allow a just-published snapshot
-          # to propagate before the permanent URL is evaluated.
           for attempt in $(seq 1 6); do
             echo "Production smoke attempt ${attempt}/6"
 
-            HEADERS="$(curl -fsSI "$URL" || true)"
-            ROOT_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$URL" || true)"
+            HEADER_FILE="$(mktemp)"
+            BODY_FILE="$(mktemp)"
+            ROOT_STATUS="$(curl -sS -D "$HEADER_FILE" -o "$BODY_FILE" -w '%{http_code}' "$URL" || true)"
+            HEADERS="$(cat "$HEADER_FILE")"
+            BODY="$(cat "$BODY_FILE")"
+            rm -f "$HEADER_FILE" "$BODY_FILE"
+
             API_GET_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/elo-sync" || true)"
             ROBOTS="$(curl -fsS "$BASE/robots.txt" || true)"
 
@@ -52,6 +62,7 @@ jobs:
 
             login_ok=false
             headers_ok=false
+            nonce_ok=false
             endpoint_ok=false
             robots_ok=false
             cache_ok=false
@@ -63,8 +74,6 @@ jobs:
               login_ok=true
             fi
 
-            # The Lovable edge may normalize the root login shell from the app's
-            # no-store/no-referrer values to these conservative platform defaults.
             if { grep -qi '^cache-control: .*no-store' <<<"$HEADERS" \
               || grep -qi '^cache-control: .*no-cache' <<<"$HEADERS"; } \
               && grep -qi '^cache-control: .*max-age=0' <<<"$HEADERS" \
@@ -76,17 +85,27 @@ jobs:
               referrer_ok=true
             fi
 
+            CSP="$(grep -i '^content-security-policy:' <<<"$HEADERS" | head -n1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
+            NONCE="$(sed -n "s/.*script-src[^;]*'nonce-\([^']*\)'.*/\1/p" <<<"$CSP")"
+            if [ -n "$NONCE" ] \
+              && grep -Fq "style-src 'self' 'nonce-$NONCE'" <<<"$CSP" \
+              && grep -Fq "nonce=\"$NONCE\"" <<<"$BODY"; then
+              nonce_ok=true
+            fi
+
             if grep -qi '^x-content-type-options: nosniff' <<<"$HEADERS" \
               && grep -qi '^x-robots-tag: noindex, nofollow, noarchive' <<<"$HEADERS" \
               && grep -qi '^cross-origin-resource-policy: same-origin' <<<"$HEADERS" \
               && grep -qi '^cross-origin-opener-policy: same-origin-allow-popups' <<<"$HEADERS" \
               && grep -qi '^permissions-policy: .*camera=()' <<<"$HEADERS" \
-              && grep -qi '^content-security-policy:' <<<"$HEADERS" \
-              && grep -qi "default-src 'self'" <<<"$HEADERS" \
-              && grep -qi "base-uri 'none'" <<<"$HEADERS" \
-              && grep -qi "object-src 'none'" <<<"$HEADERS" \
-              && grep -qi "script-src-attr 'none'" <<<"$HEADERS" \
-              && ! grep -qi "'unsafe-eval'" <<<"$HEADERS" \
+              && grep -Fq "default-src 'self'" <<<"$CSP" \
+              && grep -Fq "base-uri 'none'" <<<"$CSP" \
+              && grep -Fq "object-src 'none'" <<<"$CSP" \
+              && grep -Fq "script-src-attr 'none'" <<<"$CSP" \
+              && grep -Fq "style-src-attr 'none'" <<<"$CSP" \
+              && ! grep -Fq "'unsafe-inline'" <<<"$CSP" \
+              && ! grep -Fq "'unsafe-eval'" <<<"$CSP" \
+              && [ "$nonce_ok" = true ] \
               && [ "$cache_ok" = true ] \
               && [ "$referrer_ok" = true ]; then
               headers_ok=true
@@ -106,11 +125,11 @@ jobs:
               && [ "$headers_ok" = true ] \
               && [ "$endpoint_ok" = true ] \
               && [ "$robots_ok" = true ]; then
-              echo "Published app passed private-access and hardened security smoke checks."
+              echo "Published app passed private-access, nonce-CSP and hardened security smoke checks."
               exit 0
             fi
 
-            echo "Current checks: root=$ROOT_STATUS login=$login_ok headers=$headers_ok api_get=$API_GET_STATUS robots=$robots_ok"
+            echo "Current checks: root=$ROOT_STATUS login=$login_ok headers=$headers_ok nonce=$nonce_ok api_get=$API_GET_STATUS robots=$robots_ok"
             sleep 10
           done
 

@@ -112,8 +112,10 @@ describe("frontend P3 final polish contract", () => {
     const auth = source("./components/AuthGate.tsx");
     expect(auth).toContain("window.location.pathname");
     expect(auth).toContain("window.location.search");
-    expect(auth).toContain("redirect_uri: currentReturnUrl()");
-    expect(auth).not.toContain('redirect_uri: `${window.location.origin}/`');
+    expect(auth).toContain("redirectTo: currentReturnUrl()");
+    expect(auth).not.toContain('redirectTo: `${window.location.origin}/`');
+    expect(auth).not.toContain("@lovable.dev/cloud-auth-js");
+    expect(auth).not.toContain("@/integrations/lovable");
   });
 
   it("hides analysis progress outside the analysis journey and exposes current pages", () => {

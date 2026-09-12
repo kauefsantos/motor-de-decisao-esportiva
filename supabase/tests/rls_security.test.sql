@@ -1,6 +1,6 @@
 begin;
 
-select plan(14);
+select plan(15);
 
 select ok(
   not exists (
@@ -56,11 +56,11 @@ select ok(
       and p.prosecdef
       and has_function_privilege('authenticated', p.oid, 'EXECUTE')
       and not (
-        n.nspname = 'private'
-        and p.proname in ('is_authorized_app_user', 'owns_run', 'owns_match')
+        (n.nspname = 'private' and p.proname in ('is_authorized_app_user', 'owns_run', 'owns_match'))
+        or (n.nspname = 'public' and p.proname = 'is_approved_app_user')
       )
   ),
-  'authenticated can execute only the whitelisted RLS helper SECURITY DEFINER functions'
+  'authenticated can execute only the whitelisted RLS/auth helper SECURITY DEFINER functions'
 );
 
 select ok(
@@ -131,6 +131,20 @@ select ok(
       and has_function_privilege('supabase_auth_admin', p.oid, 'EXECUTE')
   ),
   'supabase_auth_admin can execute the single-user auth trigger function'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'is_approved_app_user'
+      and p.prosecdef
+      and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      and not has_function_privilege('anon', p.oid, 'EXECUTE')
+  ),
+  'approved-user RPC is authenticated-only and SECURITY DEFINER'
 );
 
 select ok(

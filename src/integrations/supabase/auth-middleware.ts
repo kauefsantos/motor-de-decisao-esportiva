@@ -5,8 +5,6 @@ import { createClient } from '@supabase/supabase-js'
 import type { Database } from './types'
 import { isAuthenticationFresh } from './session-policy'
 
-const ALLOWED_EMAIL = 'kauefsantos3@gmail.com'
-
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_')
 }
@@ -27,6 +25,33 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 
     headers.set('apikey', supabaseKey)
     return fetch(input, { ...init, headers })
+  }
+}
+
+async function isApprovedAppUser(
+  supabaseUrl: string,
+  supabaseKey: string,
+  token: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${supabaseUrl.replace(/\/$/, '')}/rest/v1/rpc/is_approved_app_user`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: '{}',
+      },
+    )
+
+    if (!response.ok) return false
+    return (await response.json()) === true
+  } catch {
+    return false
   }
 }
 
@@ -78,15 +103,17 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     const claims = data.claims as Record<string, unknown>
     const userId = typeof claims['sub'] === 'string' ? claims['sub'] : ''
     const sessionId = typeof claims['session_id'] === 'string' ? claims['session_id'] : ''
-    const email = typeof claims['email'] === 'string' ? claims['email'].trim().toLowerCase() : ''
     const appMetadata =
       typeof claims['app_metadata'] === 'object' && claims['app_metadata'] !== null
         ? (claims['app_metadata'] as Record<string, unknown>)
         : null
     const provider = typeof appMetadata?.['provider'] === 'string' ? appMetadata['provider'] : ''
 
-    if (!userId || !sessionId || email !== ALLOWED_EMAIL || provider !== 'google') deny('Unauthorized')
+    if (!userId || !sessionId || provider !== 'google') deny('Unauthorized')
     if (!isAuthenticationFresh(claims)) deny('Session expired. Reauthenticate with Google.')
+    if (!(await isApprovedAppUser(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, token))) {
+      deny('Unauthorized')
+    }
 
     return next({
       context: {

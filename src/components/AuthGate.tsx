@@ -92,15 +92,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setMessage(null);
 
     try {
-      // Lovable managed OAuth is browser-only. Import it lazily so SSR never
-      // evaluates createLovableAuth() while rendering the login screen.
-      const { lovable } = await import("@/integrations/lovable");
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: currentReturnUrl(),
-        extraParams: { prompt: "select_account" },
+      // Fluxo OAuth padrão do backend, usando o provedor Google gerenciado já
+      // configurado no projeto. Sem dependência do broker legado.
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: currentReturnUrl(),
+          queryParams: { prompt: "select_account" },
+        },
       });
 
-      if (result.error) {
+      if (error) {
         setSigningIn(false);
         setMessage("Não foi possível abrir o login do Google. Tente novamente.");
       }

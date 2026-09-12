@@ -1,6 +1,6 @@
 -- Compatibility while the live runtime rolls from the former single-user code
--- to explicit owner_id writes. New code sends owner_id directly; the default is
--- a safe fallback only because authentication is intentionally single-user.
+-- to explicit owner_id writes. New code sends owner_id directly; the default reads
+-- the immutable approved identity from the private security configuration.
 create or replace function private.approved_app_user_id()
 returns uuid
 language sql
@@ -8,12 +8,9 @@ stable
 security definer
 set search_path = ''
 as $$
-  select u.id
-  from auth.users u
-  where lower(trim(coalesce(u.email, ''))) = 'kauefsantos3@gmail.com'
-    and coalesce(u.raw_app_meta_data ->> 'provider', '') = 'google'
-  order by u.created_at
-  limit 1;
+  select c.approved_user_id
+  from private.app_security_config c
+  where c.singleton = true;
 $$;
 
 revoke all on function private.approved_app_user_id() from public, anon, authenticated;
