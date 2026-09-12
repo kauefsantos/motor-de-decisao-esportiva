@@ -127,3 +127,34 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  browser-compatibility:
+    name: Browser compatibility
+    needs: test-and-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+
+      - name: Install app dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright test runner
+        run: npm install --no-save --package-lock=false --ignore-scripts @playwright/test@1.63.0
+
+      - name: Install browser engines
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Responsive browser matrix
+        run: npx playwright test
