@@ -94,7 +94,7 @@ as $$
     and t.clv_attempts < 3
     and (t.clv_next_retry_at is null or t.clv_next_retry_at <= pg_catalog.now())
   order by t.clv_next_retry_at nulls first,t.settled_at desc nulls last
-  limit pg_catalog.greatest(1,pg_catalog.least(coalesce(p_limit,2),3));
+  limit greatest(1,least(coalesce(p_limit,2),3));
 $$;
 
 revoke all on function public.get_due_clv_tracking_ids(uuid,integer) from public,anon,authenticated;
