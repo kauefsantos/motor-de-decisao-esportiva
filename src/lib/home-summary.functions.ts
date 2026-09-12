@@ -22,7 +22,7 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
 
   const db = await adminDb();
 
-  const [metricsResult, recentRunsResult, draftResult, configResult] = await Promise.all([
+  const [metricsResult, recentRunsResult, draftResult, configResult, proposedRunResult] = await Promise.all([
     callRuntimeRpc<HomeMetricsRow[]>(db, "get_owner_home_metrics", { p_owner_id: userId }),
     db
       .from("analysis_runs")
@@ -44,11 +44,20 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
       .eq("id", "main")
       .eq("owner_id", userId)
       .maybeSingle(),
+    db
+      .from("experimental_bet_tracking")
+      .select("run_id,updated_at,analysis_runs!inner(owner_id)")
+      .eq("bet_status", "PROPOSED")
+      .eq("analysis_runs.owner_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (metricsResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar suas pendências.", 500);
   if (recentRunsResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar suas análises recentes.", 500);
   if (draftResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar o rascunho em andamento.", 500);
+  if (proposedRunResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível localizar suas sugestões para registrar.", 500);
 
   const metrics = metricsResult.data?.[0] ?? null;
   const openCount = num(metrics?.open_bets_count);
@@ -74,6 +83,7 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
     recentRuns,
     openBetsCount: openCount,
     proposedCount,
+    proposedRunId: proposedRunResult.data?.run_id ?? null,
     availableBankroll,
   };
 });
