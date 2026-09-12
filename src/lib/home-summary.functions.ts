@@ -44,14 +44,7 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
       .eq("id", "main")
       .eq("owner_id", userId)
       .maybeSingle(),
-    db
-      .from("experimental_bet_tracking")
-      .select("run_id,updated_at,analysis_runs!inner(owner_id)")
-      .eq("bet_status", "PROPOSED")
-      .eq("analysis_runs.owner_id", userId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    callRuntimeRpc<string>(db, "get_owner_latest_proposed_run_id", { p_owner_id: userId }),
   ]);
 
   if (metricsResult.error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar suas pendências.", 500);
@@ -83,7 +76,7 @@ export const getHomeSummary = createServerFn({ method: "GET" }).handler(async ({
     recentRuns,
     openBetsCount: openCount,
     proposedCount,
-    proposedRunId: proposedRunResult.data?.run_id ?? null,
+    proposedRunId: proposedRunResult.data ?? null,
     availableBankroll,
   };
 });
