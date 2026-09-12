@@ -18,6 +18,13 @@ async function walk(dir) {
 
 const files = await walk(root);
 const importPattern = /(?:from\s+|import\s*\(|require\s*\()\s*["']([^"']+)["']/g;
+const explicitAnyPattern = /:\s*any\b|\bas\s+any\b|<\s*any\s*>/;
+const criticalTypedFiles = new Set([
+  "src/lib/analysis.functions.ts",
+  "src/lib/analytics.functions.ts",
+  "src/lib/bankroll.functions.ts",
+  "src/lib/authorization.server.ts",
+]);
 
 for (const absolute of files) {
   const relative = path.relative(process.cwd(), absolute).replaceAll("\\", "/");
@@ -50,6 +57,15 @@ for (const absolute of files) {
 
   if (relative.startsWith("src/routes/") && source.includes("client.server")) {
     violations.push(`${relative}: routes must call application/server functions instead of the privileged DB client directly`);
+  }
+
+  const criticalTyped =
+    criticalTypedFiles.has(relative)
+    || relative.startsWith("src/lib/application/")
+    || relative.startsWith("src/lib/domain/")
+    || relative.startsWith("src/lib/repositories/");
+  if (criticalTyped && explicitAnyPattern.test(source)) {
+    violations.push(`${relative}: explicit any is forbidden in critical application/domain/repository boundaries`);
   }
 }
 
