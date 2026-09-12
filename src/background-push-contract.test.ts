@@ -23,24 +23,34 @@ describe("background analysis contract", () => {
     expect(processing).not.toContain("for (const step of PIPELINE_STEPS)");
   });
 
-  it("executes one pipeline step per protected worker invocation and chains the next", () => {
+  it("executes one pipeline step per protected leased worker invocation and chains the next", () => {
     const worker = source("./routes/api.analysis-worker.ts");
     expect(worker).toContain("claim_analysis_job");
+    expect(worker).toContain("lease_token");
+    expect(worker).toContain("heartbeat_analysis_job");
+    expect(worker).toContain("start_analysis_job_step_atomic");
+    expect(worker).toContain("complete_analysis_job_step_atomic");
+    expect(worker).toContain("fail_analysis_job_atomic");
     expect(worker).toContain("PIPELINE_STEPS.find");
     expect(worker).toContain("await executeStep(runId, nextStep.key)");
-    expect(worker).toContain('status: "QUEUED"');
     expect(worker).toContain('db.rpc("kick_analysis_worker")');
-    expect(worker).toContain("sendAnalysisReadyPush");
+    expect(worker).toContain("enqueue_push_delivery_event");
+    expect(worker).toContain("kick_push_delivery_dispatcher");
+    expect(worker).not.toContain("sendAnalysisReadyPush");
   });
 
-  it("persists queue state and retries stalled work with pg_cron + pg_net", () => {
-    const migration = source("../supabase/migrations/20260911170500_background_analysis_push.sql");
-    expect(migration).toContain("create table if not exists public.analysis_jobs");
-    expect(migration).toContain("dispatch_token uuid");
-    expect(migration).toContain("net.http_post");
-    expect(migration).toContain("analysis-worker-watch");
-    expect(migration).toContain("locked_at < pg_catalog.now() - interval '20 minutes'");
-    expect(migration).toContain("set search_path = ''");
+  it("persists queue state and recovers stalled work with renewable leases", () => {
+    const original = source("../supabase/migrations/20260911170500_background_analysis_push.sql");
+    const resilience = source("../supabase/migrations/20260912070000_integrations_automation_resilience.sql");
+    expect(original).toContain("create table if not exists public.analysis_jobs");
+    expect(original).toContain("dispatch_token uuid");
+    expect(resilience).toContain("lease_token uuid");
+    expect(resilience).toContain("lease_expires_at timestamptz");
+    expect(resilience).toContain("heartbeat_analysis_job");
+    expect(resilience).toContain("net.http_post");
+    expect(resilience).toContain("analysis-worker-watch");
+    expect(resilience).toContain("j.lease_expires_at<pg_catalog.now()");
+    expect(resilience).toContain("set search_path=''");
   });
 });
 
@@ -61,15 +71,21 @@ describe("iPhone Web Push contract", () => {
     expect(worker).toContain('addEventListener("notificationclick"');
   });
 
-  it("keeps the push signing secret server-side and exposes only the VAPID public key", () => {
+  it("keeps signing secrets server-side while durable delivery state stays server-only", () => {
     const pushServer = source("./lib/push.server.ts");
     const pushFunctions = source("./lib/push.functions.ts");
+    const dispatcher = source("./routes/api.push-dispatch.ts");
+    const resilience = source("../supabase/migrations/20260912070000_integrations_automation_resilience.sql");
     const privilegedDbSecretName = "SUPABASE_" + "SERVICE_ROLE_KEY";
     expect(pushServer).toContain('process.env["LOVABLE_CRON_SECRET"]');
     expect(pushServer).toContain("bet-value-web-push-v1");
+    expect(pushServer).toContain("PUSH_TIMEOUT_MS");
     expect(pushFunctions).toContain("getVapidPublicKey()");
     expect(pushFunctions).not.toContain("LOVABLE_CRON_SECRET");
     expect(pushFunctions).not.toContain(privilegedDbSecretName);
+    expect(dispatcher).toContain("claim_push_delivery_batch");
+    expect(resilience).toContain("create table if not exists public.push_delivery_outbox");
+    expect(resilience).toContain("revoke all on public.push_delivery_outbox from public,anon,authenticated");
   });
 
   it("gives the installed web app a stable manifest identity", () => {
