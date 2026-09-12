@@ -1,8 +1,6 @@
 // Live-schema augmentation for the generated Supabase types.
-// Keep this file small and explicit: it bridges schema changes that exist in
-// Lovable Cloud but are not yet represented in the generated types.ts snapshot.
-// Once types.ts is regenerated from the live database, this augmentation can be
-// collapsed back into the generated file.
+// This bridges Lovable Cloud schema changes that are newer than types.ts.
+// When types.ts is regenerated from production, this file can be collapsed.
 
 import type { Database as GeneratedDatabase, Json } from './types';
 
@@ -67,6 +65,112 @@ type ExperimentalBetTrackingTable = {
   Relationships: BaseTables['experimental_bet_tracking']['Relationships'];
 };
 
+type ExperimentalValueEvaluationInsert = {
+  id?: string;
+  run_id: string;
+  prediction_id: string;
+  match_id?: string | null;
+  market: string;
+  market_label: string;
+  participant?: string | null;
+  side?: string | null;
+  line_canonical?: number | null;
+  bookmaker?: string;
+  price_source?: string;
+  odd: number;
+  model_probability: number;
+  decision_probability?: number | null;
+  fair_odd?: number | null;
+  min_odd_target?: number | null;
+  edge?: number | null;
+  expected_value?: number | null;
+  probability_status: string;
+  value_status: string;
+  execution_status: string;
+  rejection_reason?: string | null;
+  selected?: boolean;
+  model_version?: string | null;
+  model_status: string;
+  production_status: string;
+  market_family: string;
+  evaluation_fingerprint: string;
+  evaluated_at?: string;
+};
+
+type ExperimentalValueEvaluationUpdate = {
+  id?: string;
+  run_id?: string;
+  prediction_id?: string;
+  match_id?: string | null;
+  market?: string;
+  market_label?: string;
+  participant?: string | null;
+  side?: string | null;
+  line_canonical?: number | null;
+  bookmaker?: string;
+  price_source?: string;
+  odd?: number;
+  model_probability?: number;
+  decision_probability?: number | null;
+  fair_odd?: number | null;
+  min_odd_target?: number | null;
+  edge?: number | null;
+  expected_value?: number | null;
+  probability_status?: string;
+  value_status?: string;
+  execution_status?: string;
+  rejection_reason?: string | null;
+  selected?: boolean;
+  model_version?: string | null;
+  model_status?: string;
+  production_status?: string;
+  market_family?: string;
+  evaluation_fingerprint?: string;
+  evaluated_at?: string;
+};
+
+type FiveDollarLeaguePriorInsert = {
+  id?: string;
+  league_id: number;
+  prior_type: string;
+  season?: string | null;
+  source_kind?: string | null;
+  round_label?: string | null;
+  team_id: number;
+  team_name: string;
+  played?: number | null;
+  total_for?: number | null;
+  total_against?: number | null;
+  average_for?: number | null;
+  average_against?: number | null;
+  raw?: Json;
+  snapshot_date: string;
+  snapshot_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type FiveDollarLeaguePriorUpdate = {
+  id?: string;
+  league_id?: number;
+  prior_type?: string;
+  season?: string | null;
+  source_kind?: string | null;
+  round_label?: string | null;
+  team_id?: number;
+  team_name?: string;
+  played?: number | null;
+  total_for?: number | null;
+  total_against?: number | null;
+  average_for?: number | null;
+  average_against?: number | null;
+  raw?: Json;
+  snapshot_date?: string;
+  snapshot_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type Database = Omit<GeneratedDatabase, 'public'> & {
   public: Omit<GeneratedDatabase['public'], 'Tables' | 'Functions'> & {
     Tables: Omit<
@@ -121,15 +225,13 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
           updated_at?: string;
           dispatch_token?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'analysis_jobs_run_id_fkey';
-            columns: ['run_id'];
-            isOneToOne: true;
-            referencedRelation: 'analysis_runs';
-            referencedColumns: ['id'];
-          },
-        ];
+        Relationships: [{
+          foreignKeyName: 'analysis_jobs_run_id_fkey';
+          columns: ['run_id'];
+          isOneToOne: true;
+          referencedRelation: 'analysis_runs';
+          referencedColumns: ['id'];
+        }];
       };
 
       push_subscriptions: {
@@ -170,15 +272,13 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Row: { run_id: string; result_payload: Json; analyzed_at: string; updated_at: string };
         Insert: { run_id: string; result_payload: Json; analyzed_at?: string; updated_at?: string };
         Update: { run_id?: string; result_payload?: Json; analyzed_at?: string; updated_at?: string };
-        Relationships: [
-          {
-            foreignKeyName: 'experimental_analysis_results_run_id_fkey';
-            columns: ['run_id'];
-            isOneToOne: true;
-            referencedRelation: 'analysis_runs';
-            referencedColumns: ['id'];
-          },
-        ];
+        Relationships: [{
+          foreignKeyName: 'experimental_analysis_results_run_id_fkey';
+          columns: ['run_id'];
+          isOneToOne: true;
+          referencedRelation: 'analysis_runs';
+          referencedColumns: ['id'];
+        }];
       };
 
       experimental_value_evaluations: {
@@ -213,38 +313,8 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
           evaluation_fingerprint: string;
           evaluated_at: string;
         };
-        Insert: {
-          id?: string;
-          run_id: string;
-          prediction_id: string;
-          match_id?: string | null;
-          market: string;
-          market_label: string;
-          participant?: string | null;
-          side?: string | null;
-          line_canonical?: number | null;
-          bookmaker?: string;
-          price_source?: string;
-          odd: number;
-          model_probability: number;
-          decision_probability?: number | null;
-          fair_odd?: number | null;
-          min_odd_target?: number | null;
-          edge?: number | null;
-          expected_value?: number | null;
-          probability_status: string;
-          value_status: string;
-          execution_status: string;
-          rejection_reason?: string | null;
-          selected?: boolean;
-          model_version?: string | null;
-          model_status: string;
-          production_status: string;
-          market_family: string;
-          evaluation_fingerprint: string;
-          evaluated_at?: string;
-        };
-        Update: Partial<Database['public']['Tables']['experimental_value_evaluations']['Insert']>;
+        Insert: ExperimentalValueEvaluationInsert;
+        Update: ExperimentalValueEvaluationUpdate;
         Relationships: [
           {
             foreignKeyName: 'experimental_value_evaluations_match_id_fkey';
@@ -291,27 +361,8 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          league_id: number;
-          prior_type: string;
-          season?: string | null;
-          source_kind?: string | null;
-          round_label?: string | null;
-          team_id: number;
-          team_name: string;
-          played?: number | null;
-          total_for?: number | null;
-          total_against?: number | null;
-          average_for?: number | null;
-          average_against?: number | null;
-          raw?: Json;
-          snapshot_date: string;
-          snapshot_at?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: Partial<Database['public']['Tables']['five_dollar_league_priors']['Insert']>;
+        Insert: FiveDollarLeaguePriorInsert;
+        Update: FiveDollarLeaguePriorUpdate;
         Relationships: [];
       };
 
