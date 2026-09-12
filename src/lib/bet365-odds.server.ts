@@ -1,4 +1,5 @@
 import { fiveDollarGet, type FiveDollarFetch } from "./adapters/five_dollar.server";
+import { saoPauloLocalDayUnixWindow } from "./sao-paulo-time";
 
 export type AutoOddsStatus =
   | "MATCHED"
@@ -322,8 +323,7 @@ export async function fetchBet365DayOdds(isoDate: string): Promise<{
   oddsByFixture: Map<number, unknown>;
   fetches: FiveDollarFetch[];
 }> {
-  const start = Math.floor(Date.parse(`${isoDate}T03:00:00Z`) / 1000);
-  const end = start + 24 * 3600;
+  const { start, end } = saoPauloLocalDayUnixWindow(isoDate);
   const oddsByFixture = new Map<number, unknown>();
   const fetches: FiveDollarFetch[] = [];
 
