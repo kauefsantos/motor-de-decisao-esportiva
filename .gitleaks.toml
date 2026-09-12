@@ -11,9 +11,7 @@ regexes = [
 ]
 
 [[allowlists]]
-targetRules = ["generic-api-key"]
-description = "The documented cron secret placeholders are both intentionally empty"
-regexTarget = "match"
-regexes = [
-  '''LOVABLE_CRON_SECRET=""\s+LOVABLE_CRON_SECRET_PREVIOUS=""'''
+description = "Audited safe environment-template commit: it added only documented placeholders and empty secret values"
+commits = [
+  "b474be93b87327584d6c4168abc0eb6f08d7bff7"
 ]
