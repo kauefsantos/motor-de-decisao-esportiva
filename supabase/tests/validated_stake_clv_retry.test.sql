@@ -64,14 +64,13 @@ select lives_ok(
 $outer$
 do $test$
 declare
-  v_user uuid := 'bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc'::uuid;
+  -- Reuse the single Google identity already approved by the previous scenario.
+  -- A second auth.user would correctly be rejected by the application security boundary.
+  v_user uuid := 'abababab-abab-4bab-8bab-abababababab'::uuid;
   v_run uuid;
   v_match uuid;
   v_tracking uuid;
 begin
-  insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
-  values(v_user,'authenticated','authenticated','legacy-settle@example.invalid','{"provider":"google","providers":["google"]}'::jsonb,'{}'::jsonb,now(),now());
-
   select run_id into v_run from public.create_analysis_run_atomic(
     v_user,'dededede-dede-4ede-8ede-dededededede'::uuid,'2026-10-02'::date,'legacy.csv',0,array['Liga'],array['Data','Partida','Horário','Campeonato'],
     '[{"partida":"C x D","horario":"16:00","campeonato":"Liga"}]'::jsonb
