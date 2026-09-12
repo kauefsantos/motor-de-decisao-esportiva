@@ -1,5 +1,5 @@
 begin;
-select plan(22);
+select plan(26);
 
 select ok(to_regclass('public.analysis_drafts') is not null,'analysis draft table exists');
 select ok(to_regclass('public.analysis_draft_games') is not null,'analysis draft games table exists');
