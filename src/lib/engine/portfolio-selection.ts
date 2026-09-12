@@ -42,13 +42,15 @@ function isQualified(row: ValueResult) {
  * - repete todos os gates quantitativos do Motor 2;
  * - no máximo uma seleção principal por partida;
  * - no máximo duas seleções da mesma família entre as três finais;
+ * - sempre usa o limite atual de 0–3, sem a regra legada 2/3 por dia da semana;
  * - nunca força quantidade: zero é um resultado válido.
  */
 export function selectExperimentalPortfolio<T extends PortfolioCandidate>(
   results: T[],
-  limit = MAX_SELECTIONS,
+  legacyLimit = MAX_SELECTIONS,
 ): PortfolioSelectionResult<T> {
-  const effectiveLimit = Math.max(0, Math.min(limit, MAX_SELECTIONS));
+  void legacyLimit;
+  const effectiveLimit = MAX_SELECTIONS;
   const qualified = results.filter(isQualified).sort(valueOrder);
 
   const selected: T[] = [];
