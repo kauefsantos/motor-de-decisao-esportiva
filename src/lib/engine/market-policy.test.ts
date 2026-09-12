@@ -15,39 +15,20 @@ import {
 } from "./market-policy";
 
 describe("experimental market policy", () => {
-  it("keeps a strict confidence gate above 70%", () => {
+  it("keeps an inclusive confidence gate at 70%", () => {
     expect(MODEL_LEAN_THRESHOLD).toBe(0.70);
-    expect(passesExperimentalModelGate(0.70)).toBe(false);
+    expect(passesExperimentalModelGate(0.6999)).toBe(false);
+    expect(passesExperimentalModelGate(0.70)).toBe(true);
     expect(passesExperimentalModelGate(0.701)).toBe(true);
     expect(passesExperimentalModelGate(0.33)).toBe(false);
   });
 
   it("keeps the requested anchor lines and bounded ladders", () => {
-    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.corners_match_total).toEqual({
-      anchor: 9.5,
-      over: [9.5, 10.5],
-      under: [9.5, 8.5, 7.5, 6.5],
-    });
-    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.corners_team_total).toEqual({
-      anchor: 4.5,
-      over: [4.5, 5.5, 6.5, 7.5],
-      under: [4.5, 3.5, 2.5],
-    });
-    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.goals_match_total).toEqual({
-      anchor: 2.5,
-      over: [2.5, 3.5],
-      under: [2.5, 1.5],
-    });
-    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.cards_match_total).toEqual({
-      anchor: 4.5,
-      over: [4.5, 5.5, 6.5],
-      under: [4.5, 3.5, 2.5],
-    });
-    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.cards_team_total).toEqual({
-      anchor: 4.5,
-      over: [4.5, 5.5, 6.5],
-      under: [4.5, 3.5, 2.5],
-    });
+    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.corners_match_total).toEqual({ anchor: 9.5, over: [9.5, 10.5], under: [9.5, 8.5, 7.5, 6.5] });
+    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.corners_team_total).toEqual({ anchor: 4.5, over: [4.5, 5.5, 6.5, 7.5], under: [4.5, 3.5, 2.5] });
+    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.goals_match_total).toEqual({ anchor: 2.5, over: [2.5, 3.5], under: [2.5, 1.5] });
+    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.cards_match_total).toEqual({ anchor: 4.5, over: [4.5, 5.5, 6.5], under: [4.5, 3.5, 2.5] });
+    expect(EXPERIMENTAL_TOTAL_MARKET_POLICY.cards_team_total).toEqual({ anchor: 4.5, over: [4.5, 5.5, 6.5], under: [4.5, 3.5, 2.5] });
   });
 
   it("caps a complete modeled match at 20 quote candidates", () => {
@@ -76,7 +57,6 @@ describe("experimental market policy", () => {
       { market: "double_chance", side: "1X", line_canonical: null, model_probability: 0.70 },
       { market: "btts", side: "YES", line_canonical: null, model_probability: 0.75 },
     ];
-
     expect(filterQuoteAnchorPredictions(rows)).toEqual([rows[0], rows[1], rows[3], rows[4]]);
   });
 
