@@ -129,7 +129,7 @@ jobs:
         run: bun run build
 
   browser-compatibility:
-    name: Browser compatibility
+    name: Browser compatibility and accessibility
     needs: test-and-build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -150,11 +150,11 @@ jobs:
       - name: Install app dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Playwright test runner
-        run: npm install --no-save --package-lock=false --ignore-scripts @playwright/test@1.63.0
+      - name: Install browser and accessibility test runners
+        run: npm install --no-save --package-lock=false --ignore-scripts @playwright/test@1.63.0 @axe-core/playwright@4.10.2
 
       - name: Install browser engines
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Responsive browser matrix
+      - name: Responsive and accessibility browser matrix
         run: npx playwright test
