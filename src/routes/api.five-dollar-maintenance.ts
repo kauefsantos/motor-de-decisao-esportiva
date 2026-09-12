@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
 import { createFixedWindowRequestLimiter, readBoundedJsonObject } from "@/lib/analysis-worker-security";
+import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
+import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const limitMaintenance = createFixedWindowRequestLimiter({ limit: 6, windowMs: 60_000 });
@@ -29,8 +30,10 @@ export const Route = createFileRoute("/api/five-dollar-maintenance")({
               { status: 403, headers: { "Cache-Control": "no-store" } },
             );
           }
-          const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-          const { data: allowed, error } = await (supabaseAdmin as any).rpc("validate_external_api_maintenance_token", { p_token: token });
+          const { data: allowed, error } = await callAdminRuntimeRpc<boolean>(
+            "validate_external_api_maintenance_token",
+            { p_token: token },
+          );
           if (error || allowed !== true) {
             return Response.json(
               { ok: false, error: { code: "FORBIDDEN", message: "Solicitação de manutenção não autorizada." }, requestId },
