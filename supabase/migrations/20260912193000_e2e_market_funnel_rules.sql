@@ -29,10 +29,10 @@ begin
     raise exception 'A fila não pode ser reconstruída após uma escolha do usuário.';
   end if;
 
-  if pg_catalog.jsonb_typeof(pg_catalog.coalesce(p_rows,'[]'::jsonb)) <> 'array' then
+  if pg_catalog.jsonb_typeof(coalesce(p_rows,'[]'::jsonb)) <> 'array' then
     raise exception 'Fila de decisão inválida.';
   end if;
-  v_rows := pg_catalog.jsonb_array_length(pg_catalog.coalesce(p_rows,'[]'::jsonb));
+  v_rows := pg_catalog.jsonb_array_length(coalesce(p_rows,'[]'::jsonb));
   if v_rows > 3 then
     raise exception 'A fila principal aceita no máximo 3 oportunidades qualificadas.';
   end if;
@@ -40,7 +40,7 @@ begin
   -- Every row must pass the final business rule. Thresholds are inclusive.
   if exists(
     select 1
-    from pg_catalog.jsonb_to_recordset(pg_catalog.coalesce(p_rows,'[]'::jsonb)) as x(
+    from pg_catalog.jsonb_to_recordset(coalesce(p_rows,'[]'::jsonb)) as x(
       match_id uuid,prediction_id text,rank_global integer,match_label text,competition text,market_family text,market text,
       market_label text,participant text,side text,line_canonical numeric,model_version text,model_status text,
       model_probability numeric,fair_odd numeric,entry_odd numeric,min_odd_target numeric,edge numeric,expected_value numeric
@@ -57,7 +57,7 @@ begin
   -- that is no longer the model prediction stored for this run.
   if exists(
     select 1
-    from pg_catalog.jsonb_to_recordset(pg_catalog.coalesce(p_rows,'[]'::jsonb)) as x(
+    from pg_catalog.jsonb_to_recordset(coalesce(p_rows,'[]'::jsonb)) as x(
       match_id uuid,prediction_id text,rank_global integer,match_label text,competition text,market_family text,market text,
       market_label text,participant text,side text,line_canonical numeric,model_version text,model_status text,
       model_probability numeric,fair_odd numeric,entry_odd numeric,min_odd_target numeric,edge numeric,expected_value numeric
@@ -77,7 +77,7 @@ begin
   -- At most one main opportunity per match.
   if exists(
     select 1
-    from pg_catalog.jsonb_to_recordset(pg_catalog.coalesce(p_rows,'[]'::jsonb)) as x(
+    from pg_catalog.jsonb_to_recordset(coalesce(p_rows,'[]'::jsonb)) as x(
       match_id uuid,prediction_id text,rank_global integer,match_label text,competition text,market_family text,market text,
       market_label text,participant text,side text,line_canonical numeric,model_version text,model_status text,
       model_probability numeric,fair_odd numeric,entry_odd numeric,min_odd_target numeric,edge numeric,expected_value numeric
@@ -92,7 +92,7 @@ begin
   -- Portfolio diversification: never fill all three positions with one family.
   if exists(
     select 1
-    from pg_catalog.jsonb_to_recordset(pg_catalog.coalesce(p_rows,'[]'::jsonb)) as x(
+    from pg_catalog.jsonb_to_recordset(coalesce(p_rows,'[]'::jsonb)) as x(
       match_id uuid,prediction_id text,rank_global integer,match_label text,competition text,market_family text,market text,
       market_label text,participant text,side text,line_canonical numeric,model_version text,model_status text,
       model_probability numeric,fair_odd numeric,entry_odd numeric,min_odd_target numeric,edge numeric,expected_value numeric
@@ -108,7 +108,7 @@ begin
   -- by the same quantitative gates above.
   if exists(
     select 1
-    from pg_catalog.jsonb_to_recordset(pg_catalog.coalesce(p_rows,'[]'::jsonb)) as x(
+    from pg_catalog.jsonb_to_recordset(coalesce(p_rows,'[]'::jsonb)) as x(
       match_id uuid,prediction_id text,rank_global integer,match_label text,competition text,market_family text,market text,
       market_label text,participant text,side text,line_canonical numeric,model_version text,model_status text,
       model_probability numeric,fair_odd numeric,entry_odd numeric,min_odd_target numeric,edge numeric,expected_value numeric
@@ -135,7 +135,7 @@ begin
   select p_run_id,x.match_id,x.prediction_id,x.rank_global,x.match_label,x.competition,x.market_family,x.market,x.market_label,
          x.participant,x.side,x.line_canonical,x.model_version,x.model_status,x.model_probability,x.fair_odd,x.entry_odd,
          x.min_odd_target,x.edge,x.expected_value
-  from pg_catalog.jsonb_to_recordset(pg_catalog.coalesce(p_rows,'[]'::jsonb)) as x(
+  from pg_catalog.jsonb_to_recordset(coalesce(p_rows,'[]'::jsonb)) as x(
     match_id uuid,prediction_id text,rank_global integer,match_label text,competition text,market_family text,market text,
     market_label text,participant text,side text,line_canonical numeric,model_version text,model_status text,
     model_probability numeric,fair_odd numeric,entry_odd numeric,min_odd_target numeric,edge numeric,expected_value numeric
