@@ -277,7 +277,7 @@ export const analyzeExperimentalMarketsOddsPersisted = createServerFn({ method: 
 
     const targetDate = run?.target_date ?? null;
     const selectionLimit = selectionLimitForDate(targetDate);
-    const portfolio = selectExperimentalPortfolio(results, selectionLimit);
+    const portfolio = selectExperimentalPortfolio(results);
     const selected = portfolio.selected as EnrichedValueResult[];
     const selectedIds = new Set(selected.map((row) => row.predictionId));
 
