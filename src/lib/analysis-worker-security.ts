@@ -29,7 +29,6 @@ export function createFixedWindowRequestLimiter(options?: {
     for (const [key, bucket] of buckets) {
       if (bucket.resetAt <= now) buckets.delete(key);
     }
-
     while (buckets.size >= maxBuckets) {
       const oldest = buckets.keys().next().value as string | undefined;
       if (!oldest) break;
@@ -40,7 +39,6 @@ export function createFixedWindowRequestLimiter(options?: {
   return (request: Request, now = Date.now()): Response | null => {
     const key = clientRateKey(request);
     let bucket = buckets.get(key);
-
     if (!bucket || bucket.resetAt <= now) {
       if (buckets.size >= maxBuckets) prune(now);
       bucket = { count: 1, resetAt: now + windowMs };
@@ -50,16 +48,16 @@ export function createFixedWindowRequestLimiter(options?: {
 
     bucket.count += 1;
     if (bucket.count <= limit) return null;
-
     const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
     return Response.json(
-      { status: "RATE_LIMITED" },
+      {
+        ok: false,
+        error: { code: "RATE_LIMITED", message: "Muitas solicitações em pouco tempo." },
+        requestId: crypto.randomUUID(),
+      },
       {
         status: 429,
-        headers: {
-          "Cache-Control": "no-store",
-          "Retry-After": String(retryAfterSeconds),
-        },
+        headers: { "Cache-Control": "no-store", "Retry-After": String(retryAfterSeconds) },
       },
     );
   };
@@ -71,20 +69,17 @@ export async function readBoundedJsonObject(
 ): Promise<Record<string, unknown> | null> {
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/json") return null;
-
   const contentLength = request.headers.get("content-length");
   if (contentLength) {
     const declaredBytes = Number(contentLength);
     if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) return null;
   }
-
   if (!request.body) return null;
 
   const reader = request.body.getReader();
   const decoder = new TextDecoder();
   let totalBytes = 0;
   let raw = "";
-
   try {
     while (true) {
       const { done, value } = await reader.read();
