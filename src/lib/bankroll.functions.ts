@@ -51,7 +51,7 @@ export const getExperimentalBetPlan = createServerFn({ method: "GET" })
     const snapshot = await bankrollSnapshot(db, userId);
     const { data: rows, error } = await db
       .from("experimental_bet_tracking")
-      .select("id,run_id,prediction_id,target_date,match_label,competition,market_family,market_label,model_probability,entry_odd,expected_value,edge,stake_brl,profit_brl,result,bet_status,selection_rank,accepted_at")
+      .select("id,run_id,prediction_id,target_date,match_label,competition,market_family,market_label,model_status,model_probability,entry_odd,expected_value,edge,stake_brl,profit_brl,result,bet_status,selection_rank,accepted_at")
       .eq("run_id", data.runId)
       .order("selection_rank", { ascending: true, nullsFirst: false })
       .order("expected_value", { ascending: false });
