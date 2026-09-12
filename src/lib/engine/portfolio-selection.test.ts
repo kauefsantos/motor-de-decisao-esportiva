@@ -36,13 +36,13 @@ function candidate(
 }
 
 describe("experimental portfolio selection", () => {
-  it("keeps only one automatic selection per match", () => {
+  it("keeps only one automatic selection per match and hides the correlated one", () => {
     const result = selectExperimentalPortfolio(
       [candidate("m1-best", "m1", 0.30), candidate("m1-second", "m1", 0.25), candidate("m2", "m2", 0.20)],
       3,
     );
     expect(result.selected.map((row) => row.predictionId)).toEqual(["m1-best", "m2"]);
-    expect(result.correlatedAlternates.map((row) => row.predictionId)).toContain("m1-second");
+    expect(result.correlatedAlternates).toEqual([]);
   });
 
   it("does not force three selections", () => {
@@ -74,7 +74,7 @@ describe("experimental portfolio selection", () => {
     expect(result.selected.map((row) => row.predictionId)).toEqual(["good"]);
   });
 
-  it("limits family concentration to two of the final three", () => {
+  it("limits family concentration to two of the final three without exposing the discarded family duplicate", () => {
     const result = selectExperimentalPortfolio([
       candidate("g1", "m1", 0.40, 0.75, 1.80, "GOALS"),
       candidate("g2", "m2", 0.35, 0.75, 1.80, "GOALS"),
@@ -82,13 +82,13 @@ describe("experimental portfolio selection", () => {
       candidate("c1", "m4", 0.25, 0.75, 1.80, "CORNERS"),
     ]);
     expect(result.selected.map((row) => row.predictionId)).toEqual(["g1", "g2", "c1"]);
-    expect(result.correlatedAlternates.map((row) => row.predictionId)).toContain("g3");
+    expect(result.correlatedAlternates).toEqual([]);
   });
 
-  it("keeps correlation filtering separate from value qualification", () => {
+  it("keeps zero qualified bets as a valid outcome", () => {
     const noValue = { ...candidate("no-value", "m3", 0), valueStatus: "SEM_VALOR" as const, executionStatus: "NAO_EXECUTAR" as const };
-    const result = selectExperimentalPortfolio([noValue, candidate("good", "m2", 0.20)], 2);
-    expect(result.selected.map((row) => row.predictionId)).toEqual(["good"]);
-    expect(result.correlatedAlternates).toHaveLength(0);
+    const result = selectExperimentalPortfolio([noValue]);
+    expect(result.selected).toEqual([]);
+    expect(result.correlatedAlternates).toEqual([]);
   });
 });
