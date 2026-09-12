@@ -73,10 +73,10 @@ function DecisionDiagnosticScreen() {
                 )}
                 <div className="min-w-0">
                   <h2 className="font-semibold">
-                    {query.data.isStrictValidation ? "Validação real da regra >70%" : "Aguardando a primeira validação real"}
+                    {query.data.isStrictValidation ? "Regra 70% + odd 1,70 + value" : "Aguardando a primeira validação real"}
                   </h2>
                   <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{query.data.note}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">Regra estrita ativa no código desde {dateTime(query.data.effectiveAt)}.</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Régua ativa no código desde {dateTime(query.data.effectiveAt)}.</p>
                 </div>
               </div>
             </section>
@@ -98,8 +98,8 @@ function DecisionDiagnosticScreen() {
                   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <Metric label="Jogos enviados" value={query.data.inspectedRun.matches_total ?? 0} />
                     <Metric label="Linhas centrais modeladas" value={query.data.funnel.anchorPredictions} />
-                    <Metric label="Passaram de 70%" value={query.data.funnel.above70} emphasis />
-                    <Metric label="Bloqueadas em 70% ou menos" value={query.data.funnel.rejectedAtOrBelow70} />
+                    <Metric label="Chance ≥ 70%" value={query.data.funnel.above70} emphasis />
+                    <Metric label="Chance < 70%" value={query.data.funnel.rejectedAtOrBelow70} />
                   </div>
                 </section>
 
@@ -107,7 +107,7 @@ function DecisionDiagnosticScreen() {
                   <p className="label-eyebrow">Confiança do modelo</p>
                   <h2 className="mt-1 text-lg font-semibold">Distribuição das candidatas</h2>
                   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Metric label=">70% a <75%" value={query.data.funnel.bucket70To75} />
+                    <Metric label="70% a <75%" value={query.data.funnel.bucket70To75} />
                     <Metric label="75% a <80%" value={query.data.funnel.bucket75To80} />
                     <Metric label="80% a <85%" value={query.data.funnel.bucket80To85} />
                     <Metric label="85% ou mais" value={query.data.funnel.bucket85Plus} />
@@ -116,19 +116,25 @@ function DecisionDiagnosticScreen() {
 
                 <section className="panel mt-4 p-4 sm:p-5">
                   <p className="label-eyebrow">Preço e value</p>
-                  <h2 className="mt-1 text-lg font-semibold">Da Bet365 até a seleção</h2>
+                  <h2 className="mt-1 text-lg font-semibold">Da Bet365 até o portfólio final</h2>
                   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Metric label="Preços automáticos válidos" value={query.data.funnel.automaticPrices} />
-                    <Metric label="EV automático ≥ 2%" value={query.data.funnel.automaticEvPass} />
+                    <Metric label="Odds automáticas ≥ 1,70" value={query.data.funnel.automaticOddFloorPass} />
+                    <Metric label="EV ≥ 8% + edge ≥ 5 p.p." value={query.data.funnel.automaticEvPass} />
                     <Metric label="Sugestões finais" value={query.data.funnel.selected} emphasis />
-                    <Metric label="Limite do dia" value={query.data.selectionLimit} />
+                    <Metric label="Limite da rodada" value={query.data.selectionLimit} />
                   </div>
 
                   <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
                     <div className="metric-tile flex items-center justify-between gap-3 p-3">
-                      <span className="text-muted-foreground">Cotação indevida em ≤70%</span>
+                      <span className="text-muted-foreground">Cotação indevida abaixo de 70%</span>
                       <span className={`num font-semibold ${query.data.isStrictValidation && query.data.funnel.pricedAtOrBelow70 === 0 ? "text-success" : "text-foreground"}`}>
                         {query.data.funnel.pricedAtOrBelow70}
+                      </span>
+                    </div>
+                    <div className="metric-tile flex items-center justify-between gap-3 p-3">
+                      <span className="text-muted-foreground">Seleção fora da régua final</span>
+                      <span className={`num font-semibold ${query.data.isStrictValidation && query.data.funnel.selectedOutsideRule === 0 ? "text-success" : "text-foreground"}`}>
+                        {query.data.funnel.selectedOutsideRule}
                       </span>
                     </div>
                     <div className="metric-tile flex items-center justify-between gap-3 p-3">
@@ -136,30 +142,36 @@ function DecisionDiagnosticScreen() {
                       <span className="num font-semibold">{query.data.funnel.lineMismatch}</span>
                     </div>
                     <div className="metric-tile flex items-center justify-between gap-3 p-3">
-                      <span className="text-muted-foreground">Sem preço</span>
-                      <span className="num font-semibold">{query.data.funnel.noPrice}</span>
-                    </div>
-                    <div className="metric-tile flex items-center justify-between gap-3 p-3">
-                      <span className="text-muted-foreground">Contrato não exposto pela API</span>
-                      <span className="num font-semibold">{query.data.funnel.unsupported}</span>
+                      <span className="text-muted-foreground">Sem preço / fonte indisponível</span>
+                      <span className="num font-semibold">{query.data.funnel.noPrice + query.data.funnel.sourceUnavailable}</span>
                     </div>
                   </div>
 
                   {query.data.isStrictValidation && (
-                    <div className="mt-4 flex items-start gap-2 rounded-xl bg-secondary/30 p-3 text-sm">
-                      <CheckCircle2 className={`mt-0.5 size-4 shrink-0 ${query.data.health.noLowProbabilityPriceLeak ? "text-success" : "text-destructive"}`} aria-hidden />
-                      <p className="text-muted-foreground">
-                        {query.data.health.noLowProbabilityPriceLeak
-                          ? "Nenhuma opção com 70% ou menos chegou à cotação automática nesta análise."
-                          : "Foi detectada cotação de opção que não passou da barreira de 70%. Isso exige revisão antes de usar a seleção."}
-                      </p>
+                    <div className="mt-4 grid gap-2">
+                      <div className="flex items-start gap-2 rounded-xl bg-secondary/30 p-3 text-sm">
+                        <CheckCircle2 className={`mt-0.5 size-4 shrink-0 ${query.data.health.noLowProbabilityPriceLeak ? "text-success" : "text-destructive"}`} aria-hidden />
+                        <p className="text-muted-foreground">
+                          {query.data.health.noLowProbabilityPriceLeak
+                            ? "Nenhuma opção abaixo de 70% chegou à cotação automática nesta análise."
+                            : "Foi detectada cotação de opção abaixo de 70%. Isso exige revisão antes de usar a seleção."}
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-2 rounded-xl bg-secondary/30 p-3 text-sm">
+                        <CheckCircle2 className={`mt-0.5 size-4 shrink-0 ${query.data.health.noSelectionOutsideRule ? "text-success" : "text-destructive"}`} aria-hidden />
+                        <p className="text-muted-foreground">
+                          {query.data.health.noSelectionOutsideRule
+                            ? "Nenhuma seleção persistida viola chance ≥ 70%, odd ≥ 1,70, EV ≥ 8% e edge ≥ 5 p.p."
+                            : "Foi detectada uma seleção persistida fora da régua quantitativa. O resultado deve ser tratado como inválido até revisão."}
+                        </p>
+                      </div>
                     </div>
                   )}
                 </section>
 
                 <section className="mt-4 rounded-xl bg-secondary/20 p-4 text-sm text-muted-foreground">
                   <p>
-                    <strong className="font-medium text-foreground">Leitura correta:</strong> o número de EV ≥ 2% acima considera preços automáticos auditados. Odds digitadas manualmente continuam protegidas pelo gate de probabilidade no backend, mas ainda não possuem um ledger completo de todas as avaliações rejeitadas.
+                    <strong className="font-medium text-foreground">Leitura correta:</strong> o backend avalia a rodada inteira. Apenas oportunidades com chance ≥ 70%, odd ≥ 1,70, EV ≥ 8%, edge ≥ 5 p.p., dados utilizáveis e linha compatível podem chegar ao portfólio; o sistema retorna de zero a três escolhas e nunca cria uma aposta apenas para preencher a tela.
                   </p>
                 </section>
               </>
