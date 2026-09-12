@@ -1,4 +1,4 @@
-import type { AdminDb } from "../admin-db";
+import { adminDb, type AdminDb } from "../admin-db";
 
 type RpcError = { message: string };
 export type RuntimeRpcResult<T> = { data: T | null; error: RpcError | null };
@@ -20,4 +20,16 @@ export async function callRuntimeRpc<T>(
 ): Promise<RuntimeRpcResult<T>> {
   const caller = db.rpc.bind(db) as unknown as RuntimeRpcCaller;
   return await caller<T>(fn, args);
+}
+
+/**
+ * Server-only facade for trusted background endpoints. Routes call this
+ * repository contract instead of importing the privileged Lovable Cloud client.
+ */
+export async function callAdminRuntimeRpc<T>(
+  fn: string,
+  args?: Record<string, unknown>,
+): Promise<RuntimeRpcResult<T>> {
+  const db = await adminDb();
+  return callRuntimeRpc<T>(db, fn, args);
 }
