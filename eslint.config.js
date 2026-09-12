@@ -32,9 +32,6 @@ export default tseslint.config(
           ],
         },
       ],
-      // Existing hydration/platform effects intentionally synchronize state from
-      // browser APIs. Keep them visible as debt without blocking unrelated PRs.
-      "react-hooks/set-state-in-effect": "warn",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       // Legacy modules still contain explicit any. Critical application/domain/
       // repository paths are independently blocked by the architecture gate.
