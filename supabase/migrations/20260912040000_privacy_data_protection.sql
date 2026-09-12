@@ -165,6 +165,8 @@ security definer
 set search_path=''
 as $$
 begin
+  -- analysis_runs and bankroll owner FKs use ON DELETE RESTRICT. Clean owned
+  -- application state before PostgreSQL evaluates those referential actions.
   perform public.erase_user_application_data(OLD.id);
   update private.app_security_config
      set approved_user_id = null
@@ -179,7 +181,7 @@ grant execute on function private.cleanup_deleted_app_user() to supabase_auth_ad
 
 drop trigger if exists cleanup_deleted_app_user on auth.users;
 create trigger cleanup_deleted_app_user
-after delete on auth.users
+before delete on auth.users
 for each row execute function private.cleanup_deleted_app_user();
 
 -- Minimize profile attributes not used by authorization. Email, provider and stable
