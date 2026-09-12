@@ -43,18 +43,19 @@ export async function loadExperimentalExternalIds(
   return (data ?? []) as ExternalIdRow[];
 }
 
-export async function replaceExperimentalPredictions(
-  db: AdminDb,
-  runId: string,
-  rows: PredictionInsert[],
-) {
-  const { error: deleteError } = await db
+export async function clearExperimentalPredictions(db: AdminDb, runId: string) {
+  const { error } = await db
     .from("model_predictions")
     .delete()
     .eq("run_id", runId)
     .eq("model_status", EXPERIMENTAL_MARKETS_STATUS);
-  if (deleteError) throw new Error(`Falha ao limpar model_predictions experimentais: ${deleteError.message}`);
+  if (error) throw new Error(`Falha ao limpar model_predictions experimentais: ${error.message}`);
+}
 
+export async function insertExperimentalPredictions(
+  db: AdminDb,
+  rows: PredictionInsert[],
+) {
   for (let index = 0; index < rows.length; index += 200) {
     const { error } = await db.from("model_predictions").insert(rows.slice(index, index + 200));
     if (error) throw new Error(`Falha ao gravar model_predictions experimentais: ${error.message}`);
