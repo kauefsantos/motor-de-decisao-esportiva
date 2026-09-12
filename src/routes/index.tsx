@@ -9,9 +9,7 @@ import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { PushNotificationControl } from "@/components/PushNotificationControl";
 import { Button } from "@/components/ui/button";
 import { parseCsv, type CsvParseResult } from "@/lib/csv";
-import { createRun } from "@/lib/analysis.functions";
-import { enqueueAnalysis } from "@/lib/background-analysis.functions";
-import { setAnalysisNotificationTarget } from "@/lib/push.browser";
+import { createAnalysisDraft } from "@/lib/analysis-draft.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,7 +17,7 @@ export const Route = createFileRoute("/")({
       { title: "Analisar jogos · Bet Value Engine V2.1.1" },
       {
         name: "description",
-        content: "Envie os jogos da rodada e veja quais opções de aposta merecem ser conferidas antes de olhar as odds.",
+        content: "Envie os jogos da rodada, valide as partidas e veja quais opções de aposta merecem ser conferidas antes de olhar as odds.",
       },
     ],
   }),
@@ -34,12 +32,12 @@ function dateLabel(iso: string | null) {
 
 function UploadScreen() {
   const navigate = useNavigate();
-  const create = useServerFn(createRun);
-  const enqueue = useServerFn(enqueueAnalysis);
+  const createDraft = useServerFn(createAnalysisDraft);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [filename, setFilename] = useState<string | null>(null);
   const [parsed, setParsed] = useState<CsvParseResult | null>(null);
+  const [clientRequestId, setClientRequestId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
@@ -53,40 +51,35 @@ function UploadScreen() {
     const result = parseCsv(text);
     setFilename(file.name);
     setParsed(result);
+    setClientRequestId(crypto.randomUUID());
     if (result.rows.length === 0) {
       toast.error(result.invalid[0]?.reason ?? "Não encontrei nenhuma partida válida nesse arquivo.");
     }
   }, []);
 
   async function processar() {
-    if (!parsed || !filename || parsed.rows.length === 0 || !parsed.targetDate) return;
+    if (!parsed || !filename || parsed.rows.length === 0 || !parsed.targetDate || !clientRequestId) return;
     setSubmitting(true);
     try {
-      const res = await create({
+      const res = await createDraft({
         data: {
+          clientRequestId,
           filename,
           targetDate: parsed.targetDate,
           headers: parsed.headers,
           invalidCount: parsed.invalid.length,
           leagues: parsed.leagues,
-          rows: parsed.rows,
+          rows: parsed.rows.map((row) => ({
+            partida: row.partida,
+            horario: row.horario,
+            campeonato: row.campeonato,
+            targetDate: row.data,
+          })),
         },
       });
-      // Queue the server-side worker before navigation. Once this resolves, the
-      // analysis no longer depends on the phone keeping the app in foreground.
-      await enqueue({ data: { runId: res.runId } });
-
-      // Notification setup is best-effort only and must never prevent a sports
-      // analysis that has already been safely queued on the server.
-      try {
-        await setAnalysisNotificationTarget(res.runId);
-      } catch (error) {
-        console.warn("[Web Push] could not persist analysis target", error);
-      }
-
-      navigate({ to: "/run/$runId/processamento", params: { runId: res.runId } });
-    } catch {
-      toast.error("Não foi possível iniciar a análise. Tente novamente.");
+      navigate({ to: "/draft/$draftId/validacao", params: { draftId: res.data.draftId } });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível preparar a validação. Tente novamente.");
       setSubmitting(false);
     }
   }
@@ -97,7 +90,7 @@ function UploadScreen() {
         <p className="label-eyebrow">Etapa 1</p>
         <h1 className="page-heading mt-1.5">Analisar os jogos do dia</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:mt-3 sm:text-base">
-          Envie o CSV da rodada. Calculamos as chances primeiro e comparamos as odds depois.
+          Envie o CSV da rodada. Primeiro validamos as partidas com a fonte esportiva; só depois a análise entra na fila de processamento.
         </p>
 
         <PushNotificationControl />
@@ -146,13 +139,13 @@ function UploadScreen() {
         <CollapsiblePanel
           className="mt-3 sm:mt-4"
           title="Como funciona"
-          description="Enviar jogos → calcular chances → comparar odds → ver sugestões"
+          description="Enviar jogos → validar partidas → calcular chances → comparar odds → escolher até 3"
         >
           <ol className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
-            <li><span className="font-medium text-foreground">1. Envie os jogos.</span> A data do CSV define quais partidas serão procuradas.</li>
-            <li><span className="font-medium text-foreground">2. Calculamos as chances.</span> Só usamos informações anteriores ao jogo.</li>
-            <li><span className="font-medium text-foreground">3. Comparamos as odds.</span> Quando possível, buscamos a bet365 automaticamente.</li>
-            <li><span className="font-medium text-foreground">4. Sugerimos pouco.</span> Se o preço não compensar, não há sugestão.</li>
+            <li><span className="font-medium text-foreground">1. Envie os jogos.</span> O arquivo vira um rascunho idempotente, sem criar análises duplicadas.</li>
+            <li><span className="font-medium text-foreground">2. Validamos as partidas.</span> Se algo estiver ambíguo, somente os campos marcados pelo servidor podem ser corrigidos.</li>
+            <li><span className="font-medium text-foreground">3. Calculamos e cotamos.</span> As chances são calculadas primeiro e a odd real é conferida depois.</li>
+            <li><span className="font-medium text-foreground">4. Você decide.</span> As opções qualificadas aparecem em lotes de até 10 e você pode escolher no máximo 3 por dia.</li>
           </ol>
         </CollapsiblePanel>
 
@@ -164,7 +157,7 @@ function UploadScreen() {
                   <FileSpreadsheet className="size-5 text-accent" aria-hidden />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Arquivo pronto</p>
+                  <p className="text-xs text-muted-foreground">Arquivo pronto para validação</p>
                   <span className="block truncate font-medium">{filename}</span>
                 </div>
               </div>
@@ -203,10 +196,10 @@ function UploadScreen() {
                 className="min-h-12 w-full"
                 size="lg"
                 data-testid="processar-jogos"
-                disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || submitting}
+                disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || !clientRequestId || submitting}
                 onClick={() => void processar()}
               >
-                {submitting ? "Começando…" : "COMEÇAR ANÁLISE"}
+                {submitting ? "Preparando validação…" : "VALIDAR PARTIDAS"}
                 <ArrowRight className="ml-2 size-4" aria-hidden />
               </Button>
             </div>
