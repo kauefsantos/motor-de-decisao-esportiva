@@ -92,12 +92,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setMessage(null);
 
     try {
-      // Fluxo OAuth padrão do backend, usando o provedor Google gerenciado já
-      // configurado no projeto. Sem dependência do broker legado.
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: currentReturnUrl(),
+          scopes: "openid email",
           queryParams: { prompt: "select_account" },
         },
       });
@@ -155,6 +154,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </Button>
         <p className="mt-4 text-center text-[11px] leading-relaxed text-muted-foreground">
           A sessão continua sendo validada no servidor antes de qualquer operação com os dados.
+        </p>
+        <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
+          Ao entrar, consulte como os dados são tratados no <a href="/privacidade" className="font-medium text-primary underline underline-offset-4">Aviso de Privacidade</a>.
         </p>
       </main>
     </div>

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BarChart3, Clock3, LogOut, Search } from "lucide-react";
+import { BarChart3, Clock3, LogOut, Search, ShieldCheck } from "lucide-react";
 
 import { BetConfirmationFlow } from "@/components/BetConfirmationFlow";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,7 +12,7 @@ const STAGES = [
   { key: "resultado", label: "Ver sugestões", shortLabel: "Sugestões" },
 ] as const;
 
-type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics";
+type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics" | "account";
 
 export function AppShell({ stage, children }: { stage: StageKey; children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -75,15 +75,26 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
               </Link>
             </nav>
 
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary sm:hover:text-foreground"
-              aria-label="Sair da conta"
-            >
-              <LogOut className="size-4" aria-hidden />
-              <span className="hidden sm:inline">Sair</span>
-            </button>
+            <div className="flex items-center gap-1">
+              <a
+                href="/conta"
+                className={`flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary ${stage === "account" ? "text-primary" : "text-muted-foreground sm:hover:text-foreground"}`}
+                aria-label="Conta e privacidade"
+                aria-current={stage === "account" ? "page" : undefined}
+              >
+                <ShieldCheck className="size-4" aria-hidden />
+                <span className="hidden sm:inline">Conta</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-xl px-2 text-xs text-muted-foreground transition-colors active:bg-secondary sm:min-w-0 sm:px-3 sm:hover:bg-secondary sm:hover:text-foreground"
+                aria-label="Sair da conta"
+              >
+                <LogOut className="size-4" aria-hidden />
+                <span className="hidden sm:inline">Sair</span>
+              </button>
+            </div>
           </div>
 
           {showAnalysisProgress && (
@@ -162,7 +173,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
       <footer className="mx-auto hidden max-w-[1400px] px-4 pb-8 sm:block sm:px-6 lg:px-8">
         <details className="text-xs text-muted-foreground">
           <summary className="flex min-h-11 cursor-pointer list-none items-center py-2">Bet365 Brasil · Horário de Brasília · Apostas simples</summary>
-          <p className="max-w-2xl pb-2">O sistema organiza a análise e o histórico; não faz apostas por você.</p>
+          <p className="max-w-2xl pb-2">O sistema organiza a análise e o histórico; não faz apostas por você. <a href="/privacidade" className="underline underline-offset-4">Privacidade</a></p>
         </details>
       </footer>
 
