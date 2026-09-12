@@ -10,6 +10,8 @@ function evaluated(input: {
   matchId: string;
   probability: number;
   odd: number;
+  family?: string;
+  market?: string;
 }) {
   const result = evaluateValue({
     candidateId: input.id,
@@ -28,8 +30,8 @@ function evaluated(input: {
   return {
     ...result,
     matchId: input.matchId,
-    family: "1X2",
-    market: "1x2",
+    family: input.family ?? "1X2",
+    market: input.market ?? "1x2",
     participant: null,
     side: "HOME",
   };
@@ -47,14 +49,14 @@ describe("functional decision flow E2E", () => {
     expect(strictDirectionFromProbabilities(0.299999, 0.700001)).toBe("UNDER");
   });
 
-  it("runs probability -> real odd -> EV -> correlation -> canonical daily limit of 3 deterministically", () => {
+  it("runs probability -> real odd -> EV -> correlation -> diversification -> canonical daily limit of 3 deterministically", () => {
     const rows = [
       evaluated({ id: "a", matchId: "match-1", probability: 0.75, odd: 1.70 }),
       evaluated({ id: "b", matchId: "match-1", probability: 0.74, odd: 1.75 }),
-      evaluated({ id: "c", matchId: "match-2", probability: 0.72, odd: 1.70 }),
+      evaluated({ id: "c", matchId: "match-2", probability: 0.72, odd: 1.70, family: "TOTALS", market: "over_2_5" }),
       evaluated({ id: "d", matchId: "match-3", probability: 0.70, odd: 1.70 }),
-      evaluated({ id: "e", matchId: "match-4", probability: 0.73, odd: 1.70 }),
-      evaluated({ id: "f", matchId: "match-5", probability: 0.80, odd: 1.69 }),
+      evaluated({ id: "e", matchId: "match-4", probability: 0.73, odd: 1.70, family: "BTTS", market: "btts_yes" }),
+      evaluated({ id: "f", matchId: "match-5", probability: 0.80, odd: 1.69, family: "BTTS", market: "btts_yes" }),
     ];
 
     expect(rows[3]?.valueStatus).toBe("TEM_VALOR");
