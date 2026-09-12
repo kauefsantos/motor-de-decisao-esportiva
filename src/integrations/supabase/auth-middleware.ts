@@ -3,6 +3,7 @@ import { createMiddleware } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './types'
+import { isAuthenticationFresh } from './session-policy'
 
 const ALLOWED_EMAIL = 'kauefsantos3@gmail.com'
 
@@ -76,6 +77,7 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
 
     const claims = data.claims as Record<string, unknown>
     const userId = typeof claims['sub'] === 'string' ? claims['sub'] : ''
+    const sessionId = typeof claims['session_id'] === 'string' ? claims['session_id'] : ''
     const email = typeof claims['email'] === 'string' ? claims['email'].trim().toLowerCase() : ''
     const appMetadata =
       typeof claims['app_metadata'] === 'object' && claims['app_metadata'] !== null
@@ -83,7 +85,8 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
         : null
     const provider = typeof appMetadata?.['provider'] === 'string' ? appMetadata['provider'] : ''
 
-    if (!userId || email !== ALLOWED_EMAIL || provider !== 'google') deny('Unauthorized')
+    if (!userId || !sessionId || email !== ALLOWED_EMAIL || provider !== 'google') deny('Unauthorized')
+    if (!isAuthenticationFresh(claims)) deny('Session expired. Reauthenticate with Google.')
 
     return next({
       context: {
