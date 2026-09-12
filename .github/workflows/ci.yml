@@ -12,18 +12,22 @@ permissions:
 jobs:
   test-and-build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          # Full history is required so Gitleaks can detect credentials that were
-          # committed and later deleted, not only secrets in the current tree.
           fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.2
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1
+        with:
+          version: 2.100.0
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -44,24 +48,43 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           service_role_hits="$(grep -RIl --exclude='client.server.ts' 'SUPABASE_SERVICE_ROLE_KEY' src || true)"
           if [ -n "$service_role_hits" ]; then
             echo "SUPABASE_SERVICE_ROLE_KEY must only appear in src/integrations/supabase/client.server.ts"
             echo "$service_role_hits"
             exit 1
           fi
-
-          static_admin_imports="$(
-            find src -type f \( -name '*.ts' -o -name '*.tsx' \) ! -name '*.server.ts' -print0 \
-              | xargs -0 grep -IlE '^[[:space:]]*(import[[:space:]].*client\.server|.*from[[:space:]]+["'"'"']@/integrations/supabase/client\.server["'"'"'])' \
-              || true
-          )"
+          static_admin_imports="$(find src -type f \( -name '*.ts' -o -name '*.tsx' \) ! -name '*.server.ts' -print0 | xargs -0 grep -IlE '^[[:space:]]*(import[[:space:]].*client\.server|.*from[[:space:]]+["'"'"']@/integrations/supabase/client\.server["'"'"'])' || true)"
           if [ -n "$static_admin_imports" ]; then
             echo "Static imports of the service-role client are forbidden outside *.server.ts modules."
             echo "$static_admin_imports"
             exit 1
           fi
+
+      - name: Governance documentation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="HEAD^"
+          fi
+          changed="$(git diff --name-only "$base"...HEAD 2>/dev/null || git diff --name-only HEAD^ HEAD)"
+          protected="$(printf '%s\n' "$changed" | grep -E '^(supabase/migrations/|src/lib/engine/|src/lib/adapters/|src/lib/(authorization|bankroll|analytics)|\.github/workflows/)' || true)"
+          if [ -n "$protected" ]; then
+            docs="$(printf '%s\n' "$changed" | grep -E '^docs/(PROJECT_STATE\.md|GOVERNANCE\.md|METRICS_GLOSSARY\.md|DATA_CATALOG\.md|governance/)' || true)"
+            if [ -z "$docs" ]; then
+              echo "Governed code changed without canonical governance/documentation update."
+              echo "$protected"
+              exit 1
+            fi
+          fi
+
+      - name: Database migrations and regression tests
+        run: |
+          supabase db start
+          supabase test db
 
       - name: Functional decision-flow E2E
         run: bunx vitest run src/functional-decision-flow.e2e.test.ts
