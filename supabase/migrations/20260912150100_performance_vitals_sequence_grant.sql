@@ -1,0 +1,1 @@
+grant usage, select on sequence public.performance_vitals_id_seq to service_role;
