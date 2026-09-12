@@ -22,8 +22,10 @@ describe("home resume UX contract", () => {
     expect(home).toContain('data-testid="proposed-run-link"');
     expect(home).toContain("summary.proposedRunId");
     expect(home).toContain('to="/run/$runId/resultado"');
-    expect(summary).toContain('eq("analysis_runs.owner_id", userId)');
-    expect(summary).toContain("proposedRunId: proposedRunResult.data?.run_id ?? null");
+    expect(summary).toContain('"get_owner_latest_proposed_run_id"');
+    expect(summary).toContain("{ p_owner_id: userId }");
+    expect(summary).not.toContain('.from("experimental_bet_tracking")');
+    expect(summary).toContain("proposedRunId: proposedRunResult.data ?? null");
   });
 
   it("keeps home run typing strict", () => {
