@@ -30,6 +30,11 @@ const correctionSchema = z.object({
     value: z.string().trim().min(1).max(200),
   })).min(1).max(300),
 });
+const ignoreGameSchema = z.object({
+  draftId: z.string().uuid(),
+  gameId: z.string().uuid(),
+  ignored: z.boolean(),
+});
 
 const FINALIZE_SCHEMA = z.object({
   draftId: z.string().uuid(),
@@ -123,9 +128,17 @@ export const validateAnalysisDraft = createServerFn({ method: "POST" })
 
     let valid = 0;
     let invalid = 0;
+    let ignored = 0;
+    let active = 0;
     const output: any[] = [];
 
     for (const game of games ?? []) {
+      if (game.ignored) {
+        ignored += 1;
+        output.push({ id: game.id, ordinal: game.ordinal, ignored: true, validation_status: game.validation_status });
+        continue;
+      }
+      active += 1;
       const editable = new Set<string>();
       const errors: Array<{ field: string; code: string; message: string }> = [];
       let suggestions: Array<Record<string, unknown>> = [];
@@ -220,12 +233,12 @@ export const validateAnalysisDraft = createServerFn({ method: "POST" })
       };
       const { error: updateError } = await db.from("analysis_draft_games").update(patch).eq("id", game.id).eq("draft_id", data.draftId);
       if (updateError) throw new BackendError("INTERNAL_ERROR", "Não foi possível salvar o resultado da validação.", 500);
-      output.push({ id: game.id, ordinal: game.ordinal, ...patch });
+      output.push({ id: game.id, ordinal: game.ordinal, ignored: false, ...patch });
     }
 
-    const draftStatus = invalid === 0 ? "READY" : "NEEDS_CORRECTION";
+    const draftStatus = active > 0 && invalid === 0 ? "READY" : "NEEDS_CORRECTION";
     await db.from("analysis_drafts").update({ status: draftStatus, updated_at: new Date().toISOString() }).eq("id", data.draftId).eq("owner_id", context.userId);
-    return backendOk({ draftId: data.draftId, status: draftStatus, valid, invalid, games: output });
+    return backendOk({ draftId: data.draftId, status: draftStatus, valid, invalid, ignored, active, games: output });
   });
 
 export const correctAnalysisDraft = createServerFn({ method: "POST" })
@@ -243,6 +256,24 @@ export const correctAnalysisDraft = createServerFn({ method: "POST" })
     return backendOk({ changed: Number(changed ?? 0), needsValidation: true });
   });
 
+export const setAnalysisDraftGameIgnored = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => ignoreGameSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
+    const db = await adminDb();
+    await requireDraft(db, data.draftId, context.userId);
+    const { data: game, error } = await db
+      .from("analysis_draft_games")
+      .update({ ignored: data.ignored, updated_at: new Date().toISOString() })
+      .eq("id", data.gameId)
+      .eq("draft_id", data.draftId)
+      .select("id,ignored")
+      .maybeSingle();
+    if (error || !game) throw new BackendError("NOT_FOUND", "Partida do rascunho não encontrada.", 404);
+    await db.from("analysis_drafts").update({ status: "VALIDATING", updated_at: new Date().toISOString() }).eq("id", data.draftId).eq("owner_id", context.userId);
+    return backendOk({ gameId: data.gameId, ignored: Boolean(game.ignored), needsValidation: true });
+  });
+
 export const finalizeAnalysisDraft = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => FINALIZE_SCHEMA.parse(input))
   .handler(async ({ data, context }) => {
@@ -254,7 +285,7 @@ export const finalizeAnalysisDraft = createServerFn({ method: "POST" })
       p_owner_id: context.userId,
       p_idempotency_key: data.idempotencyKey,
     });
-    if (error) throw new BackendError("CONFLICT", "Ainda existem partidas que precisam ser corrigidas antes do processamento.", 409);
+    if (error) throw new BackendError("CONFLICT", error.message?.includes("pelo menos uma partida") ? "Escolha pelo menos uma partida para analisar." : "Ainda existem partidas que precisam ser corrigidas antes do processamento.", 409);
     const row = Array.isArray(finalized) ? finalized[0] : finalized;
     if (!row?.run_id) throw new BackendError("INTERNAL_ERROR", "A análise validada não pôde ser criada.", 500);
 
