@@ -20,19 +20,22 @@ A auditoria foi conduzida com referência ao OWASP ASVS 5.0.0 e cobriu autentica
 
 - `@lovable.dev/cloud-auth-js` foi removido de `package.json` e `bun.lock`;
 - o login Google usa diretamente `supabase.auth.signInWithOAuth`;
-- a sessão continua sendo a sessão Supabase usada pelo restante da aplicação.
+- a sessão continua sendo a sessão Supabase usada pelo restante da aplicação;
+- a origem do broker OAuth legado também foi removida da CSP.
 
 ### Identidade aprovada sem literal privilegiado
 
 - nenhum e-mail ou UUID de conta aprovada é necessário no código de autenticação atual;
-- o banco deriva a identidade canônica da primeira conta Google existente em `auth.users`;
+- a identidade canônica é vinculada uma única vez e armazenada somente em `private.app_security_config`;
+- em produção, a migração preserva a conta Google já estabelecida; em ambiente novo, a primeira conta Google válida sela atomicamente a identidade;
+- excluir a conta não transfere automaticamente a autorização para uma conta posterior;
 - a autorização do JWT é consultada por um RPC booleano `is_approved_app_user()`;
 - o middleware falha fechado se a consulta não puder ser validada;
 - as migrations atuais não incorporam e-mail privilegiado.
 
 ## Regressões automatizadas
 
-O repositório contém testes que impedem o retorno de `unsafe-inline`, do pacote OAuth legado e de um e-mail privilegiado nas superfícies atuais de autenticação/migrations. O smoke publicado também verifica nonce/CSP, login privado, headers de segurança, robots e o endpoint protegido.
+O repositório contém testes que impedem o retorno de `unsafe-inline`, do pacote OAuth legado e de um e-mail privilegiado nas superfícies atuais de autenticação/migrations. A suíte de segurança do banco valida privilégios do RPC e o smoke publicado verifica nonce/CSP, login privado, headers de segurança, robots e o endpoint protegido.
 
 ## Interpretação de “100% fechado”
 
