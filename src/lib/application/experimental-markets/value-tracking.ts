@@ -9,6 +9,7 @@ import {
   referenceLinesFor,
 } from "../../engine/market-policy";
 import { distributionFromStoredOutcome } from "../../engine/count-market-distribution";
+import { executionValueContract } from "../../engine/execution-value";
 import { EV_TARGET, evaluateValue } from "../../engine/value";
 import { finiteNumber } from "./datasets";
 import {
@@ -56,16 +57,23 @@ export function evaluateExperimentalEntries(
     const prediction = byId.get(entry.predictionId);
     if (!prediction) continue;
     const modelProbability = finiteNumber(prediction.model_probability) ?? 0;
+    const lineCanonical = prediction.line_canonical === null ? null : Number(prediction.line_canonical);
+    const contract = executionValueContract({
+      market: prediction.market,
+      side: prediction.side,
+      lineCanonical,
+      storedOutcomeDistribution: prediction.outcome_distribution,
+    });
     const result = evaluateValue({
       candidateId: prediction.prediction_id,
       predictionId: prediction.prediction_id,
-      contractType: "BINARY",
+      contractType: contract.contractType,
       bookmaker: "bet365_br",
       odd: entry.odd,
       lineAtEntry: entry.lineAtEntry,
-      lineCanonical: prediction.line_canonical === null ? null : Number(prediction.line_canonical),
+      lineCanonical,
       pCons: modelProbability,
-      outcomeDistribution: null,
+      outcomeDistribution: contract.outcomeDistribution,
       published: true,
       modelStatus: EXPERIMENTAL_MARKETS_STATUS,
       dataStatus: prediction.data_status,
@@ -77,7 +85,7 @@ export function evaluateExperimentalEntries(
       marketLabel: labelFor(prediction.market, prediction.participant, prediction.side, prediction.line_raw),
       participant: prediction.participant,
       side: prediction.side,
-      lineCanonical: prediction.line_canonical === null ? null : Number(prediction.line_canonical),
+      lineCanonical,
       probabilityExperimental: modelProbability,
       modelVersion: prediction.model_version,
       family: familyForMarket(prediction.market),
