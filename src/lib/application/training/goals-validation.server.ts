@@ -1,5 +1,8 @@
 import { adminDb } from "../../admin-db";
-import { callRuntimeRpc } from "../../repositories/runtime-rpc.server";
+import {
+  callRuntimeRpc,
+  type RuntimeRpcResult,
+} from "../../repositories/runtime-rpc.server";
 import {
   STAGE6_GOALS_BASE_ARTIFACT,
   STAGE6_GOALS_ELO_ARTIFACT,
@@ -57,13 +60,17 @@ export async function loadStage6GoalsValidationRows(): Promise<Stage6GoalRow[]> 
   let afterFixtureId: number | null = null;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    const { data, error } = await callRuntimeRpc<RawGoalValidationRow[]>(db, "get_stage6_goals_validation_rows_page", {
-      p_after_date: afterDate,
-      p_after_fixture_id: afterFixtureId,
-      p_limit: PAGE_SIZE,
-    });
-    if (error) throw new Error(error.message);
-    const batch = data ?? [];
+    const response: RuntimeRpcResult<RawGoalValidationRow[]> = await callRuntimeRpc<RawGoalValidationRow[]>(
+      db,
+      "get_stage6_goals_validation_rows_page",
+      {
+        p_after_date: afterDate,
+        p_after_fixture_id: afterFixtureId,
+        p_limit: PAGE_SIZE,
+      },
+    );
+    if (response.error) throw new Error(response.error.message);
+    const batch: RawGoalValidationRow[] = response.data ?? [];
     for (const raw of batch) {
       const row = asStage6GoalRow(raw);
       if (seen.has(row.fixtureId)) throw new Error(`Duplicate canonical fixture in Stage 6 dataset: ${row.fixtureId}`);
@@ -71,7 +78,7 @@ export async function loadStage6GoalsValidationRows(): Promise<Stage6GoalRow[]> 
       rows.push(row);
     }
     if (batch.length < PAGE_SIZE) return rows;
-    const last = batch[batch.length - 1];
+    const last: RawGoalValidationRow | undefined = batch[batch.length - 1];
     if (!last) return rows;
     afterDate = last.fixture_date.slice(0, 10);
     afterFixtureId = Number(last.fixture_id);
