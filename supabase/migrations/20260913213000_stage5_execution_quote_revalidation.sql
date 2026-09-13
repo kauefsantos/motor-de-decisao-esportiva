@@ -138,9 +138,10 @@ $$;
 revoke all on function public.accept_decision_opportunity_atomic(uuid,uuid) from public,anon,authenticated;
 grant execute on function public.accept_decision_opportunity_atomic(uuid,uuid) to service_role;
 
--- Remove the legacy two-argument confirmation RPC so a positive stake cannot be
--- opened by reusing the decision-time price.
+-- Remove legacy confirmation RPCs so a positive stake cannot be opened by
+-- reusing the decision-time price or without an observed execution timestamp.
 drop function if exists public.confirm_experimental_bet_atomic(uuid,numeric);
+drop function if exists public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric);
 
 create function public.confirm_experimental_bet_atomic(
   p_id uuid,
@@ -148,7 +149,8 @@ create function public.confirm_experimental_bet_atomic(
   p_entry_odd numeric,
   p_expected_value numeric,
   p_edge numeric,
-  p_line_canonical numeric
+  p_line_canonical numeric,
+  p_quote_captured_at timestamptz
 )
 returns table(
   status text,
@@ -219,6 +221,11 @@ begin
   end if;
 
   -- Defense in depth for the price revalidated by trusted server code.
+  if p_quote_captured_at is null
+     or p_quote_captured_at < v_now - interval '10 minutes'
+     or p_quote_captured_at > v_now + interval '1 minute' then
+    raise exception 'A cotação executada precisa ter sido conferida nos últimos 10 minutos.';
+  end if;
   if p_entry_odd is null or p_entry_odd<1.70 then
     raise exception 'A odd atual precisa ser pelo menos 1,70.';
   end if;
@@ -253,7 +260,7 @@ begin
       entry_odd=p_entry_odd,
       expected_value=p_expected_value,
       edge=p_edge,
-      execution_quote_captured_at=v_now,
+      execution_quote_captured_at=p_quote_captured_at,
       execution_quote_source='USER_CONFIRMED_BET365',
       bet_status='OPEN',
       stake_brl=v_stake,
@@ -272,19 +279,19 @@ begin
 end;
 $$;
 
-revoke all on function public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric)
+revoke all on function public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz)
   from public,anon,authenticated;
-grant execute on function public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric)
+grant execute on function public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz)
   to service_role;
 
-comment on function public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric) is
-  'Abre stake positiva somente após nova cotação Bet365 confirmada e revalidada contra odd>=1.70, EV>=8%, edge>=5pp e linha modelada; preserva separadamente a cotação que originou a decisão.';
+comment on function public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz) is
+  'Abre stake positiva somente após cotação Bet365 observada nos últimos 10 minutos e revalidada contra odd>=1.70, EV>=8%, edge>=5pp e linha modelada; preserva separadamente a cotação que originou a decisão.';
 
 insert into public.app_schema_releases(version,migration_name,notes)
 values(
   '20260913-stage5-execution-quote-revalidation',
   'stage5_execution_quote_revalidation',
-  'Preserves decision-time price/EV/edge and requires a newly confirmed Bet365 execution quote before positive stake; actual entry_odd becomes the price used by CLV.'
+  'Preserves decision-time price/EV/edge and requires a Bet365 execution quote observed within 10 minutes before positive stake; actual entry_odd becomes the price used by CLV.'
 )
 on conflict(version) do update
 set migration_name=excluded.migration_name,

@@ -25,10 +25,19 @@ describe("Stage 5 execution quote contract", () => {
     expect(source).toContain("lineAtEntry: data.currentLine ?? null");
   });
 
+  it("rejects an execution quote older than the 10-minute freshness window", () => {
+    const source = compact(bankroll);
+    expect(source).toContain("currentQuoteCapturedAt");
+    expect(source).toContain("EXECUTION_QUOTE_MAX_AGE_MS");
+    expect(source).toContain("A cotação confirmada ficou desatualizada");
+  });
+
   it("keeps the UI blocked until the execution quote is confirmed", () => {
     const source = compact(confirmation);
     expect(source).toContain("Odd da decisão");
     expect(source).toContain("Confira a cotação na Bet365 agora");
+    expect(source).toContain("A confirmação expira em 10 minutos");
+    expect(source).toContain("currentQuoteCapturedAt");
     expect(source).toContain("disabled={saving || !quoteConfirmed}");
   });
 });

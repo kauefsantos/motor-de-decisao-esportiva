@@ -16,6 +16,8 @@ import {
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
+const EXECUTION_QUOTE_MAX_AGE_MS = 10 * 60 * 1000;
+
 function decimalInput(value: string) {
   return Number(value.replace(",", "."));
 }
@@ -26,6 +28,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
   const [custom, setCustom] = useState("");
   const [currentOdd, setCurrentOdd] = useState("");
   const [currentLine, setCurrentLine] = useState("");
+  const [quoteCapturedAt, setQuoteCapturedAt] = useState<string | null>(null);
   const [showCustom, setShowCustom] = useState(false);
   const [showDeclineConfirm, setShowDeclineConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,10 +42,15 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
   useEffect(() => {
     setCurrentOdd("");
     setCurrentLine("");
+    setQuoteCapturedAt(null);
     setCustom("");
     setShowCustom(false);
     setShowDeclineConfirm(false);
   }, [proposalId]);
+
+  function markQuoteObserved() {
+    setQuoteCapturedAt(new Date().toISOString());
+  }
 
   async function submit(stakeBrl: number) {
     const proposal = data?.nextProposal;
@@ -54,6 +62,14 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
       confirmedOdd = decimalInput(currentOdd);
       if (!Number.isFinite(confirmedOdd) || confirmedOdd <= 1) {
         toast.error("Confira e informe a odd atual da Bet365 antes de registrar.");
+        return;
+      }
+      if (
+        !quoteCapturedAt ||
+        !Number.isFinite(Date.parse(quoteCapturedAt)) ||
+        Date.now() - Date.parse(quoteCapturedAt) > EXECUTION_QUOTE_MAX_AGE_MS
+      ) {
+        toast.error("A cotação ficou desatualizada. Confira novamente a odd e a linha atuais da Bet365.");
         return;
       }
 
@@ -75,11 +91,13 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
           stakeBrl,
           currentOdd: confirmedOdd,
           currentLine: confirmedLine,
+          currentQuoteCapturedAt: stakeBrl > 0 ? quoteCapturedAt : null,
         },
       });
       setCustom("");
       setCurrentOdd("");
       setCurrentLine("");
+      setQuoteCapturedAt(null);
       setShowCustom(false);
       setShowDeclineConfirm(false);
       await refetch();
@@ -150,7 +168,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
   const currentOddNumber = decimalInput(currentOdd);
   const canonicalLine = proposal.line_canonical === null ? null : Number(proposal.line_canonical);
   const currentLineNumber = decimalInput(currentLine);
-  const quoteConfirmed = Number.isFinite(currentOddNumber) && currentOddNumber > 1 &&
+  const quoteConfirmed = Boolean(quoteCapturedAt) && Number.isFinite(currentOddNumber) && currentOddNumber > 1 &&
     (canonicalLine === null || Number.isFinite(currentLineNumber));
   const total = Math.max(1, data.all.length);
   const reviewed = Math.max(0, total - data.proposedCount);
@@ -183,7 +201,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
 
         <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
           <p className="text-sm font-medium">Confira a cotação na Bet365 agora</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">A odd da decisão não é reutilizada automaticamente. Antes de liberar uma stake positiva, o servidor recalcula odd mínima, EV e vantagem com a cotação que você confirmar aqui.</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">A odd da decisão não é reutilizada automaticamente. Antes de liberar uma stake positiva, o servidor recalcula odd mínima, EV e vantagem com a cotação que você confirmar aqui. A confirmação expira em 10 minutos.</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-sm">
               <span className="text-xs text-muted-foreground">Odd atual</span>
@@ -191,7 +209,10 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
                 className="num mt-2"
                 inputMode="decimal"
                 value={currentOdd}
-                onChange={(event) => setCurrentOdd(event.target.value)}
+                onChange={(event) => {
+                  setCurrentOdd(event.target.value);
+                  markQuoteObserved();
+                }}
                 placeholder="Ex.: 1,85"
               />
             </label>
@@ -202,7 +223,10 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
                   className="num mt-2"
                   inputMode="decimal"
                   value={currentLine}
-                  onChange={(event) => setCurrentLine(event.target.value)}
+                  onChange={(event) => {
+                    setCurrentLine(event.target.value);
+                    markQuoteObserved();
+                  }}
                   placeholder={`Linha modelada: ${canonicalLine.toFixed(1).replace(".", ",")}`}
                 />
               </label>
