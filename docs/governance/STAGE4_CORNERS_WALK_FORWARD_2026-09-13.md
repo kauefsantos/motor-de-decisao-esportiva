@@ -26,7 +26,7 @@ São excluídos:
 - jogos sem IDs oficiais dos times;
 - jogos sem escanteios realizados;
 - partidas do dia corrente/futuras;
-- competições cross-league nesta primeira validação doméstica.
+- competições que não sejam ligas domésticas nesta primeira validação.
 
 ## Protocolo point-in-time
 
@@ -81,12 +81,19 @@ A migration cria um job privado e um dispatcher server-only. O Lovable Cloud cha
 
 O relatório pode atualizar somente `out_of_sample_metrics` da versão exata. O job não altera `validation_status`, `calibration_version`, predictions, odds, fila de decisão ou apostas.
 
+## Evidência da primeira execução real
+
+O job `3f3c2686-cd79-4e3a-83cd-ad57e91b970c` terminou `DONE`, porém o relatório mostrou somente 953 linhas-fonte e previsões encerradas em 2025-11-22. O Lovable Cloud possuía 4.762 fixtures canônicos até 2026-09-12.
+
+A investigação confirmou que o RPC original retornava 4.762 linhas quando executado diretamente no banco, mas a chamada pelo runtime recebia apenas o primeiro lote limitado pela camada de API. Como o resultado era ordenado por data, a primeira validação usou apenas a fatia histórica mais antiga. O `VALIDATION_FAILED` dessa execução é, portanto, evidência operacional de truncamento e **não pode ser usado como decisão final sobre o modelo**.
+
+O follow-up adiciona paginação keyset limitada a 750 linhas por chamada, ordenada por `(fixture_date, fixture_id)`, detecção de fixture duplicado e limite defensivo de páginas. A execução final deve consumir o histórico canônico completo antes de qualquer conclusão quantitativa.
+
 ## Próximos passos
 
-Após merge, aplicação da migration e publicação no mesmo commit:
-
-1. disparar `kick_stage4_corners_validation()`;
-2. aguardar `DONE` ou `ERROR`;
-3. inspecionar métricas reais no Lovable Cloud;
-4. se `VALIDATION_FAILED`, manter modelo bloqueado e diagnosticar o motivo;
-5. se `READY_FOR_CALIBRATION`, iniciar a fase de calibração OOS sem promover o modelo bruto.
+1. publicar o follow-up de paginação;
+2. rerodar `kick_stage4_corners_validation()`;
+3. comprovar cobertura até a data máxima do histórico canônico;
+4. inspecionar as métricas OOS completas;
+5. se `VALIDATION_FAILED`, manter modelo bloqueado e diagnosticar o motivo;
+6. se `READY_FOR_CALIBRATION`, iniciar a fase de calibração OOS sem promover o modelo bruto.
