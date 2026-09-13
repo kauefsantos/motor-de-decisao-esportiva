@@ -1,274 +1,242 @@
 # Motor de Decisão Esportiva — estado canônico
 
-> Atualizado: 11/09/2026  
+> Atualizado: 12/09/2026  
 > Repositório: `kauefsantos/motor-de-decisao-esportiva`  
 > Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a`  
-> URL publicada: `https://quant-football-insights.lovable.app/`  
-> Baseline quantitativo pós-Elo: `f0ad5bfc2b2e9e0895129f73d3d0b6b229938eaf`
+> Aplicação: `https://quant-football-insights.lovable.app/`
 
-Este arquivo registra decisões vigentes. Auditorias datadas preservam a trilha histórica, mas não substituem este estado nem o código do `main`.
+Este documento registra o **estado vigente** do produto. Auditorias datadas preservam a trilha histórica, mas não substituem o código do `main`, as migrations versionadas ou o estado vivo do Lovable Cloud.
 
 ## Fontes de verdade
 
-- **Lovable Cloud** = banco, ambiente e runtime vivos.
-- **GitHub `main`** = código, migrations, testes e regras de negócio versionadas.
-- Não criar outro projeto Lovable para continuar este produto.
-- Não tratar um Supabase conectado separadamente como banco canônico.
-- Não manipular manualmente `supabase_migrations.schema_migrations`.
+- **GitHub `main`**: código, testes, migrations, contratos e documentação versionados.
+- **Lovable Cloud**: banco, runtime e estado operacional vivos.
+- **Lovable**: aplicação canônica ligada a este repositório; não criar projeto paralelo para continuar o produto.
+- Implementado, testado, mergeado, publicado e validado em produção são estados distintos e devem ser descritos separadamente.
 
 ## Estado dos eixos auditados
 
-### RLS — fechado
+Os eixos de RLS, segurança da informação, backend/frontend, UX/UI, responsividade, acessibilidade, desempenho/escalabilidade, integrações/automações, banco/integridade, governança, arquitetura/qualidade e regras de negócio passaram pelas rodadas de correção previstas nesta etapa.
 
-- RLS habilitado nas superfícies públicas auditadas;
-- privilégios diretos de browser removidos das tabelas operacionais;
-- funções privilegiadas endurecidas e restritas ao boundary de servidor/service role;
-- testes de segurança do banco versionados.
+As issues de fechamento desta rodada (`#97`, `#98`, `#99` e `#100`) estão concluídas. PRs históricos divergentes foram encerrados quando o mesmo escopo foi reimplementado sobre o `main` atual.
 
-### Segurança — fechado
-
-- autenticação global das server functions;
-- Google login com allowlist validada no servidor;
-- prazo absoluto de sessão de 30 dias validado no servidor pelo timestamp OAuth assinado no `amr` do JWT; `token_refresh` não reinicia o prazo;
-- `session_id` assinado é obrigatório nas operações autenticadas;
-- service role confinada a módulos server-side;
-- CSRF e headers/CSP endurecidos, incluindo `base-uri 'none'`, `script-src-attr 'none'`, bloqueio de objetos e ausência de `unsafe-eval`;
-- Web Push aceita somente endpoints HTTPS de provedores conhecidos e repete a validação imediatamente antes do `fetch`, com redirects bloqueados contra SSRF;
-- CI executa auditoria de dependências de alta severidade e Gitleaks sobre o histórico completo;
-- operações críticas de banca protegidas contra concorrência/duplicidade;
-- `/api/elo-sync` existe somente como fallback `POST` protegido; a rotina diária Elo roda por `pg_cron` no banco.
-
-Riscos residuais documentados são itens de manutenção, não blockers estruturais conhecidos. `unsafe-inline` permanece temporariamente na CSP por compatibilidade do runtime TanStack/Lovable e o broker OAuth Lovable legado deve ser migrado separadamente, com validação de login em preview e produção. Referência: [SECURITY_HARDENING_2026-09-11.md](SECURITY_HARDENING_2026-09-11.md).
-
-### Backend — fechado como eixo de implementação
-
-O backend passou por três rodadas principais:
-
-1. arquitetura e regras de mercado;
-2. integridade operacional — funil progressivo de odds, IDs versionados, banca transacional, limite diário e correlação;
-3. qualidade quantitativa/API — CLV, features de pesquisa point-in-time, política NB2/Poisson e validação cronológica.
-
-Após a integração do Elo hierárquico, uma rodada adicional corrigiu a semântica de probabilidade usada pelo Motor 2: o fluxo experimental agora declara explicitamente `RAW_EXPERIMENTAL` em vez de tratar probabilidade bruta como se já fosse conservadora/calibrada.
-
-### Frontend — fechado P0 a P3
-
-- fluxo único de odds e erros explícitos;
-- odds automáticas visíveis;
-- navegação/mobile/acessibilidade melhorados;
-- telas de acompanhamento e analytics com papéis separados;
-- continuidade de rota após login;
-- interface mobile-first para iPhone com navegação inferior, safe areas do notch/Home Indicator e alvos de toque de 44–48 px;
-- autenticação mobile/standalone persiste a sessão, mas o prazo máximo de 30 dias não depende mais de `localStorage`: o browser apenas espelha a política e o servidor rejeita sessões que ultrapassam o timestamp OAuth assinado;
-- identidade visual instalada com ícones próprios do Bet Value em 32, 180, 192 e 512 px, incluindo `apple-touch-icon` e manifest;
-- metadados de instalação e `site.webmanifest` para uso em modo standalone ao adicionar a aplicação à Tela de Início do iOS;
-- a etapa de preparação não depende mais da aba permanecer aberta: o telefone enfileira o job e a tela apenas acompanha o estado persistido no servidor;
-- Web Push no PWA instalado pode avisar quando a preparação termina; a permissão só é pedida por ação explícita do usuário e negar avisos não bloqueia a análise;
-- mojibake comum de UTF-8 é reparado na ingestão de CSV e também na exibição de competições históricas, evitando textos como `ItÃ¡lia`;
-- durante o fluxo de análise, a UI informa a regra vigente: probabilidade do modelo estritamente acima de 70%, odd real e EV mínimo de 2%;
-- nenhuma pendência estrutural P0–P2 conhecida.
-
-### Elo — fechado
-
-A arquitetura atual inclui:
-
-- Elo local de times;
-- Elo de ligas com prior + evidência interligas;
-- Elo global para comparações cross-league;
-- continuidade em promoção/rebaixamento;
-- gate mínimo de evidência para ligas;
-- reconstrução point-in-time para runs históricas;
-- integração efetiva com o modelo de gols e o Motor 2.
-
-A aplicação do Elo hierárquico foi comprovada em runtime no Lovable Cloud com `CROSS_LEAGUE_HIERARCHICAL`, `elo-v2-hierarchical`, lambdas persistidos e probabilidades recalculadas. A soma dos lambdas permanece preservada.
-
-Referência atual: [ELO.md](ELO.md) e [ELO_RUNBOOK.md](ELO_RUNBOOK.md).
-
-## Fluxo da aplicação
+## Fluxo principal
 
 ```text
-Enviar jogos
-→ Preparar análise
-→ Conferir odds
-→ Ver sugestões
-→ Registrar aposta feita fora do sistema
-→ Em andamento
-→ Desempenho
+Enviar CSV
+→ validar partidas
+→ RESOLVE
+→ COLLECT
+→ CLEAN
+→ FEATURES
+→ PROBABILITY
+→ GATES
+→ MARKETS
+→ conferir odds
+→ fila de decisão
+→ revisar
+→ registrar aposta feita fora do sistema
+→ acompanhar resultado e analytics
 ```
 
-O produto não envia apostas à Bet365.
+A aplicação **não executa apostas**.
 
-## Modelo de decisão
+## Regra canônica da fila final
 
-A separação estrutural é:
+Uma oportunidade só pode persistir na fila principal quando atende simultaneamente aos gates vigentes:
 
-```text
-Motor esportivo, sem odd da casa
-→ model_probability
-→ gate operacional de confiança > 70%
-→ preço real da Bet365
-→ Motor 2 / EV
-→ seleção de portfólio
-```
+- probabilidade de decisão **>= 70%**;
+- odd real **>= 1,70**;
+- valor esperado (EV) **>= 8%**;
+- edge **>= 5 pontos percentuais**;
+- dados aprovados pelo pipeline;
+- linha recebida compatível exatamente com a linha modelada;
+- prediction pertencente à `run` e partida corretas;
+- modelo elegível para produção;
+- odd automática dentro da janela de frescor de **10 minutos**.
 
-A odd nunca é feature do modelo esportivo.
+As fronteiras são **inclusivas**: 70%, 1,70, 8% e 5 p.p. atendem o limite mínimo.
 
-### Probabilidade usada pelo Motor 2
+### Concentração e quantidade
 
-O contrato atual expõe:
+- máximo de **3** oportunidades finais por rodada;
+- máximo de **1** oportunidade principal por partida;
+- máximo de **2** oportunidades da mesma família de mercado;
+- não existe mais regra diferente para dia útil e fim de semana;
+- **zero apostas é um resultado válido**; o sistema não fabrica recomendações para preencher uma cota.
 
-- `decisionProbability` — probabilidade realmente usada na decisão;
-- `RAW_EXPERIMENTAL` — previsão bruta do piloto experimental;
-- `CONSERVATIVE_CALIBRATED` — reservado para uma camada futura realmente calibrada;
-- `OUTCOME_DISTRIBUTION` — base de decisão em contratos asiáticos.
+`MAX_SELECTIONS = 3` é a fonte única do limite no seletor de portfólio.
 
-Não criar haircut/calibração arbitrária sem amostra out-of-sample suficiente.
+## Gate de modelos em produção
 
-### Regra operacional de confiança
+Ter um modelo implementado não significa que ele esteja validado para decisão real.
 
-- `MIN_MODEL_PROBABILITY = 70%` como fronteira, com comparação **estrita**;
-- **70,0% reprova**; somente valores **> 70%** podem seguir para avaliação de value e seleção;
-- a regra vale também para o fluxo experimental e para promoção manual de alternativas, pois todas passam por `evaluateValue`;
-- uma oportunidade abaixo do limite recebe `MODEL_PROBABILITY_BELOW_THRESHOLD`, fica com probabilidade bloqueada e não tem EV usado para recomendação;
-- o seletor de portfólio repete o gate como defesa em profundidade para impedir que resultados antigos/stale com EV positivo sejam promovidos.
+A fila final exige status compatível com **`PRODUCTION_VALIDATED`** e a probabilidade conservadora/calibrada correspondente. Previsões experimentais podem ser calculadas e observadas, mas não são promovidas automaticamente para decisão.
 
-### Value
+Na validação de produção do gate, uma prediction experimental artificialmente forte foi corretamente impedida de persistir. Uma sonda sintética e reversível comprovou que um modelo marcado como validado pode persistir somente quando a probabilidade e a linha correspondem ao contrato esperado; divergências foram bloqueadas.
 
-- `EV_TARGET = 2%`;
-- probabilidade > 70% é pré-condição de recomendação, mas **não significa value**;
-- uma odd só é value quando existe preço real compatível e EV mínimo de 2%;
-- probabilidade <= 70% é descartada da recomendação mesmo quando a odd produziria EV matemático positivo;
-- seleção automática evita mais de uma escolha do mesmo jogo;
-- limite operacional: 2 seleções em dia útil e 3 no fim de semana;
-- o limite é teto, nunca meta: o sistema pode retornar 0, 1, 2 ou 3 seleções conforme os filtros.
+Nenhum modelo esportivo existente foi promovido apenas para gerar apostas. Portanto, uma fila operacional vazia continua sendo comportamento correto enquanto os critérios de validação não forem atendidos.
 
-## Política experimental de mercados
+## Arquitetura atual
 
-Arquivo canônico: `src/lib/engine/market-policy.ts`.
+### Decision queue
 
-- **Gols da partida:** âncora 2.5, referências Over 3.5 e Under 1.5;
-- **1X2:** HOME / DRAW / AWAY;
-- **dupla chance:** 1X / X2 / 12;
-- **escanteios da partida:** âncora 9.5;
-- **escanteios por time:** âncora 4.5;
-- **cartões da partida/time:** âncora 4.5;
-- o fluxo novo não gera BTTS/team goals para cotação;
-- `MODEL_LEAN_THRESHOLD = 70%`, com regra de negócio interpretada de forma estrita: somente probabilidade > 70% é confiança suficiente.
+- fronteira crítica tipada, sem `any` deliberado;
+- RPCs encapsulados em repository tipado;
+- schema de runtime do Lovable Cloud explicitado no boundary administrativo;
+- gates de arquitetura/typecheck impedem reintrodução de `explicit any` no caminho crítico.
 
-Máximo plenamente modelado de anchors de cotação por jogo: 20.
+### Mercados experimentais
 
-## Elo e mercados
+O antigo orquestrador monolítico foi decomposto em responsabilidades separadas:
 
-O Elo redistribui `lambdaHome` e `lambdaAway` sem alterar `lambdaTotal`.
+- contratos;
+- construção de datasets;
+- serviço de predição;
+- repository de persistência;
+- avaliação de value e tracking.
 
-Consequência prática:
+A decomposição preservou os thresholds e as regras quantitativas. A limpeza das predictions experimentais continua ocorrendo antes da recomputação para impedir que uma falha deixe previsões antigas parecendo atuais.
 
-- 1X2 e dupla chance mudam;
-- total de gols O/U não muda por causa do Elo quando depende somente da soma dos lambdas;
-- corners/cards não recebem Elo.
+### Processamento resiliente
 
-O peso Elo continua em 0.20. A comparação cross-league inicial favoreceu a integração, mas a amostra ainda é pequena para retunar o parâmetro.
+- jobs persistidos;
+- lease e heartbeat;
+- retomada de jobs parados;
+- checkpoints por etapa;
+- coleta em batches de 4 partidas;
+- partidas concluídas não são processadas novamente;
+- trabalho parcial de uma partida interrompida é limpo antes de nova tentativa;
+- dispatch e rechain reconciliados entre GitHub e Lovable Cloud;
+- prevenção de duplicidade aplicada em mais de uma camada.
 
-## Distribuições de contagem
+## Elo
 
-- `corners_match_total`: NB2 quando elegível; fallback Poisson;
-- `corners_team_total`: NB2 quando elegível; fallback Poisson;
-- `cards_match_total`: NB2 quando elegível; fallback Poisson;
-- `cards_team_total`: Poisson;
-- cross-league corners sem dispersão validada: Poisson.
+O Elo inclui ratings domésticos, hierarquia entre ligas, comparação cross-league e reconstrução point-in-time.
 
-Mudanças de distribuição precisam continuar baseadas em evidência walk-forward/OOS.
+A auditoria desta rodada confirmou coerência da hierarquia e fórmula. O fechamento diário foi simplificado para executar rebuild e auditoria uma única vez, removendo o gatilho duplicado que repetia esse trabalho.
 
-## Cartões
+A migration correspondente foi publicada no Lovable Cloud. A próxima execução agendada do `elo_finalize_daily()` permanece como confirmação operacional natural de que o ciclo diário acrescenta somente uma auditoria.
 
-Proxy operacional vigente: `bet365-yellow1-red2-aggregate-v1`.
+## Home e retomada
 
-A fonte agregada da 5Dollar não permite reproduzir perfeitamente exclusões de segundo amarelo/não-jogadores. Portanto o settlement de cartões não deve ser descrito como exato.
+A Home funciona como painel de ação owner-scoped:
 
-## Banca
+- rascunhos e runs retomáveis pertencem ao usuário autenticado;
+- ações de retomada usam pares reais `Button -> Link`;
+- “Sugestões para registrar” leva diretamente à run proposta quando existe pendência;
+- a Home não carrega `experimental_bet_tracking` diretamente;
+- o Lovable Cloud resolve a run proposta por `get_owner_latest_proposed_run_id(p_owner_id)`, helper server-only com filtro explícito pelo owner da `analysis_run`.
 
-- confirmação e settlement via RPCs transacionais;
-- limite diário protegido também no banco;
-- `DECLINED` libera slot;
-- apostas históricas não são recalculadas retroativamente quando o modelo evolui.
+## Banca, stake e CLV
 
-## Análise em segundo plano e notificações
+- stake sugerido é permitido somente quando o modelo atende ao status de validação exigido;
+- modelos não validados permanecem em modo observacional;
+- captura de CLV possui tentativas limitadas a 3;
+- novas tentativas são agendadas com espera de +15 e +30 minutos;
+- o Lovable Cloud reforça a regra de stake validado no banco;
+- settlement e operações críticas de banca permanecem transacionais.
 
-A preparação `RESOLVE → COLLECT → CLEAN → FEATURES → PROBABILITY → GATES → MARKETS` é persistida em `analysis_jobs` e executada no servidor. O upload cria o run, enfileira o job e só depois navega para a tela de processamento.
+## Evidência E2E real de 12/09/2026
 
-- PostgreSQL/`pg_net` dispara `/api/analysis-worker` usando um `dispatch_token` aleatório por job, mantido fora do browser;
-- cada chamada do worker executa no máximo uma etapa e re-enfileira a seguinte, reduzindo risco de timeout de uma requisição longa;
-- `analysis-worker-watch` em `pg_cron` roda a cada minuto como backstop para jobs enfileirados ou travados;
-- jobs `RUNNING` sem heartbeat por 20 minutos podem ser retomados; etapas já registradas em `completed_steps` não são repetidas;
-- a tela de processamento consulta `analysis_runs`, `analysis_jobs` e `pipeline_logs`; ao reabrir o app, reconstrói o progresso real e segue para odds quando o run chega a `READY_FOR_ODDS`;
-- subscriptions Web Push ficam em `push_subscriptions`, com RLS por `auth.uid()`; entrega é feita somente no servidor;
-- endpoint de subscription é validado por allowlist HTTPS de provedores Web Push no cadastro e novamente no envio; destinos legados não confiáveis são removidos e redirects HTTP são recusados para impedir SSRF;
-- o service worker `public/sw.js` recebe o evento `push`, exibe uma notificação visível e abre a análise ao toque;
-- a chave VAPID privada é derivada apenas no servidor a partir de segredo já existente, com separação de domínio; somente a chave pública é enviada ao browser;
-- Web Push é um complemento: falha, bloqueio ou recusa de notificação não altera o resultado da análise.
+Run: `b39e5c38-6d06-4e0b-84af-1464885dc5c0`.
 
-Nenhuma regra quantitativa, Elo, mercado, cálculo de value ou regra de banca é executada de forma diferente por causa dessa camada operacional.
+Partidas:
 
-## Observabilidade do funil de decisão
+- Palmeiras x São Paulo;
+- Botafogo x RB Bragantino;
+- Santos x Cruzeiro.
 
-A rota autenticada e somente leitura `/diagnostico` audita a run mais recente sem alterar dados. Ela deriva métricas das tabelas operacionais já existentes (`analysis_runs`, `model_predictions`, `experimental_odds_snapshots` e `experimental_bet_tracking`) e usa os mesmos helpers canônicos de política de mercado para evitar uma segunda definição da regra de 70%.
+Resultado observado:
 
-O painel mostra:
+- 7 etapas concluídas;
+- 3 partidas resolvidas;
+- 234 contratos bloqueados;
+- 0 oportunidades publicadas;
+- 0 seleções finais;
+- run chegou a `READY_FOR_ODDS`.
 
-- jogos e anchors modelados;
-- quantidade estritamente acima de 70% e quantidade bloqueada em 70% ou menos;
-- buckets >70–<75, 75–<80, 80–<85 e 85%+;
-- preços automáticos válidos, falhas/linhas incompatíveis e contratos não expostos pela API;
-- preços automáticos que atingem EV mínimo de 2%;
-- sugestões finais e teto diário;
-- contador explícito de eventual cotação automática que tenha vazado para probabilidade <=70%.
+Principais bloqueios registrados:
 
-Runs criadas antes da ativação da regra estrita são tratadas como **legado** e nunca como prova de conformidade da regra nova. A auditoria datada está em `docs/DECISION_FUNNEL_AUDIT_2026-09-11.md`.
+- 117 `MODEL_NOT_PRODUCTION_VALIDATED`;
+- 78 contratos de cartões sem dados suficientes de amarelos/vermelhos;
+- 15 por ausência de xG;
+- 12 por ausência de chutes;
+- 12 por ausência de chutes no alvo.
 
-Limitação conhecida: o ledger completo de todas as odds manuais avaliadas/rejeitadas ainda não é persistido; por isso o contador de EV da tela é explicitamente o EV dos preços automáticos auditados. A seleção final continua protegida pelo gate estrito no backend.
+Esse resultado é considerado correto: o motor preferiu não recomendar a inventar dados ou ultrapassar os gates.
 
-## Elo operacional
+## CI e governança
 
-Jobs diários principais no Lovable Cloud/PostgreSQL:
-
-- `elo-daily-incremental`: 03:00–04:58 BRT, a cada 2 minutos;
-- `elo-daily-finalize`: 05:05 BRT.
-
-Detalhes e troubleshooting: [ELO_RUNBOOK.md](ELO_RUNBOOK.md).
-
-## CI e governança GitHub
-
-O `main` é protegido por ruleset com:
-
-- Pull Request obrigatório;
-- histórico linear;
-- squash merge;
-- bloqueio de force push e deleção;
-- resolução de conversas;
-- status `test-and-build` obrigatório e estrito.
-
-CI executa:
+Antes de merge, a cadeia atual cobre:
 
 ```text
-bun install --frozen-lockfile
-→ bun audit --audit-level=high
-→ Gitleaks no histórico completo
+lint + typecheck + architecture boundaries
+→ dependency vulnerability gate
+→ secret scan
 → server secret boundary
+→ governance documentation gate
+→ versioned route tree
+→ migrations + regressões de banco
 → functional decision-flow E2E
 → experimental engine E2E
-→ Vitest completo
+→ unit tests
 → production build
+→ bundle performance budget
+→ concurrent load smoke
+→ Chromium + Firefox + WebKit
+→ responsividade + acessibilidade
 ```
 
-Branches mergeadas devem ser removidas após o merge. Atualizações major do Dependabot não devem ser mergeadas em lote; avaliar individualmente com CI.
+O repositório mantém ainda `SECURITY.md`, `CONTRIBUTING.md`, CODEOWNERS, template de PR, Dependabot e documentação de arquitetura/governança.
 
-## Regra para próximas mudanças
+## Publicação no Lovable Cloud nesta rodada
+
+Foram publicados e verificados, entre outros:
+
+- gate de modelo validado para a fila de decisão;
+- defesa de linha/prediction/run na persistência;
+- remoção do guard legado de seleção 2/3;
+- fechamento único de rebuild/auditoria Elo;
+- correção de dispatch de automação;
+- stake validado e retry limitado de CLV;
+- helper owner-scoped da Home `get_owner_latest_proposed_run_id(uuid)`.
+
+Para o helper da Home foi confirmado no Lovable Cloud:
+
+- função existente;
+- `service_role` com permissão de execução;
+- usuário autenticado sem permissão direta;
+- owner inexistente retorna `null`;
+- release `20260912-owner-latest-proposed-run` registrado.
+
+## Limitações e validações ainda não afirmadas
+
+Os itens abaixo **não** devem ser descritos como validados em produção:
+
+1. interrupção deliberada no meio de `COLLECT` seguida de retomada real — a lógica e os testes existem, mas esse kill test específico não foi executado em produção nesta rodada;
+2. próxima execução agendada do fechamento diário Elo — necessária apenas como confirmação operacional do comportamento já corrigido, não como blocker estrutural;
+3. modelos esportivos atuais como `PRODUCTION_VALIDATED` — nenhum foi promovido artificialmente.
+
+## Regra para futuras mudanças
 
 Antes de alterar comportamento:
 
-1. conferir `main` e o sync do Lovable;
-2. preservar Lovable Cloud como fonte de verdade do runtime;
-3. não reabrir RLS/Segurança/Backend/Frontend/Elo sem evidência concreta de regressão;
-4. alterações quantitativas exigem versionamento, teste e evidência OOS;
-5. não misturar probabilidade esportiva com preço da casa;
-6. não recriar scaffolding UI ou fluxos legados sem uso real;
-7. dependências só devem ser removidas junto com atualização coerente do lockfile e CI verde.
+1. conferir o `main` atual e o estado vivo do Lovable Cloud;
+2. preservar as fontes de verdade acima;
+3. não relaxar gates para produzir recomendações;
+4. versionar mudanças de banco em migration;
+5. adicionar regressão correspondente;
+6. passar todos os gates obrigatórios antes do merge;
+7. registrar separadamente o que foi implementado, testado, mergeado, publicado e validado em produção.
+
+## Referências
+
+- `README.md` — apresentação do projeto e regra atual do funil;
+- `docs/ARCHITECTURE.md` — arquitetura e boundaries;
+- `docs/GOVERNANCE.md` — decisões de governança técnica;
+- `docs/CASE_STUDY.md` — narrativa de portfólio;
+- `docs/ELO.md` e `docs/ELO_RUNBOOK.md` — Elo e operação;
+- `docs/governance/` — evidências e decisões versionadas;
+- `SECURITY.md` — política de segurança;
+- `CONTRIBUTING.md` — padrão de contribuição e qualidade.
