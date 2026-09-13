@@ -11,6 +11,7 @@ export class AmbiguousLineError extends Error {
 }
 
 const NUM = /^-?\d+(?:\.\d+)?$/;
+const EPS = 1e-9;
 
 /**
  * Normaliza um rótulo de linha para valor canônico.
@@ -26,14 +27,14 @@ export function canonicalLine(label: string): number {
     if (!NUM.test(parts[0]!)) throw new AmbiguousLineError(label);
     const v = Number(parts[0]);
     // linhas válidas são múltiplos de 0.25
-    if (Math.abs(v * 4 - Math.round(v * 4)) > 1e-9) throw new AmbiguousLineError(label);
+    if (Math.abs(v * 4 - Math.round(v * 4)) > EPS) throw new AmbiguousLineError(label);
     return v;
   }
   if (parts.length === 2) {
     if (!NUM.test(parts[0]!) || !NUM.test(parts[1]!)) throw new AmbiguousLineError(label);
     const a = Number(parts[0]);
     const b = Number(parts[1]);
-    if (Math.abs(Math.abs(a - b) - 0.5) > 1e-9) throw new AmbiguousLineError(label);
+    if (Math.abs(Math.abs(a - b) - 0.5) > EPS) throw new AmbiguousLineError(label);
     return (a + b) / 2;
   }
   throw new AmbiguousLineError(label);
@@ -42,7 +43,7 @@ export function canonicalLine(label: string): number {
 /** true quando a linha divide o stake entre duas adjacentes (.25 / .75). */
 export function isSplitLine(line: number): boolean {
   const frac = Math.abs(line % 1);
-  return Math.abs(frac - 0.25) < 1e-9 || Math.abs(frac - 0.75) < 1e-9;
+  return Math.abs(frac - 0.25) < EPS || Math.abs(frac - 0.75) < EPS;
 }
 
 export function splitComponents(line: number): [number, number] {
@@ -51,6 +52,7 @@ export function splitComponents(line: number): [number, number] {
 }
 
 type CountDistribution = Map<number, number>;
+type AtomicOutcome = "FULL_WIN" | "PUSH" | "FULL_LOSS";
 
 /** Soma de probabilidade de contagens > x, = x e < x. */
 function partition(dist: CountDistribution, x: number) {
@@ -58,16 +60,47 @@ function partition(dist: CountDistribution, x: number) {
   let equal = 0;
   let below = 0;
   for (const [k, p] of dist) {
-    if (k > x + 1e-9) above += p;
-    else if (k < x - 1e-9) below += p;
+    if (k > x + EPS) above += p;
+    else if (k < x - EPS) below += p;
     else equal += p;
   }
   return { above, equal, below };
 }
 
+function settleAtomic(count: number, line: number, side: "OVER" | "UNDER"): AtomicOutcome {
+  if (Math.abs(count - line) <= EPS) return "PUSH";
+  const wins = side === "OVER" ? count > line : count < line;
+  return wins ? "FULL_WIN" : "FULL_LOSS";
+}
+
+function combineAtomicHalves(a: AtomicOutcome, b: AtomicOutcome): keyof AsianOutcomeProbabilities {
+  const score = (outcome: AtomicOutcome) => outcome === "FULL_WIN" ? 1 : outcome === "PUSH" ? 0 : -1;
+  const combined = (score(a) + score(b)) / 2;
+  if (combined === 1) return "FULL_WIN";
+  if (combined === 0.5) return "HALF_WIN";
+  if (combined === 0) return "PUSH";
+  if (combined === -0.5) return "HALF_LOSS";
+  return "FULL_LOSS";
+}
+
+function emptyOutcomes(): AsianOutcomeProbabilities {
+  return {
+    FULL_WIN: 0,
+    HALF_WIN: 0,
+    PUSH: 0,
+    HALF_LOSS: 0,
+    FULL_LOSS: 0,
+  };
+}
+
 /**
  * Decompõe um contrato asiático (totais OVER/UNDER de contagem inteira) nos
  * cinco resultados de settlement, preservando meias.
+ *
+ * Em linhas .25/.75, as duas metades são liquidadas sobre a MESMA contagem
+ * observada. Portanto, a distribuição conjunta é construída condicionando
+ * ambas as metades a cada valor de `count`; nunca multiplicamos marginais como
+ * se os settlements fossem independentes.
  */
 export function asianOutcomes(
   dist: CountDistribution,
@@ -76,13 +109,20 @@ export function asianOutcomes(
 ): AsianOutcomeProbabilities {
   if (isSplitLine(lineCanonical)) {
     const [lo, hi] = splitComponents(lineCanonical);
-    const a = asianOutcomes(dist, lo, side);
-    const b = asianOutcomes(dist, hi, side);
-    return combineHalves(a, b);
+    const out = emptyOutcomes();
+    for (const [count, probability] of dist) {
+      if (!Number.isFinite(probability) || probability <= 0) continue;
+      const combined = combineAtomicHalves(
+        settleAtomic(count, lo, side),
+        settleAtomic(count, hi, side),
+      );
+      out[combined] += probability;
+    }
+    return out;
   }
 
   const { above, equal, below } = partition(dist, lineCanonical);
-  const isInteger = Math.abs(lineCanonical - Math.round(lineCanonical)) < 1e-9;
+  const isInteger = Math.abs(lineCanonical - Math.round(lineCanonical)) < EPS;
 
   if (side === "OVER") {
     return {
@@ -100,37 +140,6 @@ export function asianOutcomes(
     HALF_LOSS: 0,
     FULL_LOSS: above + (isInteger ? 0 : equal),
   };
-}
-
-/** Metade do stake em cada linha adjacente. */
-export function combineHalves(
-  a: AsianOutcomeProbabilities,
-  b: AsianOutcomeProbabilities,
-): AsianOutcomeProbabilities {
-  const out: AsianOutcomeProbabilities = {
-    FULL_WIN: 0,
-    HALF_WIN: 0,
-    PUSH: 0,
-    HALF_LOSS: 0,
-    FULL_LOSS: 0,
-  };
-  // resultado por metade: cada combinação (resultado A, resultado B)
-  const keys = ["FULL_WIN", "PUSH", "FULL_LOSS"] as const;
-  for (const ka of keys) {
-    for (const kb of keys) {
-      const p = a[ka] * b[kb];
-      if (p === 0) continue;
-      const score = (val: (typeof keys)[number]) =>
-        val === "FULL_WIN" ? 1 : val === "PUSH" ? 0 : -1;
-      const s = (score(ka) + score(kb)) / 2; // -1, -0.5, 0, 0.5, 1
-      if (s === 1) out.FULL_WIN += p;
-      else if (s === 0.5) out.HALF_WIN += p;
-      else if (s === 0) out.PUSH += p;
-      else if (s === -0.5) out.HALF_LOSS += p;
-      else out.FULL_LOSS += p;
-    }
-  }
-  return out;
 }
 
 /** P(FULL_WIN) + P(HALF_WIN) — usado no gate-base do Motor 1. */
@@ -156,7 +165,7 @@ export function asianFairOdd(o: AsianOutcomeProbabilities): number | null {
   return 1 + lEff(o) / w;
 }
 
-/** Odd mínima para atingir um EV alvo (ex.: 0.02). */
+/** Odd mínima para atingir um EV alvo (ex.: 0.08). */
 export function asianMinOdd(o: AsianOutcomeProbabilities, target: number): number | null {
   const w = wEff(o);
   if (w <= 0) return null;
