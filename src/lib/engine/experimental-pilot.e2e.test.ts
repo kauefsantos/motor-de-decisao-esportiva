@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { fitGoalsBaseline, predictGoals, type GoalMatchRow } from "./goals";
 import { buildGoalMarketProjections } from "./experimental-goal-markets";
-import { evaluateValue, finalSelection } from "./value";
+import { EV_TARGET, MIN_MODEL_PROBABILITY, evaluateValue, finalSelection } from "./value";
 
 const LEAGUE = "Brazil Serie A";
 const training: GoalMatchRow[] = [
@@ -64,8 +64,8 @@ describe("experimental pilot E2E", () => {
 
     const selected = finalSelection(evaluated);
     expect(selected.length).toBeLessThanOrEqual(3);
-    expect(selected.every((r) => (r.decisionProbability ?? 0) > 0.70)).toBe(true);
-    expect(selected.every((r) => (r.evCons ?? 0) >= 0.02)).toBe(true);
+    expect(selected.every((r) => (r.decisionProbability ?? 0) >= MIN_MODEL_PROBABILITY)).toBe(true);
+    expect(selected.every((r) => (r.evCons ?? 0) >= EV_TARGET)).toBe(true);
   });
 
   it("blocks a sub-70% probability even when the real price would create mathematical EV", () => {
