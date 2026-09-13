@@ -1,5 +1,6 @@
 import type { AdminDb } from "../admin-db";
 import type { BankrollTrackingRow } from "../domain/bankroll";
+import type { FinancialSettlementOutcome } from "../engine/financial-settlement";
 import { callRuntimeRpc } from "./runtime-rpc.server";
 
 export type BankrollMetricsRow = {
@@ -42,16 +43,39 @@ export async function loadOpenBets(db: AdminDb, userId: string) {
   return callRuntimeRpc<BankrollTrackingRow[]>(db, "get_owner_open_bets", { p_owner_id: userId });
 }
 
-export async function confirmBetAtomic(db: AdminDb, id: string, stakeBrl: number) {
+export async function confirmBetAtomic(
+  db: AdminDb,
+  input: {
+    id: string;
+    stakeBrl: number;
+    entryOdd: number | null;
+    expectedValue: number | null;
+    edge: number | null;
+    lineCanonical: number | null;
+    quoteCapturedAt: string | null;
+  },
+) {
   const result = await callRuntimeRpc<ConfirmBetRow[] | ConfirmBetRow>(
     db,
     "confirm_experimental_bet_atomic",
-    { p_id: id, p_stake_brl: stakeBrl },
+    {
+      p_id: input.id,
+      p_stake_brl: input.stakeBrl,
+      p_entry_odd: input.entryOdd,
+      p_expected_value: input.expectedValue,
+      p_edge: input.edge,
+      p_line_canonical: input.lineCanonical,
+      p_quote_captured_at: input.quoteCapturedAt,
+    },
   );
   return { row: first(result.data), error: result.error };
 }
 
-export async function settleBetAtomic(db: AdminDb, id: string, outcome: "WIN" | "LOSS") {
+export async function settleBetAtomic(
+  db: AdminDb,
+  id: string,
+  outcome: FinancialSettlementOutcome,
+) {
   const result = await callRuntimeRpc<SettleBetRow[] | SettleBetRow>(
     db,
     "settle_experimental_bet_atomic",
