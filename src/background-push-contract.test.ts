@@ -93,6 +93,8 @@ describe("iPhone Web Push contract", () => {
     expect(pushServer).toContain('privateKey.export({ format: "pem", type: "pkcs8" })');
     expect(pushServer).toContain("key: privateKeyPem");
     expect(pushServer).not.toContain("key: privateKey, dsaEncoding");
+    expect(pushServer).toContain('redirect: "manual"');
+    expect(pushServer).not.toContain('redirect: "error"');
     expect(pushFunctions).toContain("getVapidPublicKey()");
     expect(pushFunctions).not.toContain("LOVABLE_CRON_SECRET");
     expect(pushFunctions).not.toContain(privilegedDbSecretName);
