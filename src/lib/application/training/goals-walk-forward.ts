@@ -40,6 +40,10 @@ export type Stage6GoalRow = {
   eloModelVersion: string | null;
 };
 
+type TemporalStage6GoalRow = Stage6GoalRow & {
+  kickoffAt: number;
+};
+
 type WalkForwardPrediction = {
   fixtureId: string;
   date: string;
@@ -101,21 +105,29 @@ function empiricalBaseline(training: Stage6GoalRow[]) {
   };
 }
 
+function conservativeKickoffCutoff(date: string): number {
+  const timestamp = Date.parse(`${date.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(timestamp)) throw new Error(`Invalid Stage 6 fixture date: ${date}`);
+  return timestamp;
+}
+
 export function buildStage6GoalsPredictions(
   sourceRows: readonly Stage6GoalRow[],
   artifact: Stage6GoalsArtifact,
 ): WalkForwardPrediction[] {
   assertUniqueFixtures(sourceRows);
-  const domesticRows = sourceRows
+  // The canonical result table has fixture_date but no exact kickoff timestamp. Start-of-day is used only
+  // as a conservative ordering guard; temporalTrainingRows excludes the entire target calendar day.
+  const domesticRows: TemporalStage6GoalRow[] = sourceRows
     .filter((row) => isLikelyDomesticLeagueKey(row.league))
-    .slice()
+    .map((row) => ({ ...row, kickoffAt: conservativeKickoffCutoff(row.date) }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.fixtureId.localeCompare(b.fixtureId));
   const useElo = artifact === STAGE6_GOALS_ELO_ARTIFACT;
   const predictions: WalkForwardPrediction[] = [];
 
   for (const target of domesticRows) {
     const training = temporalTrainingRows(domesticRows, target.date, MODEL_VALIDATION_LOOKBACK_DAYS)
-      .filter((row) => row.league === target.league);
+      .filter((r) => r.league === target.league && r.kickoffAt < target.kickoffAt);
     if (training.length < 3) continue;
     if (useElo && (
       target.eloModelVersion !== ELO_MODEL_VERSION
