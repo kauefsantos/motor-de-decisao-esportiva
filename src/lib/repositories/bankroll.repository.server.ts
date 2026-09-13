@@ -1,5 +1,6 @@
 import type { AdminDb } from "../admin-db";
 import type { BankrollTrackingRow } from "../domain/bankroll";
+import type { FinancialSettlementOutcome } from "../engine/financial-settlement";
 import { callRuntimeRpc } from "./runtime-rpc.server";
 
 export type BankrollMetricsRow = {
@@ -68,7 +69,11 @@ export async function confirmBetAtomic(
   return { row: first(result.data), error: result.error };
 }
 
-export async function settleBetAtomic(db: AdminDb, id: string, outcome: "WIN" | "LOSS") {
+export async function settleBetAtomic(
+  db: AdminDb,
+  id: string,
+  outcome: FinancialSettlementOutcome,
+) {
   const result = await callRuntimeRpc<SettleBetRow[] | SettleBetRow>(
     db,
     "settle_experimental_bet_atomic",
