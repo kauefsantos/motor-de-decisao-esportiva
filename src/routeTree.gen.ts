@@ -17,6 +17,7 @@ import { Route as PrivacidadeRouteImport } from './routes/privacidade'
 import { Route as ApiAnalysisWorkerRouteImport } from './routes/api.analysis-worker'
 import { Route as ApiEloSyncRouteImport } from './routes/api.elo-sync'
 import { Route as ApiFiveDollarMaintenanceRouteImport } from './routes/api.five-dollar-maintenance'
+import { Route as ApiModelValidationRouteImport } from './routes/api.model-validation'
 import { Route as ApiPushDispatchRouteImport } from './routes/api.push-dispatch'
 import { Route as DraftDraftIdValidacaoRouteImport } from './routes/draft.$draftId.validacao'
 import { Route as RunRunIdOportunidadesRouteImport } from './routes/run.$runId.oportunidades'
@@ -32,6 +33,7 @@ const PrivacidadeRoute = PrivacidadeRouteImport.update({ id: '/privacidade', pat
 const ApiAnalysisWorkerRoute = ApiAnalysisWorkerRouteImport.update({ id: '/api/analysis-worker', path: '/api/analysis-worker', getParentRoute: () => rootRouteImport } as any)
 const ApiEloSyncRoute = ApiEloSyncRouteImport.update({ id: '/api/elo-sync', path: '/api/elo-sync', getParentRoute: () => rootRouteImport } as any)
 const ApiFiveDollarMaintenanceRoute = ApiFiveDollarMaintenanceRouteImport.update({ id: '/api/five-dollar-maintenance', path: '/api/five-dollar-maintenance', getParentRoute: () => rootRouteImport } as any)
+const ApiModelValidationRoute = ApiModelValidationRouteImport.update({ id: '/api/model-validation', path: '/api/model-validation', getParentRoute: () => rootRouteImport } as any)
 const ApiPushDispatchRoute = ApiPushDispatchRouteImport.update({ id: '/api/push-dispatch', path: '/api/push-dispatch', getParentRoute: () => rootRouteImport } as any)
 const DraftDraftIdValidacaoRoute = DraftDraftIdValidacaoRouteImport.update({ id: '/draft/$draftId/validacao', path: '/draft/$draftId/validacao', getParentRoute: () => rootRouteImport } as any)
 const RunRunIdOportunidadesRoute = RunRunIdOportunidadesRouteImport.update({ id: '/run/$runId/oportunidades', path: '/run/$runId/oportunidades', getParentRoute: () => rootRouteImport } as any)
@@ -48,6 +50,7 @@ export interface FileRoutesByFullPath {
   '/api/analysis-worker': typeof ApiAnalysisWorkerRoute
   '/api/elo-sync': typeof ApiEloSyncRoute
   '/api/five-dollar-maintenance': typeof ApiFiveDollarMaintenanceRoute
+  '/api/model-validation': typeof ApiModelValidationRoute
   '/api/push-dispatch': typeof ApiPushDispatchRoute
   '/draft/$draftId/validacao': typeof DraftDraftIdValidacaoRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
@@ -66,6 +69,7 @@ export interface FileRoutesById {
   '/api/analysis-worker': typeof ApiAnalysisWorkerRoute
   '/api/elo-sync': typeof ApiEloSyncRoute
   '/api/five-dollar-maintenance': typeof ApiFiveDollarMaintenanceRoute
+  '/api/model-validation': typeof ApiModelValidationRoute
   '/api/push-dispatch': typeof ApiPushDispatchRoute
   '/draft/$draftId/validacao': typeof DraftDraftIdValidacaoRoute
   '/run/$runId/oportunidades': typeof RunRunIdOportunidadesRoute
@@ -90,6 +94,7 @@ export interface RootRouteChildren {
   ApiAnalysisWorkerRoute: typeof ApiAnalysisWorkerRoute
   ApiEloSyncRoute: typeof ApiEloSyncRoute
   ApiFiveDollarMaintenanceRoute: typeof ApiFiveDollarMaintenanceRoute
+  ApiModelValidationRoute: typeof ApiModelValidationRoute
   ApiPushDispatchRoute: typeof ApiPushDispatchRoute
   DraftDraftIdValidacaoRoute: typeof DraftDraftIdValidacaoRoute
   RunRunIdOportunidadesRoute: typeof RunRunIdOportunidadesRoute
@@ -108,6 +113,7 @@ declare module '@tanstack/react-router' {
     '/api/analysis-worker': { id: '/api/analysis-worker'; path: '/api/analysis-worker'; fullPath: '/api/analysis-worker'; preLoaderRoute: typeof ApiAnalysisWorkerRouteImport; parentRoute: typeof rootRouteImport }
     '/api/elo-sync': { id: '/api/elo-sync'; path: '/api/elo-sync'; fullPath: '/api/elo-sync'; preLoaderRoute: typeof ApiEloSyncRouteImport; parentRoute: typeof rootRouteImport }
     '/api/five-dollar-maintenance': { id: '/api/five-dollar-maintenance'; path: '/api/five-dollar-maintenance'; fullPath: '/api/five-dollar-maintenance'; preLoaderRoute: typeof ApiFiveDollarMaintenanceRouteImport; parentRoute: typeof rootRouteImport }
+    '/api/model-validation': { id: '/api/model-validation'; path: '/api/model-validation'; fullPath: '/api/model-validation'; preLoaderRoute: typeof ApiModelValidationRouteImport; parentRoute: typeof rootRouteImport }
     '/api/push-dispatch': { id: '/api/push-dispatch'; path: '/api/push-dispatch'; fullPath: '/api/push-dispatch'; preLoaderRoute: typeof ApiPushDispatchRouteImport; parentRoute: typeof rootRouteImport }
     '/draft/$draftId/validacao': { id: '/draft/$draftId/validacao'; path: '/draft/$draftId/validacao'; fullPath: '/draft/$draftId/validacao'; preLoaderRoute: typeof DraftDraftIdValidacaoRouteImport; parentRoute: typeof rootRouteImport }
     '/run/$runId/oportunidades': { id: '/run/$runId/oportunidades'; path: '/run/$runId/oportunidades'; fullPath: '/run/$runId/oportunidades'; preLoaderRoute: typeof RunRunIdOportunidadesRouteImport; parentRoute: typeof rootRouteImport }
@@ -126,6 +132,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAnalysisWorkerRoute,
   ApiEloSyncRoute,
   ApiFiveDollarMaintenanceRoute,
+  ApiModelValidationRoute,
   ApiPushDispatchRoute,
   DraftDraftIdValidacaoRoute,
   RunRunIdOportunidadesRoute,
