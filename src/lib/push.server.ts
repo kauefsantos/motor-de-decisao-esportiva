@@ -78,7 +78,7 @@ export async function deliverAnalysisReadyPush(userId: string, state?: DeliveryS
       const { authorization } = makeVapidAuthorization(subscription.endpoint);
       const response = await fetch(subscription.endpoint, {
         method: "POST",
-        redirect: "error",
+        redirect: "manual",
         signal: controller.signal,
         headers: { Authorization: authorization, TTL: "900", Urgency: "normal" },
       });
