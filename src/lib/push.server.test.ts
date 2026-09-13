@@ -22,7 +22,9 @@ describe("VAPID signing runtime compatibility", () => {
     expect(result.authorization).toContain("vapid t=");
     expect(result.authorization).toContain(`, k=${result.publicKey}`);
 
-    const token = result.authorization.slice("vapid t=".length).split(", k=")[0];
+    const match = /^vapid t=([^,]+), k=/.exec(result.authorization);
+    expect(match).not.toBeNull();
+    const token = match?.[1] ?? "";
     const parts = token.split(".");
     expect(parts).toHaveLength(3);
     expect(parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part))).toBe(true);
