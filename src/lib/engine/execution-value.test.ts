@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { executionValueContract } from "./execution-value";
 
-function sum(values: Record<string, number>) {
-  return Object.values(values).reduce((total, value) => total + value, 0);
+function probabilitySum(values: NonNullable<ReturnType<typeof executionValueContract>["outcomeDistribution"]>) {
+  return values.WIN + values.HALF_WIN + values.PUSH + values.HALF_LOSS + values.LOSS;
 }
 
 describe("executionValueContract", () => {
@@ -27,7 +27,7 @@ describe("executionValueContract", () => {
     expect(resolved.contractType).toBe("ASIAN");
     expect(resolved.outcomeDistribution).not.toBeNull();
     expect(resolved.outcomeDistribution!.PUSH).toBeGreaterThan(0);
-    expect(sum(resolved.outcomeDistribution!)).toBeCloseTo(1, 8);
+    expect(probabilitySum(resolved.outcomeDistribution!)).toBeCloseTo(1, 8);
   });
 
   it("fails closed when a totals prediction cannot rebuild its distribution", () => {
