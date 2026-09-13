@@ -1,14 +1,62 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { runStage4CornersValidation } from "@/lib/application/training/corners-validation.server";
+import { runStage6GoalsValidation } from "@/lib/application/training/goals-validation.server";
+import { STAGE6_GOALS_PROTOCOL } from "@/lib/application/training/goals-walk-forward";
 import { createFixedWindowRequestLimiter, readBoundedJsonObject } from "@/lib/analysis-worker-security";
 import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
-import { runStage4CornersValidation } from "@/lib/application/training/corners-validation.server";
 import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const enforceWorkerRateLimit = createFixedWindowRequestLimiter();
+const STAGE4_CORNERS_PROTOCOL = "stage4-corners-walk-forward-v1";
 
-type ClaimRow = { accepted?: boolean | null; target_model_version?: string | null };
+type ClaimRow = {
+  accepted?: boolean | null;
+  market_family?: string | null;
+  target_model_version?: string | null;
+  target_calibration_version?: string | null;
+  protocol_version?: string | null;
+};
+
+type ValidationSummary = {
+  targetArtifact: string;
+  readinessStatus: string;
+  eligiblePredictions: number;
+  details?: Record<string, unknown>;
+};
+
+async function executeValidation(claim: ClaimRow): Promise<{ report: Record<string, unknown>; summary: ValidationSummary }> {
+  const protocol = claim.protocol_version ?? "";
+  if (protocol === STAGE4_CORNERS_PROTOCOL) {
+    const report = await runStage4CornersValidation();
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions: report.eligiblePredictions,
+        details: { nb2Predictions: report.nb2Predictions },
+      },
+    };
+  }
+  if (protocol === STAGE6_GOALS_PROTOCOL) {
+    const report = await runStage6GoalsValidation(
+      claim.market_family ?? "",
+      claim.target_model_version ?? "",
+    );
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions: report.eligiblePredictions,
+        details: { marketFamily: report.marketFamily },
+      },
+    };
+  }
+  throw new Error(`Unsupported model-validation protocol: ${protocol || "missing"}`);
+}
 
 export const Route = createFileRoute("/api/model-validation")({
   server: {
@@ -34,7 +82,7 @@ export const Route = createFileRoute("/api/model-validation")({
 
         try {
           const { data: claimed, error: claimError } = await callAdminRuntimeRpc<ClaimRow[]>(
-            "claim_stage4_model_validation",
+            "claim_model_validation",
             { p_job_id: jobId, p_dispatch_token: dispatchToken },
           );
           if (claimError) throw new Error(claimError.message);
@@ -42,9 +90,9 @@ export const Route = createFileRoute("/api/model-validation")({
           if (!claim?.accepted) return backendJson({ status: "IDLE" as const }, { status: 202 }, requestId);
 
           try {
-            const report = await runStage4CornersValidation();
+            const { report, summary } = await executeValidation(claim);
             const { data: completed, error: completeError } = await callAdminRuntimeRpc<boolean>(
-              "complete_stage4_model_validation",
+              "complete_model_validation",
               {
                 p_job_id: jobId,
                 p_dispatch_token: dispatchToken,
@@ -56,14 +104,15 @@ export const Route = createFileRoute("/api/model-validation")({
             return backendJson({
               status: "DONE" as const,
               jobId,
-              targetModelVersion: claim.target_model_version ?? report.targetArtifact,
-              readinessStatus: report.readinessStatus,
-              eligiblePredictions: report.eligiblePredictions,
-              nb2Predictions: report.nb2Predictions,
+              targetModelVersion: claim.target_model_version ?? summary.targetArtifact,
+              targetCalibrationVersion: claim.target_calibration_version ?? null,
+              readinessStatus: summary.readinessStatus,
+              eligiblePredictions: summary.eligiblePredictions,
+              ...summary.details,
             }, undefined, requestId);
           } catch (error) {
             const message = error instanceof Error ? error.message : "Falha desconhecida na validação quantitativa.";
-            await callAdminRuntimeRpc("complete_stage4_model_validation", {
+            await callAdminRuntimeRpc("complete_model_validation", {
               p_job_id: jobId,
               p_dispatch_token: dispatchToken,
               p_report: {},
@@ -72,7 +121,7 @@ export const Route = createFileRoute("/api/model-validation")({
             throw error;
           }
         } catch (error) {
-          console.error("[Stage 4 model validation] failure", error);
+          console.error("[Model validation] failure", error);
           return backendErrorResponse(error, requestId);
         }
       },
