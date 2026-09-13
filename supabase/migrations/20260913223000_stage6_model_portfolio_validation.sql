@@ -161,7 +161,7 @@ as $$
     and (
       p_after_date is null
       or m.fixture_date > p_after_date
-      or (m.fixture_date=p_after_date and m.fixture_id>pg_catalog.coalesce(p_after_fixture_id,-1))
+      or (m.fixture_date=p_after_date and m.fixture_id>pg_catalog.coalesce(p_after_fixture_id,-1::bigint))
     )
   order by m.fixture_date,m.fixture_id
   limit pg_catalog.greatest(1,pg_catalog.least(pg_catalog.coalesce(p_limit,750),750));
