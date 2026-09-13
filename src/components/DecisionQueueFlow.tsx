@@ -31,6 +31,25 @@ type AutoQuote = {
   reason: string;
 };
 
+function manualQuoteGuidance(quote: AutoQuote | undefined) {
+  if (!quote) {
+    return "A cotação automática não ficou disponível. Consulte a Bet365 e informe manualmente somente a odd do mesmo mercado, lado e linha mostrados.";
+  }
+  if (quote.status === "UNSUPPORTED") {
+    return "A API não fornece este contrato automaticamente. Consulte a Bet365 e informe manualmente a odd do mesmo mercado, lado e linha.";
+  }
+  if (quote.status === "LINE_MISMATCH") {
+    return "A linha encontrada pela API é diferente da linha analisada. Não use essa cotação; informe manualmente somente a odd da linha exata mostrada aqui.";
+  }
+  if (quote.status === "NO_PRICE") {
+    return "A Bet365 não trouxe preço automático para este contrato. Se a mesma linha estiver disponível no site, informe a odd manualmente.";
+  }
+  if (quote.status === "SOURCE_UNAVAILABLE") {
+    return "A consulta automática ficou indisponível. Informe a odd manualmente somente se confirmar o mesmo contrato diretamente na Bet365.";
+  }
+  return null;
+}
+
 export function DecisionQueueFlow({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const prepare = useServerFn(prepareExperimentalMarketsRun);
@@ -277,7 +296,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
           <div>
             <p className="label-eyebrow">Conferir preços</p>
             <h2 className="mt-1 text-lg font-semibold">Conferir as odds reais</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Buscamos a Bet365 automaticamente quando há um preço compatível. Onde faltar, você pode informar a odd manualmente.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Buscamos a Bet365 automaticamente quando há um preço compatível. Mercados que a API não expõe diretamente — como dupla chance e alguns totais por equipe — continuam disponíveis para você informar a odd manualmente.</p>
           </div>
           {autoLoading && <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite"><Loader2 className="size-3.5 animate-spin" aria-hidden /> Buscando odds</span>}
         </div>
@@ -307,26 +326,41 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
           )}
 
           {manualCandidates.length > 0 && (
-            <div className="divide-y divide-border/70">
-              {manualCandidates.map((candidate) => {
-                const open = Boolean(details[candidate.predictionId]);
-                const quote = autoQuotes[candidate.predictionId];
-                const detailId = `decision-detail-${candidate.predictionId}`;
-                return (
-                  <div key={candidate.predictionId} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:p-5">
-                    <div>
-                      <p className="text-sm font-medium">{candidate.matchLabel}</p>
-                      <p className="text-xs text-muted-foreground">{candidate.marketLabel} · chance {formatDecisionPercent(candidate.probabilityExperimental)}</p>
-                      {quote?.status === "LINE_MISMATCH" && <p className="mt-1 text-xs text-warning">A linha encontrada não corresponde à opção analisada. Informe a odd correta para esta linha.</p>}
-                      {open && <p id={detailId} className="mt-2 text-xs text-muted-foreground">Odd de referência {formatDecisionDecimal(candidate.fairOddExperimental)} · linha {candidate.lineCanonical ?? "—"}</p>}
+            <div>
+              <div className="border-b border-border/60 bg-muted/20 px-4 py-3 sm:px-5">
+                <p className="text-xs font-semibold">Odds que precisam de conferência manual</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Informe somente a odd da Bet365 para o mesmo mercado, lado e linha exibidos. A entrada manual não relaxa nenhuma regra: o motor ainda exige chance ≥70%, odd ≥1,70, EV ≥8% e vantagem ≥5 p.p.</p>
+              </div>
+              <div className="divide-y divide-border/70">
+                {manualCandidates.map((candidate) => {
+                  const open = Boolean(details[candidate.predictionId]);
+                  const quote = autoQuotes[candidate.predictionId];
+                  const guidance = manualQuoteGuidance(quote);
+                  const detailId = `decision-detail-${candidate.predictionId}`;
+                  const guidanceId = `decision-guidance-${candidate.predictionId}`;
+                  return (
+                    <div key={candidate.predictionId} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:p-5">
+                      <div>
+                        <p className="text-sm font-medium">{candidate.matchLabel}</p>
+                        <p className="text-xs text-muted-foreground">{candidate.marketLabel} · chance {formatDecisionPercent(candidate.probabilityExperimental)}</p>
+                        {guidance && <p id={guidanceId} className={`mt-1 text-xs ${quote?.status === "LINE_MISMATCH" ? "text-warning" : "text-muted-foreground"}`}>{guidance}</p>}
+                        {open && <p id={detailId} className="mt-2 text-xs text-muted-foreground">Odd de referência {formatDecisionDecimal(candidate.fairOddExperimental)} · linha {candidate.lineCanonical ?? "—"}</p>}
+                      </div>
+                      <label className="text-sm text-muted-foreground">Odd Bet365 manual
+                        <Input
+                          inputMode="decimal"
+                          placeholder="Ex.: 1,85"
+                          aria-describedby={guidance ? guidanceId : undefined}
+                          value={odds[candidate.predictionId] ?? ""}
+                          onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))}
+                          className="num mt-1 w-28"
+                        />
+                      </label>
+                      <button type="button" className="touch-target inline-flex min-h-10 items-center gap-1 text-xs text-accent" aria-expanded={open} aria-controls={detailId} onClick={() => setDetails((current) => ({ ...current, [candidate.predictionId]: !open }))}><Info className="size-3" aria-hidden /> {open ? "Ocultar detalhes" : "Ver detalhes"}</button>
                     </div>
-                    <label className="text-sm text-muted-foreground">Odd Bet365
-                      <Input inputMode="decimal" value={odds[candidate.predictionId] ?? ""} onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))} className="num mt-1 w-28" />
-                    </label>
-                    <button type="button" className="touch-target inline-flex min-h-10 items-center gap-1 text-xs text-accent" aria-expanded={open} aria-controls={detailId} onClick={() => setDetails((current) => ({ ...current, [candidate.predictionId]: !open }))}><Info className="size-3" aria-hidden /> {open ? "Ocultar detalhes" : "Ver detalhes"}</button>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -339,7 +373,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
           </div>
 
           <CollapsiblePanel className="mx-4 mb-4 bg-transparent shadow-none sm:mx-5 sm:mb-5" title="Detalhes técnicos desta etapa" description="Cache, limites de consulta e critérios de proteção">
-            <p className="text-xs leading-relaxed text-muted-foreground">As consultas externas, cache, limites compartilhados e novas tentativas são controlados no processamento central. Recarregar a página não deve repetir uma avaliação já salva.</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">As consultas externas, cache, limites compartilhados e novas tentativas são controlados no processamento central. Quando a API não possui o contrato ou a linha exata, a odd pode ser informada manualmente, mas continua sendo avaliada pelo mesmo motor de valor e pelas mesmas travas. Recarregar a página não deve repetir uma avaliação já salva.</p>
           </CollapsiblePanel>
         </>
       )}
