@@ -1,5 +1,5 @@
 import { isLikelyDomesticLeagueKey } from "../../competition-kind";
-import { callAdminRuntimeRpc } from "../../repositories/runtime-rpc.server";
+import { callAdminRuntimeRpc, type RuntimeRpcResult } from "../../repositories/runtime-rpc.server";
 import { evaluateCornersWalkForward, type Stage4CornerRow } from "./corners-walk-forward";
 
 type CanonicalCornerValidationRow = {
@@ -28,16 +28,19 @@ async function loadAllCanonicalCornersRows(): Promise<CanonicalCornerValidationR
   let afterFixtureId: number | string | null = null;
 
   for (let page = 0; page < MAX_VALIDATION_PAGES; page += 1) {
-    const { data, error } = await callAdminRuntimeRpc<CanonicalCornerValidationRow[]>(
-      "get_stage4_corners_validation_rows_page",
-      {
-        p_after_date: afterDate,
-        p_after_fixture_id: afterFixtureId,
-        p_limit: VALIDATION_PAGE_SIZE,
-      },
-    );
-    if (error) throw new Error(`Falha ao carregar histórico canônico da Etapa 4: ${error.message}`);
-    const batch = data ?? [];
+    const result: RuntimeRpcResult<CanonicalCornerValidationRow[]> =
+      await callAdminRuntimeRpc<CanonicalCornerValidationRow[]>(
+        "get_stage4_corners_validation_rows_page",
+        {
+          p_after_date: afterDate,
+          p_after_fixture_id: afterFixtureId,
+          p_limit: VALIDATION_PAGE_SIZE,
+        },
+      );
+    if (result.error) {
+      throw new Error(`Falha ao carregar histórico canônico da Etapa 4: ${result.error.message}`);
+    }
+    const batch: CanonicalCornerValidationRow[] = result.data ?? [];
     if (batch.length === 0) break;
 
     for (const row of batch) {
@@ -49,7 +52,7 @@ async function loadAllCanonicalCornersRows(): Promise<CanonicalCornerValidationR
       rows.push(row);
     }
 
-    const last = batch[batch.length - 1];
+    const last: CanonicalCornerValidationRow | undefined = batch[batch.length - 1];
     if (!last) break;
     afterDate = String(last.fixture_date).slice(0, 10);
     afterFixtureId = last.fixture_id;
