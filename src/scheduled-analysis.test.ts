@@ -65,6 +65,7 @@ describe("scheduled D+2 analysis", () => {
     const route = readFileSync(new URL("./routes/api.five-dollar-maintenance.ts", import.meta.url), "utf8");
     const server = readFileSync(new URL("./lib/scheduled-analysis.server.ts", import.meta.url), "utf8");
     const worker = readFileSync(new URL("./routes/api.analysis-worker.ts", import.meta.url), "utf8");
+    const serviceWorker = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
 
     expect(migration).toContain("RESOLVED_FIVE_DOLLAR");
     expect(migration).toContain("array['RESOLVE']::text[]");
@@ -81,5 +82,7 @@ describe("scheduled D+2 analysis", () => {
     expect(server).toContain('"kick_analysis_worker"');
     expect(worker).toContain('"enqueue_push_delivery_event"');
     expect(worker).toContain('"ANALYSIS_READY"');
+    expect(serviceWorker).toContain("MANUAL_TARGET_TTL_MS");
+    expect(serviceWorker).toContain('return fresh && typeof data?.url === "string"');
   });
 });
