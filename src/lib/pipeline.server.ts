@@ -1,6 +1,9 @@
 // Pipeline único: CSV -> resolução -> coleta -> limpeza -> features -> modelo -> mercados.
 // Provedores suportados: 5DollarFootballAPI (padrão) e API-Football/API-Sports.
 
+import { adminDb } from "./admin-db";
+import { prepareExperimentalPredictionsForRun } from "./application/experimental-markets/prepare-run.server";
+import { EXPERIMENTAL_MARKETS_STATUS } from "./application/experimental-markets/contracts";
 import { MIN_MODEL_PROBABILITY, percentageLabel } from "./engine/decision-rules";
 import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
@@ -11,12 +14,7 @@ import { collectPipelineData } from "./pipeline/collect.server";
 import { resolvePipelineMatches } from "./pipeline/resolve.server";
 import { activeFootballProvider } from "./pipeline/provider.server";
 
-type Db = Awaited<ReturnType<typeof getDb>>;
-
-async function getDb() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
-}
+type Db = Awaited<ReturnType<typeof adminDb>>;
 
 async function log(
   db: Db,
@@ -40,7 +38,7 @@ async function runPredictionAt(db: Db, runId: string): Promise<string> {
 }
 
 export async function executeStep(runId: string, step: PipelineStepKey) {
-  const db = await getDb();
+  const db = await adminDb();
   await db
     .from("analysis_runs")
     .update({ current_step: step, status: "RUNNING", updated_at: new Date().toISOString() })
@@ -183,10 +181,42 @@ async function features(db: Db, runId: string) {
 }
 
 async function probability(db: Db, runId: string) {
+  const prepared = await prepareExperimentalPredictionsForRun(db, runId);
   const { data: versions } = await db.from("model_versions").select("market_family, validation_status, calibration_version");
   const validated = (versions ?? []).filter((v) => v.validation_status === "PRODUCTION_VALIDATED" && v.calibration_version);
-  await log(db, runId, "PROBABILITY", validated.length ? `${validated.length} famílias com modelo calibrado e validado.` : "Produção continua bloqueada: nenhum modelo calibrado/validado out-of-sample.", validated.length ? "INFO" : "WARN");
-  return { validatedFamilies: validated.length };
+
+  if (prepared.predictionCount === 0) {
+    await log(
+      db,
+      runId,
+      "PROBABILITY",
+      "Nenhuma previsão foi persistida; a análise não pode ser marcada como pronta para conferir odds.",
+      "ERROR",
+      { issues: prepared.issues, validatedFamilies: validated.length },
+    );
+    throw new Error("Nenhuma previsão pôde ser preparada com segurança para esta análise.");
+  }
+
+  await log(
+    db,
+    runId,
+    "PROBABILITY",
+    `${prepared.predictionCount} previsões experimentais persistidas em background. ${validated.length} família(s) com modelo de produção calibrado/validado.`,
+    validated.length ? "INFO" : "WARN",
+    {
+      predictionCount: prepared.predictionCount,
+      candidateCount: prepared.candidates.length,
+      issues: prepared.issues,
+      validatedFamilies: validated.length,
+      modelStatus: prepared.modelStatus,
+    },
+  );
+  return {
+    predictionCount: prepared.predictionCount,
+    candidateCount: prepared.candidates.length,
+    issues: prepared.issues.length,
+    validatedFamilies: validated.length,
+  };
 }
 
 async function gates(db: Db, runId: string) {
@@ -196,6 +226,18 @@ async function gates(db: Db, runId: string) {
 }
 
 async function markets(db: Db, runId: string) {
+  const { count: preparedPredictionCount, error: predictionCountError } = await db
+    .from("model_predictions")
+    .select("id", { count: "exact", head: true })
+    .eq("run_id", runId)
+    .eq("model_status", EXPERIMENTAL_MARKETS_STATUS);
+  if (predictionCountError) {
+    throw new Error(`Falha ao validar previsões persistidas antes de READY_FOR_ODDS: ${predictionCountError.message}`);
+  }
+  if (!preparedPredictionCount) {
+    throw new Error("READY_FOR_ODDS bloqueado: nenhuma previsão persistida para a análise.");
+  }
+
   const predictionAt = await runPredictionAt(db, runId);
   const { data: matches } = await db
     .from("matches")
@@ -286,6 +328,13 @@ async function markets(db: Db, runId: string) {
     current_step: "MARKETS",
     updated_at: new Date().toISOString(),
   }).eq("id", runId);
-  await log(db, runId, "MARKETS", `${published} contratos publicados, ${blocked} bloqueados.`, published ? "INFO" : "WARN", { provider: activeFootballProvider() });
-  return { published, blocked, provider: activeFootballProvider() };
+  await log(
+    db,
+    runId,
+    "MARKETS",
+    `${published} contratos de produção publicados, ${blocked} bloqueados; ${preparedPredictionCount} previsões experimentais já persistidas para conferência de odds.`,
+    published ? "INFO" : "WARN",
+    { provider: activeFootballProvider(), preparedPredictionCount },
+  );
+  return { published, blocked, preparedPredictionCount, provider: activeFootballProvider() };
 }
