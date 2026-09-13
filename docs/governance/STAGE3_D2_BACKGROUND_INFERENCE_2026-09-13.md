@@ -47,3 +47,13 @@ Odds de D+2 não são usadas para selecionar apostas. O usuário deve trabalhar 
 A migration `20260913170000_stage3_d2_background_inference.sql` substitui somente o dispatcher D+2 para usar `ON CONFLICT DO NOTHING`, compatível com a unicidade parcial de `request_id`, mantendo execução exclusiva do `service_role`.
 
 Após merge, sincronização e publicação, a execução perdida de 13/09/2026 deve ser recuperada por uma chamada manual idempotente a `kick_scheduled_daily_analysis()` e acompanhada até seu estado final.
+
+## Replay real de produção
+
+Depois da publicação do primeiro pacote da Etapa 3, o replay idempotente conseguiu criar o request HTTP do dispatcher, comprovando a correção do `ON CONFLICT`. O request `96`, porém, retornou HTTP 500 ao tentar criar a run D+2 de 15/09/2026.
+
+A resposta pública mascarava corretamente o detalhe interno, então a falha foi reproduzida de forma transacional no Lovable Cloud usando o mesmo payload de 12 partidas armazenado no cache da 5Dollar. A exceção exata foi `SQLSTATE 42883: function pg_catalog.coalesce(text, unknown) does not exist`.
+
+A causa estava em `create_scheduled_analysis_run_atomic`: a função executa com `search_path=''` e qualificava `COALESCE` como `pg_catalog.coalesce(...)`. `COALESCE` é uma expressão SQL nativa, não uma função do catálogo. A migration `20260913173500_stage3_d2_create_run_coalesce_fix.sql` mantém todos os gates de identidade, competição, idempotência e autorização, alterando somente essas expressões para o `coalesce(...)` válido.
+
+O replay só pode ser considerado validado depois que a run real de 15/09 for criada, o worker chegar a `DONE` e o Lovable Cloud comprovar `model_predictions > 0` antes de `READY_FOR_ODDS`.
