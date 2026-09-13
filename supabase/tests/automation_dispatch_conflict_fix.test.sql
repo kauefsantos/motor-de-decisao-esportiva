@@ -1,5 +1,5 @@
 begin;
-select plan(6);
+select plan(8);
 
 select lives_ok(
   $$select public.kick_external_api_maintenance()$$,
@@ -24,6 +24,16 @@ select ok(
 select ok(
   position('on conflict (request_id)' in lower(pg_get_functiondef('public.kick_push_delivery_dispatcher()'::regprocedure)))=0,
   'push dispatcher does not target the partial request_id index explicitly'
+);
+
+select ok(
+  position('on conflict (request_id)' in lower(pg_get_functiondef('public.kick_scheduled_daily_analysis()'::regprocedure)))=0,
+  'scheduled D+2 dispatcher does not target the partial request_id index explicitly'
+);
+
+select ok(
+  position('on conflict do nothing' in lower(pg_get_functiondef('public.kick_scheduled_daily_analysis()'::regprocedure)))>0,
+  'scheduled D+2 dispatcher keeps automation ledger writes idempotent with bare ON CONFLICT'
 );
 
 select ok(
