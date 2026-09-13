@@ -6,7 +6,10 @@ export type BankrollTrackingRow = {
   match_label: string;
   competition: string | null;
   market_family: string;
+  market: string;
   market_label: string;
+  side: string | null;
+  line_canonical: number | string | null;
   model_status: string;
   model_probability: number | string;
   entry_odd: number | string;

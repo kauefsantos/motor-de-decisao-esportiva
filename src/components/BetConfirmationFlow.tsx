@@ -1,6 +1,6 @@
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Loader2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,10 +16,16 @@ import {
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
+function decimalInput(value: string) {
+  return Number(value.replace(",", "."));
+}
+
 export function BetConfirmationFlow({ runId }: { runId: string }) {
   const loadPlan = useServerFn(getExperimentalBetPlan);
   const confirm = useServerFn(confirmExperimentalBet);
   const [custom, setCustom] = useState("");
+  const [currentOdd, setCurrentOdd] = useState("");
+  const [currentLine, setCurrentLine] = useState("");
   const [showCustom, setShowCustom] = useState(false);
   const [showDeclineConfirm, setShowDeclineConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -29,13 +35,51 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
     queryFn: () => loadPlan({ data: { runId } }),
   });
 
+  const proposalId = data?.nextProposal?.id ?? null;
+  useEffect(() => {
+    setCurrentOdd("");
+    setCurrentLine("");
+    setCustom("");
+    setShowCustom(false);
+    setShowDeclineConfirm(false);
+  }, [proposalId]);
+
   async function submit(stakeBrl: number) {
     const proposal = data?.nextProposal;
     if (!proposal || saving) return;
+
+    let confirmedOdd: number | null = null;
+    let confirmedLine: number | null = null;
+    if (stakeBrl > 0) {
+      confirmedOdd = decimalInput(currentOdd);
+      if (!Number.isFinite(confirmedOdd) || confirmedOdd <= 1) {
+        toast.error("Confira e informe a odd atual da Bet365 antes de registrar.");
+        return;
+      }
+
+      const canonicalLine = proposal.line_canonical === null ? null : Number(proposal.line_canonical);
+      if (canonicalLine !== null) {
+        confirmedLine = decimalInput(currentLine);
+        if (!Number.isFinite(confirmedLine)) {
+          toast.error("Confira e informe também a linha atual da Bet365.");
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     try {
-      await confirm({ data: { id: proposal.id, stakeBrl } });
+      await confirm({
+        data: {
+          id: proposal.id,
+          stakeBrl,
+          currentOdd: confirmedOdd,
+          currentLine: confirmedLine,
+        },
+      });
       setCustom("");
+      setCurrentOdd("");
+      setCurrentLine("");
       setShowCustom(false);
       setShowDeclineConfirm(false);
       await refetch();
@@ -102,7 +146,12 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
   const suggested = Number(proposal.suggestedStake);
   const maxAllowed = Number(proposal.maxAllowedStake);
   const minimumStake = Number(proposal.minimumStake ?? data.bankroll.minStakeBrl ?? 0.5);
-  const customNumber = Number(custom.replace(",", "."));
+  const customNumber = decimalInput(custom);
+  const currentOddNumber = decimalInput(currentOdd);
+  const canonicalLine = proposal.line_canonical === null ? null : Number(proposal.line_canonical);
+  const currentLineNumber = decimalInput(currentLine);
+  const quoteConfirmed = Number.isFinite(currentOddNumber) && currentOddNumber > 1 &&
+    (canonicalLine === null || Number.isFinite(currentLineNumber));
   const total = Math.max(1, data.all.length);
   const reviewed = Math.max(0, total - data.proposedCount);
   const currentNumber = Math.min(total, reviewed + 1);
@@ -124,17 +173,49 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
         </div>
 
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border/60 py-4 sm:grid-cols-4">
-          <div><dt className="text-[11px] text-muted-foreground">Odd</dt><dd className="num mt-1 text-lg font-semibold">{Number(proposal.entry_odd).toFixed(2)}</dd></div>
-          <div><dt className="flex items-center text-[11px] text-muted-foreground">EV esperado <MetricHelp term="EV" /></dt><dd className="num mt-1 text-lg font-semibold">{(Number(proposal.expected_value ?? 0) * 100).toFixed(1)}%</dd></div>
+          <div><dt className="text-[11px] text-muted-foreground">Odd da decisão</dt><dd className="num mt-1 text-lg font-semibold">{Number(proposal.entry_odd).toFixed(2)}</dd></div>
+          <div><dt className="flex items-center text-[11px] text-muted-foreground">EV da decisão <MetricHelp term="EV" /></dt><dd className="num mt-1 text-lg font-semibold">{(Number(proposal.expected_value ?? 0) * 100).toFixed(1)}%</dd></div>
           <div><dt className="text-[11px] text-muted-foreground">Valor sugerido</dt><dd className="num mt-1 text-lg font-semibold text-primary">{money(suggested)}</dd></div>
           <div><dt className="text-[11px] text-muted-foreground">Saldo depois</dt><dd className="num mt-1 text-lg font-semibold">{money(suggestedBalanceAfter)}</dd></div>
         </dl>
 
         <p className="mt-4 text-sm text-muted-foreground">Registre aqui somente se você realmente fizer esta aposta na Bet365. O aplicativo não envia a aposta para a casa.</p>
 
+        <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <p className="text-sm font-medium">Confira a cotação na Bet365 agora</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">A odd da decisão não é reutilizada automaticamente. Antes de liberar uma stake positiva, o servidor recalcula odd mínima, EV e vantagem com a cotação que você confirmar aqui.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="text-xs text-muted-foreground">Odd atual</span>
+              <Input
+                className="num mt-2"
+                inputMode="decimal"
+                value={currentOdd}
+                onChange={(event) => setCurrentOdd(event.target.value)}
+                placeholder="Ex.: 1,85"
+              />
+            </label>
+            {canonicalLine !== null && (
+              <label className="text-sm">
+                <span className="text-xs text-muted-foreground">Linha atual</span>
+                <Input
+                  className="num mt-2"
+                  inputMode="decimal"
+                  value={currentLine}
+                  onChange={(event) => setCurrentLine(event.target.value)}
+                  placeholder={`Linha modelada: ${canonicalLine.toFixed(1).replace(".", ",")}`}
+                />
+              </label>
+            )}
+          </div>
+          {canonicalLine !== null && (
+            <p className="mt-2 text-xs text-muted-foreground">Se a linha atual for diferente de {canonicalLine.toFixed(1).replace(".", ",")}, a aposta será bloqueada e a partida precisará ser recalculada.</p>
+          )}
+        </div>
+
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {suggested > 0 && (
-            <Button className="min-h-12" disabled={saving} onClick={() => void submit(suggested)}>
+            <Button className="min-h-12" disabled={saving || !quoteConfirmed} onClick={() => void submit(suggested)}>
               <Check className="mr-2 size-4" /> Registrar {money(suggested)}
             </Button>
           )}
@@ -157,7 +238,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
             )}
             <Button
               className="mt-3 min-h-11"
-              disabled={saving || !Number.isFinite(customNumber) || customNumber < minimumStake || customNumber > maxAllowed}
+              disabled={saving || !quoteConfirmed || !Number.isFinite(customNumber) || customNumber < minimumStake || customNumber > maxAllowed}
               onClick={() => void submit(customNumber)}
             >
               Confirmar {Number.isFinite(customNumber) && customNumber > 0 ? money(customNumber) : "valor"}
@@ -183,7 +264,7 @@ export function BetConfirmationFlow({ runId }: { runId: string }) {
             <p><span className="text-muted-foreground">Saldo disponível agora:</span> <span className="num">{money(Number(data.bankroll.available))}</span></p>
             <p><span className="text-muted-foreground">Valor sugerido:</span> <span className="num">{money(suggested)}</span></p>
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">O valor sugerido considera o saldo disponível e os limites definidos para a banca. Cada registro confirmado reduz o saldo usado para calcular a próxima sugestão.</p>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">O valor sugerido considera o saldo disponível e os limites definidos para a banca. A odd e a linha são revalidadas novamente no servidor no momento do registro; se deixarem de atender à régua, a aposta não é aberta.</p>
         </CollapsiblePanel>
       </div>
     </section>

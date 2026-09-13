@@ -11,6 +11,8 @@ import {
   operationalMaxStake,
   type BankrollTrackingRow,
 } from "./domain/bankroll";
+import { executionValueContract } from "./engine/execution-value";
+import { evaluateValue, type RejectionReason } from "./engine/value";
 import {
   confirmBetAtomic,
   loadBankrollMetrics,
@@ -51,7 +53,7 @@ export const getExperimentalBetPlan = createServerFn({ method: "GET" })
     const snapshot = await bankrollSnapshot(db, userId);
     const { data: rows, error } = await db
       .from("experimental_bet_tracking")
-      .select("id,run_id,prediction_id,target_date,match_label,competition,market_family,market_label,model_status,model_probability,entry_odd,expected_value,edge,stake_brl,profit_brl,result,bet_status,selection_rank,accepted_at")
+      .select("id,run_id,prediction_id,target_date,match_label,competition,market_family,market,market_label,side,line_canonical,model_status,model_probability,entry_odd,expected_value,edge,stake_brl,profit_brl,result,bet_status,selection_rank,accepted_at")
       .eq("run_id", data.runId)
       .order("selection_rank", { ascending: true, nullsFirst: false })
       .order("expected_value", { ascending: false });
@@ -85,7 +87,18 @@ export const getExperimentalBetPlan = createServerFn({ method: "GET" })
 const confirmSchema = z.object({
   id: z.string().uuid(),
   stakeBrl: z.number().finite().min(0).max(1_000_000),
+  currentOdd: z.number().finite().gt(1).lt(1000).nullable().optional(),
+  currentLine: z.number().finite().nullable().optional(),
 });
+
+function rejectionMessage(reason: RejectionReason | null) {
+  if (reason === "ODD_BELOW_MINIMUM") return "A odd atual está abaixo de 1,70. Não registre a aposta.";
+  if (reason === "EV_BELOW_THRESHOLD") return "Com a odd atual, o valor esperado ficou abaixo de 8%. Não registre a aposta.";
+  if (reason === "EDGE_BELOW_THRESHOLD") return "Com a odd atual, a vantagem ficou abaixo de 5 p.p. Não registre a aposta.";
+  if (reason === "REFORECAST_REQUIRED") return "A linha atual mudou em relação à linha modelada. É necessário recalcular a partida antes de apostar.";
+  if (reason === "MODEL_PROBABILITY_BELOW_THRESHOLD") return "A probabilidade operacional ficou abaixo de 70%. Não registre a aposta.";
+  return "A cotação atual não atende mais a todos os critérios da decisão. Nada foi registrado.";
+}
 
 export const confirmExperimentalBet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => confirmSchema.parse(input))
@@ -95,7 +108,119 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
     const db = await adminDb();
     const { assertTrackingOwner } = await import("./authorization.server");
     await assertTrackingOwner(db, userId, data.id);
-    const { row, error } = await confirmBetAtomic(db, data.id, floorCents(data.stakeBrl));
+
+    if (data.stakeBrl <= 0) {
+      const { row, error } = await confirmBetAtomic(db, {
+        id: data.id,
+        stakeBrl: 0,
+        entryOdd: null,
+        expectedValue: null,
+        edge: null,
+        lineCanonical: null,
+      });
+      if (error) throw new BackendError("CONFLICT", error.message, 409);
+      if (!row) throw new BackendError("INTERNAL_ERROR", "A confirmação da banca não retornou resultado.", 500);
+      return {
+        status: "DECLINED" as const,
+        stakeBrl: 0,
+        availableAfter: bankrollNumber(row.available_after),
+        maxAllowed: bankrollNumber(row.max_allowed),
+        minimumStake: bankrollNumber(row.minimum_stake, 0.5),
+      };
+    }
+
+    if (data.currentOdd === null || data.currentOdd === undefined) {
+      throw new BackendError("CONFLICT", "Confira a odd atual na Bet365 antes de registrar a aposta.", 409);
+    }
+
+    const { data: tracking, error: trackingError } = await db
+      .from("experimental_bet_tracking")
+      .select("id,run_id,prediction_id,market,side,line_canonical,model_status,model_probability,bet_status")
+      .eq("id", data.id)
+      .single();
+    if (trackingError || !tracking) {
+      throw new BackendError("NOT_FOUND", "Não foi possível localizar esta sugestão.", 404);
+    }
+    if (tracking.bet_status !== "PROPOSED") {
+      throw new BackendError("CONFLICT", "Esta sugestão já foi confirmada ou recusada.", 409);
+    }
+
+    const { data: prediction, error: predictionError } = await db
+      .from("model_predictions")
+      .select("prediction_id,market,side,line_canonical,p_cal,conservative_probability,outcome_distribution,model_status,data_status,calibration_version")
+      .eq("run_id", tracking.run_id)
+      .eq("prediction_id", tracking.prediction_id)
+      .single();
+    if (predictionError || !prediction) {
+      throw new BackendError("CONFLICT", "A previsão que originou esta escolha não está mais disponível.", 409);
+    }
+
+    const lineCanonical = prediction.line_canonical === null ? null : Number(prediction.line_canonical);
+    if (
+      prediction.market !== tracking.market ||
+      prediction.side !== tracking.side ||
+      lineCanonical !== (tracking.line_canonical === null ? null : Number(tracking.line_canonical))
+    ) {
+      throw new BackendError("CONFLICT", "O contrato da previsão mudou. Refaça a análise antes de registrar a aposta.", 409);
+    }
+    if (
+      prediction.model_status !== "PRODUCTION_VALIDATED" ||
+      prediction.data_status !== "OK" ||
+      prediction.calibration_version === null
+    ) {
+      throw new BackendError("CONFLICT", "A previsão não possui validação e calibração de produção vigentes.", 409);
+    }
+
+    const probabilityRaw = prediction.conservative_probability ?? prediction.p_cal;
+    const probability = probabilityRaw === null ? null : Number(probabilityRaw);
+    if (probability === null || !Number.isFinite(probability)) {
+      throw new BackendError("CONFLICT", "A probabilidade operacional não está disponível para revalidar a aposta.", 409);
+    }
+
+    if (lineCanonical !== null && (data.currentLine === null || data.currentLine === undefined)) {
+      throw new BackendError("CONFLICT", "Confira também a linha atual da Bet365 antes de registrar a aposta.", 409);
+    }
+    if (lineCanonical === null && data.currentLine !== null && data.currentLine !== undefined) {
+      throw new BackendError("CONFLICT", "Esta aposta não usa linha numérica. Revise a cotação informada.", 409);
+    }
+
+    const contract = executionValueContract({
+      market: prediction.market,
+      side: prediction.side,
+      lineCanonical,
+      storedOutcomeDistribution: prediction.outcome_distribution,
+    });
+    const evaluation = evaluateValue({
+      candidateId: tracking.prediction_id,
+      predictionId: tracking.prediction_id,
+      contractType: contract.contractType,
+      bookmaker: "bet365_br",
+      odd: data.currentOdd,
+      lineAtEntry: data.currentLine ?? null,
+      lineCanonical,
+      pCons: probability,
+      outcomeDistribution: contract.outcomeDistribution,
+      published: true,
+      modelStatus: prediction.model_status,
+      dataStatus: prediction.data_status,
+    });
+
+    if (
+      evaluation.executionStatus !== "EXECUTAVEL" ||
+      evaluation.evCons === null ||
+      evaluation.edgeCons === null
+    ) {
+      throw new BackendError("CONFLICT", rejectionMessage(evaluation.rejectionReason), 409);
+    }
+
+    const { row, error } = await confirmBetAtomic(db, {
+      id: data.id,
+      stakeBrl: floorCents(data.stakeBrl),
+      entryOdd: data.currentOdd,
+      expectedValue: evaluation.evCons,
+      edge: evaluation.edgeCons,
+      lineCanonical,
+    });
     if (error) throw new BackendError("CONFLICT", error.message, 409);
     if (!row) throw new BackendError("INTERNAL_ERROR", "A confirmação da banca não retornou resultado.", 500);
 
@@ -105,6 +230,9 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       availableAfter: bankrollNumber(row.available_after),
       maxAllowed: bankrollNumber(row.max_allowed),
       minimumStake: bankrollNumber(row.minimum_stake, 0.5),
+      executionOdd: data.currentOdd,
+      executionExpectedValue: evaluation.evCons,
+      executionEdge: evaluation.edgeCons,
     };
   });
 

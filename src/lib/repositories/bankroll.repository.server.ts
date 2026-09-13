@@ -42,11 +42,28 @@ export async function loadOpenBets(db: AdminDb, userId: string) {
   return callRuntimeRpc<BankrollTrackingRow[]>(db, "get_owner_open_bets", { p_owner_id: userId });
 }
 
-export async function confirmBetAtomic(db: AdminDb, id: string, stakeBrl: number) {
+export async function confirmBetAtomic(
+  db: AdminDb,
+  input: {
+    id: string;
+    stakeBrl: number;
+    entryOdd: number | null;
+    expectedValue: number | null;
+    edge: number | null;
+    lineCanonical: number | null;
+  },
+) {
   const result = await callRuntimeRpc<ConfirmBetRow[] | ConfirmBetRow>(
     db,
     "confirm_experimental_bet_atomic",
-    { p_id: id, p_stake_brl: stakeBrl },
+    {
+      p_id: input.id,
+      p_stake_brl: input.stakeBrl,
+      p_entry_odd: input.entryOdd,
+      p_expected_value: input.expectedValue,
+      p_edge: input.edge,
+      p_line_canonical: input.lineCanonical,
+    },
   );
   return { row: first(result.data), error: result.error };
 }
