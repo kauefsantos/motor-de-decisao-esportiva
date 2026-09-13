@@ -161,10 +161,10 @@ as $$
     and (
       p_after_date is null
       or m.fixture_date > p_after_date
-      or (m.fixture_date=p_after_date and m.fixture_id>pg_catalog.coalesce(p_after_fixture_id,-1::bigint))
+      or (m.fixture_date=p_after_date and m.fixture_id>coalesce(p_after_fixture_id,-1::bigint))
     )
   order by m.fixture_date,m.fixture_id
-  limit pg_catalog.greatest(1,pg_catalog.least(pg_catalog.coalesce(p_limit,750),750));
+  limit greatest(1,least(coalesce(p_limit,750),750));
 $$;
 
 revoke all on function public.get_stage6_goals_validation_rows_page(date,bigint,integer) from public,anon,authenticated;
@@ -252,7 +252,7 @@ begin
 
   update private.model_validation_jobs j
      set status=case when p_error is null then 'DONE' else 'ERROR' end,
-         report=case when p_error is null then pg_catalog.coalesce(p_report,'{}'::jsonb) else j.report end,
+         report=case when p_error is null then coalesce(p_report,'{}'::jsonb) else j.report end,
          last_error=case when p_error is null then null else pg_catalog.left(p_error,1000) end,
          completed_at=pg_catalog.now(),
          updated_at=pg_catalog.now()
@@ -264,7 +264,7 @@ begin
 
   if p_error is null then
     update public.model_versions mv
-       set out_of_sample_metrics=pg_catalog.coalesce(p_report,'{}'::jsonb)
+       set out_of_sample_metrics=coalesce(p_report,'{}'::jsonb)
      where mv.id=v_registry_id;
   end if;
   return true;
