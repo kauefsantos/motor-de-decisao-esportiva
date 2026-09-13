@@ -1,5 +1,6 @@
 const STATE_CACHE = "bet-value-push-state-v1";
 const TARGET_KEY = "/__bet-value/latest-analysis-target";
+const MANUAL_TARGET_TTL_MS = 4 * 60 * 60 * 1000;
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -16,7 +17,7 @@ self.addEventListener("message", (event) => {
     caches.open(STATE_CACHE).then((cache) =>
       cache.put(
         TARGET_KEY,
-        new Response(JSON.stringify({ url }), {
+        new Response(JSON.stringify({ url, setAt: Date.now() }), {
           headers: { "content-type": "application/json" },
         }),
       ),
@@ -30,7 +31,8 @@ async function latestTarget() {
     const response = await cache.match(TARGET_KEY);
     if (!response) return "/";
     const data = await response.json();
-    return typeof data?.url === "string" && data.url.startsWith("/") ? data.url : "/";
+    const fresh = typeof data?.setAt === "number" && Date.now() - data.setAt <= MANUAL_TARGET_TTL_MS;
+    return fresh && typeof data?.url === "string" && data.url.startsWith("/") ? data.url : "/";
   } catch {
     return "/";
   }

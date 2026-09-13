@@ -22,6 +22,28 @@ As issues de fechamento desta rodada (`#97`, `#98`, `#99` e `#100`) estão concl
 
 ## Fluxo principal
 
+### Automático diário
+
+```text
+12:45 America/Sao_Paulo
+→ descobrir calendário D+2 na 5Dollar
+→ filtrar competições ativas do escopo Elo
+→ persistir fixture/time/liga por IDs oficiais
+→ COLLECT
+→ CLEAN
+→ FEATURES
+→ PROBABILITY
+→ GATES
+→ MARKETS
+→ READY_FOR_ODDS
+→ push “Análise pronta” quando o processamento realmente terminar
+→ usuário entra para conferir odds e decidir
+```
+
+No caminho automático, `RESOLVE` já nasce concluído: nomes de clubes são rótulos, não identidade. A identidade é formada por `fixture_id`, `home_team_id`, `away_team_id` e `league_id` da fonte.
+
+### Manual/contingência
+
 ```text
 Enviar CSV
 → validar partidas
@@ -39,7 +61,22 @@ Enviar CSV
 → acompanhar resultado e analytics
 ```
 
-A aplicação **não executa apostas**.
+O CSV permanece como contingência. A aplicação **não executa apostas**.
+
+## Automação D+2
+
+- primeira tentativa diária às **12:45** em `America/Sao_Paulo`;
+- data analisada: **D+2** no calendário local;
+- tentativas curtas de recuperação às 12:50, 12:55 e 13:00;
+- uma chave determinística por owner/data impede runs duplicados;
+- recuperação reutiliza os leases, retries e o worker existentes;
+- competições elegíveis vêm de `elo_target_leagues` e `elo_cross_competitions` ativas;
+- partidas automáticas entram com IDs oficiais da 5Dollar e confiança 1.0;
+- se não houver partidas elegíveis, nenhum run vazio é fabricado;
+- o aviso não tem horário fixo: o worker existente envia `ANALYSIS_READY` somente ao finalizar o pipeline;
+- a automação prepara a análise, mas não congela a odd como preço definitivo; o fluxo de decisão continua sujeito às regras de frescor e aos gates finais.
+
+Detalhes: `docs/governance/SCHEDULED_D2_ANALYSIS_2026-09-12.md`.
 
 ## Regra canônica da fila final
 
@@ -210,13 +247,16 @@ Para o helper da Home foi confirmado no Lovable Cloud:
 - owner inexistente retorna `null`;
 - release `20260912-owner-latest-proposed-run` registrado.
 
+A automação D+2 descrita acima deve ser considerada **versionada no código somente após o merge do PR correspondente** e **operacional somente depois da migration publicada e do primeiro disparo observado no Lovable Cloud**.
+
 ## Limitações e validações ainda não afirmadas
 
 Os itens abaixo **não** devem ser descritos como validados em produção:
 
 1. interrupção deliberada no meio de `COLLECT` seguida de retomada real — a lógica e os testes existem, mas esse kill test específico não foi executado em produção nesta rodada;
 2. próxima execução agendada do fechamento diário Elo — necessária apenas como confirmação operacional do comportamento já corrigido, não como blocker estrutural;
-3. modelos esportivos atuais como `PRODUCTION_VALIDATED` — nenhum foi promovido artificialmente.
+3. modelos esportivos atuais como `PRODUCTION_VALIDATED` — nenhum foi promovido artificialmente;
+4. primeiro disparo real da automação D+2 às 12:45 e a notificação correspondente — permanecem validação operacional após publicação.
 
 ## Regra para futuras mudanças
 
@@ -238,5 +278,3 @@ Antes de alterar comportamento:
 - `docs/CASE_STUDY.md` — narrativa de portfólio;
 - `docs/ELO.md` e `docs/ELO_RUNBOOK.md` — Elo e operação;
 - `docs/governance/` — evidências e decisões versionadas;
-- `SECURITY.md` — política de segurança;
-- `CONTRIBUTING.md` — padrão de contribuição e qualidade.

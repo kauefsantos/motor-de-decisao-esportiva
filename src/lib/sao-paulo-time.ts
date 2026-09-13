@@ -44,6 +44,18 @@ function parseTime(hhmm: string) {
   return { hour, minute };
 }
 
+export function saoPauloLocalDate(date = new Date()) {
+  const p = partsAt(date);
+  return `${String(p.year).padStart(4, "0")}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+export function addSaoPauloCalendarDays(isoDate: string, days: number) {
+  if (!Number.isInteger(days)) throw new Error(`Quantidade de dias inválida: ${days}`);
+  const d = parseDate(isoDate);
+  const noon = new Date(Date.UTC(d.year, d.month - 1, d.day + days, 12));
+  return noon.toISOString().slice(0, 10);
+}
+
 export function saoPauloLocalDateTimeToIso(isoDate: string, hhmm: string) {
   const d = parseDate(isoDate);
   const t = parseTime(hhmm);
@@ -63,15 +75,9 @@ export function saoPauloLocalDateTimeToIso(isoDate: string, hhmm: string) {
   return new Date(candidate).toISOString();
 }
 
-function addCalendarDays(isoDate: string, days: number) {
-  const d = parseDate(isoDate);
-  const noon = new Date(Date.UTC(d.year, d.month - 1, d.day + days, 12));
-  return noon.toISOString().slice(0, 10);
-}
-
 export function saoPauloLocalDayUnixWindow(isoDate: string) {
   const startMs = Date.parse(saoPauloLocalDateTimeToIso(isoDate, "00:00"));
-  const nextDate = addCalendarDays(isoDate, 1);
+  const nextDate = addSaoPauloCalendarDays(isoDate, 1);
   const endMs = Date.parse(saoPauloLocalDateTimeToIso(nextDate, "00:00"));
   return { start: Math.floor(startMs / 1000), end: Math.floor(endMs / 1000) };
 }
