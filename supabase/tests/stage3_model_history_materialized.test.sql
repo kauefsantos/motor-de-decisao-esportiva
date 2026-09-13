@@ -1,5 +1,5 @@
 begin;
-select plan(10);
+select plan(12);
 
 select ok(
   to_regclass('private.five_dollar_model_matches') is not null,
@@ -61,6 +61,36 @@ select ok(
 select ok(
   exists(select 1 from public.app_schema_releases where version='20260913-stage3-model-history-materialized'),
   'materialized Stage 3 model-history release is registered'
+);
+
+insert into private.five_dollar_model_matches(
+  fixture_id,external_match_id,fixture_date,home_team_id,away_team_id,
+  home_goals,away_goals,home_corners,away_corners,
+  home_yellow,away_yellow,home_red,away_red,
+  first_observed_at,last_observed_at,has_conflict
+) values(
+  9000000001,'test-league:2026-01-01:home-away','2026-01-01',101,202,
+  2,1,7,4,2,3,0,1,
+  '2026-01-01 18:00:00+00','2026-01-01 18:00:00+00',false
+);
+
+select is(
+  (select count(*) from public.get_five_dollar_model_history_rows('2026-01-02 12:00:00+00',30)),
+  5::bigint,
+  'one canonical fixture is synthesized into one base row plus four card components'
+);
+
+select ok(
+  exists(
+    select 1
+    from public.get_five_dollar_model_history_rows('2026-01-02 12:00:00+00',30) h
+    where h.raw_value->>'externalMatchId'='test-league:2026-01-01:home-away'
+      and h.raw_value->>'metricLabelRaw'='goals.home'
+      and h.raw_value->'rawHomeAway'->>'cornersHome'='7'
+      and h.raw_value->>'teamId'='101'
+      and h.raw_value->>'opponentId'='202'
+  ),
+  'synthesized base row preserves match identity and score/corner payload expected by the existing model builder'
 );
 
 select * from finish();
