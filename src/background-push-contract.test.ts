@@ -90,6 +90,9 @@ describe("iPhone Web Push contract", () => {
     expect(pushServer).toContain('process.env["LOVABLE_CRON_SECRET"]');
     expect(pushServer).toContain("bet-value-web-push-v1");
     expect(pushServer).toContain("PUSH_TIMEOUT_MS");
+    expect(pushServer).toContain('privateKey.export({ format: "pem", type: "pkcs8" })');
+    expect(pushServer).toContain("key: privateKeyPem");
+    expect(pushServer).not.toContain("key: privateKey, dsaEncoding");
     expect(pushFunctions).toContain("getVapidPublicKey()");
     expect(pushFunctions).not.toContain("LOVABLE_CRON_SECRET");
     expect(pushFunctions).not.toContain(privilegedDbSecretName);
