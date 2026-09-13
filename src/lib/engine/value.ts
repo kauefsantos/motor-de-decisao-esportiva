@@ -3,6 +3,13 @@
 // Nunca recalcula a probabilidade esportiva: se a linha mudou, exige reforecast.
 
 import {
+  MAX_SELECTIONS,
+  MIN_EDGE,
+  MIN_ENTRY_ODD,
+  MIN_MODEL_PROBABILITY,
+  EV_TARGET,
+} from "./decision-rules";
+import {
   asianEV,
   asianFairOdd,
   asianMinOdd,
@@ -11,12 +18,13 @@ import {
 } from "./settlement";
 import type { AsianOutcomeProbabilities, ContractType } from "./types";
 
-/** Régua única de publicação/execução aprovada para o funil de decisão. */
-export const MIN_MODEL_PROBABILITY = 0.70;
-export const MIN_ENTRY_ODD = 1.70;
-export const EV_TARGET = 0.08;
-export const MIN_EDGE = 0.05;
-export const MAX_SELECTIONS = 3;
+export {
+  MAX_SELECTIONS,
+  MIN_EDGE,
+  MIN_ENTRY_ODD,
+  MIN_MODEL_PROBABILITY,
+  EV_TARGET,
+} from "./decision-rules";
 
 export function passesModelProbabilityGate(probability: number | null | undefined): probability is number {
   return probability !== null && probability !== undefined && Number.isFinite(probability) && probability >= MIN_MODEL_PROBABILITY && probability <= 1;
@@ -216,6 +224,8 @@ export function evaluateValue(input: ValueInput): ValueResult {
     probabilityBasis: binaryProbabilityBasis(input),
     edgeCons: edge,
     evCons: ev,
+    wEff: null,
+    lEff: null,
     probabilityStatus: "APROVADA",
     valueStatus: hasValue ? "TEM_VALOR" : "SEM_VALOR",
     executionStatus: hasValue ? "EXECUTAVEL" : "NAO_EXECUTAR",

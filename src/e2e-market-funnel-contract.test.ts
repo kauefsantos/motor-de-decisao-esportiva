@@ -25,11 +25,14 @@ describe("production E2E market funnel contract", () => {
   });
 
   it("keeps the final qualification thresholds inclusive and centralized", () => {
+    const decisionRules = source("./lib/engine/decision-rules.ts");
     const value = source("./lib/engine/value.ts");
-    expect(value).toContain("MIN_MODEL_PROBABILITY = 0.70");
-    expect(value).toContain("MIN_ENTRY_ODD = 1.70");
-    expect(value).toContain("EV_TARGET = 0.08");
-    expect(value).toContain("MIN_EDGE = 0.05");
+
+    expect(decisionRules).toContain("MIN_MODEL_PROBABILITY = 0.70");
+    expect(decisionRules).toContain("MIN_ENTRY_ODD = 1.70");
+    expect(decisionRules).toContain("EV_TARGET = 0.08");
+    expect(decisionRules).toContain("MIN_EDGE = 0.05");
+    expect(value).toContain('from "./decision-rules"');
     expect(value).toContain("probability >= MIN_MODEL_PROBABILITY");
     expect(value).toContain("odd >= MIN_ENTRY_ODD");
   });
