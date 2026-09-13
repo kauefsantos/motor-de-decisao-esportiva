@@ -1,6 +1,6 @@
 // Leituras do histórico bruto usadas pelos modelos experimentais.
-// A paginação preserva o histórico completo e o lookup de cache evita baixar
-// milhares de JSONs quando a aplicação precisa de poucas chaves específicas.
+// O histórico de inferência é reduzido e deduplicado no Lovable Cloud antes de
+// chegar ao runtime; a paginação direta permanece apenas para a própria run.
 
 type DbError = { message: string } | null;
 export type RawObservationValueRow = { match_id?: string | null; raw_value: unknown };
@@ -16,8 +16,6 @@ type QueryResult = { data: RawObservationValueRow[] | null; error: DbError };
 interface RawQuery extends PromiseLike<QueryResult> {
   select(columns: string): RawQuery;
   eq(column: string, value: unknown): RawQuery;
-  gte(column: string, value: unknown): RawQuery;
-  lt(column: string, value: unknown): RawQuery;
   order(column: string, options?: { ascending?: boolean }): RawQuery;
   range(from: number, to: number): RawQuery;
 }
@@ -28,6 +26,7 @@ interface RawDb {
 }
 
 const PAGE_SIZE = 1000;
+const MAX_MODEL_HISTORY_DAYS = 730;
 
 export async function loadFiveDollarCacheRows(
   supabase: unknown,
@@ -51,28 +50,19 @@ export async function loadFiveDollarRawValues(
   predictionAt: string,
   lookbackDays = 365,
 ): Promise<RawObservationValueRow[]> {
-  const db = supabase as RawDb;
   const cutoffMs = Date.parse(predictionAt);
   if (!Number.isFinite(cutoffMs)) throw new Error("prediction_at inválido ao carregar histórico bruto.");
-  const startIso = new Date(cutoffMs - lookbackDays * 86_400_000).toISOString();
-  const rows: RawObservationValueRow[] = [];
-
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const res = await db
-      .from("raw_observations")
-      .select("raw_value")
-      .eq("source", "five_dollar_football")
-      .gte("observed_at", startIso)
-      .lt("observed_at", predictionAt)
-      .order("observed_at", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
-    if (res.error) throw new Error(`Falha ao paginar raw_observations: ${res.error.message}`);
-    const page = res.data ?? [];
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) break;
+  if (!Number.isInteger(lookbackDays) || lookbackDays < 1 || lookbackDays > MAX_MODEL_HISTORY_DAYS) {
+    throw new Error(`Janela histórica inválida: ${lookbackDays}.`);
   }
 
-  return rows;
+  const db = supabase as RawDb;
+  const { data, error } = await db.rpc("get_five_dollar_model_history_rows", {
+    p_prediction_at: predictionAt,
+    p_lookback_days: lookbackDays,
+  });
+  if (error) throw new Error(`Falha ao carregar histórico de modelagem deduplicado: ${error.message}`);
+  return (Array.isArray(data) ? data : []) as RawObservationValueRow[];
 }
 
 export async function loadRunFiveDollarRawValues(
