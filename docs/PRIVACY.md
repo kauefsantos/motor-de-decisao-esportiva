@@ -1,6 +1,6 @@
 # Privacidade e tratamento de dados pessoais
 
-Versão operacional: 12/09/2026.
+Versão operacional: 13/09/2026.
 
 Este documento é a fonte técnica canônica do Aviso de Privacidade exibido em `/privacidade`. O projeto continua sendo um ambiente privado, single-user e single-maintainer. Antes de disponibilização a terceiros, a identidade formal do controlador, canal externo para titulares, contratos/DPA e transferências internacionais devem ser revistos.
 
@@ -8,15 +8,21 @@ Este documento é a fonte técnica canônica do Aviso de Privacidade exibido em 
 
 - finalidade e necessidade: coletar apenas o necessário para autenticação, segurança e funcionamento do motor;
 - transparência: aviso público disponível antes do login;
-- minimização: OAuth solicita `openid email`; nome/avatar/picture são removidos do metadata persistido;
+- minimização: OAuth solicita apenas os dados necessários à autenticação Google; nome/avatar/picture são removidos do metadata persistido;
 - segurança: ownership, RLS, sessão absoluta de 30 dias e telemetria sanitizada;
 - retenção limitada: sessões 30 dias, push inativo 90 dias, governança 365 dias;
-- exclusão: fluxo self-service em `/conta`, além de cleanup defensivo quando `auth.users` é removido administrativamente.
+- exclusão: fluxo self-service em `/conta`, além de cleanup defensivo quando o usuário de autenticação é removido administrativamente.
+
+## Autenticação Google
+
+O login Google é iniciado pelo **broker OAuth gerenciado pelo Lovable**. As credenciais OAuth do Google não ficam embutidas no cliente da aplicação. Após a conclusão do fluxo gerenciado, os tokens retornados são usados para estabelecer a sessão de autenticação no **Lovable Cloud**.
+
+A mudança de 13/09/2026 corrige o início do OAuth para usar esse fluxo gerenciado em vez de chamar diretamente o provedor pelo cliente de autenticação. Ela não altera a allowlist do usuário aprovado, a validação server-side nem o prazo absoluto de sessão de 30 dias.
 
 ## Compartilhamento
 
 - Google: autenticação OAuth;
-- Lovable Cloud / Supabase: autenticação, banco e backend;
+- Lovable e Lovable Cloud: broker OAuth gerenciado, autenticação, banco e backend;
 - Apple Push Service, Google FCM ou Mozilla Push: somente se Web Push estiver ativo no respectivo dispositivo;
 - provedores esportivos: recebem dados de partidas/mercados, não identificadores pessoais da conta por desenho da aplicação.
 
@@ -40,7 +46,7 @@ A área `/conta` permite:
 2. desativar notificações e apagar as assinaturas Web Push do servidor;
 3. excluir definitivamente conta e dados, mediante confirmação textual explícita.
 
-A exclusão chama primeiro `erase_user_application_data(user_id)` e em seguida remove o usuário do Supabase Auth. Um trigger `cleanup_deleted_app_user` repete a limpeza de forma idempotente quando um usuário é apagado diretamente no Auth.
+A exclusão chama primeiro `erase_user_application_data(user_id)` e em seguida remove o usuário do serviço de autenticação. Um trigger `cleanup_deleted_app_user` repete a limpeza de forma idempotente quando um usuário é apagado diretamente no Auth.
 
 ## Telemetria
 
@@ -50,7 +56,7 @@ Na revisão de Arquitetura e Qualidade do Código de 12/09/2026, a suíte `lovab
 
 ## Pontos externos que continuam sujeitos a evidência do fornecedor
 
-- localização física/região final de processamento do Lovable/Supabase;
+- localização física/região final de processamento do Lovable Cloud;
 - termos/DPA e mecanismos de transferência internacional;
 - retenção interna de infraestrutura dos provedores além dos registros controlados pela aplicação.
 

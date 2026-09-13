@@ -92,16 +92,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setMessage(null);
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: currentReturnUrl(),
-          scopes: "openid email",
-          queryParams: { prompt: "select_account" },
-        },
+      // Google gerenciado pelo Lovable Cloud: as credenciais OAuth vivem no broker
+      // gerenciado, por isso o fluxo passa por ele e a sessão Supabase é definida no fim.
+      const { lovable } = await import("@/integrations/lovable/index");
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: currentReturnUrl(),
+        extraParams: { prompt: "select_account" },
       });
 
-      if (error) {
+      if (result.error) {
         setSigningIn(false);
         setMessage("Não foi possível abrir o login do Google. Tente novamente.");
       }

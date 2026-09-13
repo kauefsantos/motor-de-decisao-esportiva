@@ -38,16 +38,16 @@ describe("security hardening contracts", () => {
     expect(csp).not.toContain("unsafe-eval");
   });
 
-  it("uses native Supabase Google OAuth without the deprecated Lovable broker", () => {
+  it("uses the Lovable Cloud managed Google OAuth flow", () => {
     const authGate = source("src/components/AuthGate.tsx");
     const packageJson = source("package.json");
-    const lockfile = source("bun.lock");
 
-    expect(authGate).toContain("supabase.auth.signInWithOAuth");
-    expect(authGate).toContain('provider: "google"');
-    expect(authGate).not.toContain("@/integrations/lovable");
-    expect(packageJson).not.toContain("@lovable.dev/cloud-auth-js");
-    expect(lockfile).not.toContain("@lovable.dev/cloud-auth-js");
+    // As credenciais Google gerenciadas ficam no broker do Lovable Cloud; chamar
+    // supabase.auth.signInWithOAuth diretamente retorna "missing OAuth secret".
+    expect(authGate).toContain('lovable.auth.signInWithOAuth("google"');
+    expect(authGate).toContain('extraParams: { prompt: "select_account" }');
+    expect(authGate).not.toContain("supabase.auth.signInWithOAuth");
+    expect(packageJson).toContain("@lovable.dev/cloud-auth-js");
   });
 
   it("keeps the approved identity in the database instead of source literals", () => {
