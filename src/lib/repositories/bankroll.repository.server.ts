@@ -52,6 +52,7 @@ export async function confirmBetAtomic(
     expectedValue: number | null;
     edge: number | null;
     lineCanonical: number | null;
+    quoteCapturedAt: string | null;
   },
 ) {
   const result = await callRuntimeRpc<ConfirmBetRow[] | ConfirmBetRow>(
@@ -64,6 +65,7 @@ export async function confirmBetAtomic(
       p_expected_value: input.expectedValue,
       p_edge: input.edge,
       p_line_canonical: input.lineCanonical,
+      p_quote_captured_at: input.quoteCapturedAt,
     },
   );
   return { row: first(result.data), error: result.error };
