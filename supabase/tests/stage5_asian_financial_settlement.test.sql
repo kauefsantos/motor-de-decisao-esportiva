@@ -22,8 +22,8 @@ select ok(
 );
 
 select ok(
-  position('when''HALF_WIN''then(v_odd-1)/2' in lower(regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g'))) > 0
-  and position('when''HALF_LOSS''then-0.5' in lower(regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g'))) > 0,
+  position('when''half_win''then(v_odd-1)/2' in lower(regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g'))) > 0
+  and position('when''half_loss''then-0.5' in lower(regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g'))) > 0,
   'half win/loss profit units are financially correct'
 );
 
@@ -35,8 +35,8 @@ select ok(
 
 select ok(
   position('forupdate' in lower(regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g'))) > 0
-  and position("t.bet_status='OPEN'" in regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g')) > 0
-  and position("t.result='PENDING'" in regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g')) > 0,
+  and position('t.bet_status=''OPEN''' in regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g')) > 0
+  and position('t.result=''PENDING''' in regexp_replace(pg_get_functiondef('public.settle_experimental_bet_atomic(uuid,text)'::regprocedure),'\s+','','g')) > 0,
   'settlement stays row-locked and idempotency-safe'
 );
 
