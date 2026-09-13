@@ -33,7 +33,7 @@ function deriveVapidKeyPair() {
   return { publicKey: base64Url(publicBytes), privateKeyPem };
 }
 
-function makeVapidAuthorization(endpoint: string) {
+export function makeVapidAuthorization(endpoint: string) {
   const { publicKey, privateKeyPem } = deriveVapidKeyPair();
   const audience = new URL(endpoint).origin;
   const now = Math.floor(Date.now() / 1000);
