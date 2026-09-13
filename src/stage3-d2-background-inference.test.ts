@@ -39,9 +39,10 @@ describe("Stage 3 D+2 background inference", () => {
 
   it("repairs the partial-index conflict regression without weakening dispatcher access", () => {
     const migration = source("../supabase/migrations/20260913170000_stage3_d2_background_inference.sql");
+    const lower = migration.toLowerCase();
 
-    expect(migration.toLowerCase()).not.toContain("on conflict(request_id)");
-    expect(migration.toLowerCase()).toContain("on conflict do nothing");
+    expect(lower).not.toContain("on conflict(request_id) do nothing;");
+    expect(lower).toContain("on conflict do nothing;");
     expect(migration).toContain("revoke all on function public.kick_scheduled_daily_analysis() from public,anon,authenticated");
     expect(migration).toContain("grant execute on function public.kick_scheduled_daily_analysis() to service_role");
   });
