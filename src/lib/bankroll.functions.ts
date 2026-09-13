@@ -250,7 +250,7 @@ export const getOpenExperimentalBets = createServerFn({ method: "GET" }).handler
 
 const settleSchema = z.object({
   id: z.string().uuid(),
-  outcome: z.enum(["WIN", "LOSS"]),
+  outcome: z.enum(["WIN", "HALF_WIN", "PUSH", "HALF_LOSS", "LOSS", "VOID"]),
 });
 
 export const settleOpenExperimentalBet = createServerFn({ method: "POST" })
