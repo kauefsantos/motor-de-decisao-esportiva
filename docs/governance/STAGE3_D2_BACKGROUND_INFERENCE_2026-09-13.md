@@ -64,13 +64,21 @@ A primeira chamada longa do worker excedeu 120 segundos durante a coleta, mas o 
 
 Em `PROBABILITY`, o replay revelou um terceiro bloqueio real: `Falha ao paginar raw_observations: canceling statement due to statement timeout`. A leitura antiga tentava transferir todas as observações 5Dollar dos 365 dias anteriores para depois deduplicar em memória. No Lovable Cloud, essa janela continha 291.401 linhas JSON.
 
-A migration `20260913183000_stage3_model_history_query.sql` cria uma leitura server-only e point-in-time-safe que:
+A migration `20260913183000_stage3_model_history_query.sql` removeu a paginação por offset da aplicação e introduziu uma RPC server-only. No runtime real, entretanto, o primeiro desenho ainda tentava deduplicar o histórico bruto inteiro a cada inferência. O índice de expressões foi criado com sucesso no servidor, mas a RPC continuou ultrapassando o limite de execução inclusive em janelas curtas, mostrando que o custo de deduplicação on-demand permanecia inadequado.
 
-- mantém `observed_at < prediction_at`;
-- transfere somente as métricas necessárias aos modelos atuais de gols, escanteios e proxy de cartões;
-- mantém somente a observação mais recente por fixture/time/métrica antes do cutoff;
-- usa índice parcial direcionado a esse conjunto de dados;
-- remove da inferência o custo de paginação por offset sobre centenas de milhares de JSONs;
-- evita que a mesma partida histórica, coletada em diferentes runs, infle artificialmente a amostra dos modelos.
+## Histórico canônico materializado
 
-O replay só pode ser considerado validado depois que essa correção passar por todos os gates, for mergeada/publicada e a mesma run real de 15/09 for retomada até `DONE`, com `model_predictions > 0` antes de `READY_FOR_ODDS`.
+A migration `20260913193000_stage3_model_history_materialized.sql` substitui a deduplicação on-demand por uma camada compacta em `private.five_dollar_model_matches`:
+
+- uma linha por fixture histórica, em vez de dezenas de observações e recoletas;
+- placar, escanteios, cartões e IDs de mandante/visitante consolidados;
+- `first_observed_at` e `last_observed_at` preservados;
+- qualquer divergência de identidade ou valor entre observações marca `has_conflict=true` e a fixture fica fora da inferência;
+- um trigger mantém novas observações automaticamente;
+- o backfill histórico é limitado a no máximo 62 dias por execução;
+- a RPC pública server-only preserva seu contrato e sintetiza o formato já consumido pelo motor, sem exigir mudança nas regras quantitativas;
+- o cutoff continua estrito: somente fixtures com `first_observed_at < prediction_at` e dentro da janela solicitada são expostas ao modelo.
+
+O benchmark real que motivou essa decisão mostrou que 30 dias de observações relevantes representavam 9.927 registros, mas apenas 574 fixtures canônicas; a agregação por janela terminou em aproximadamente 2,5 segundos no Lovable Cloud. Essa estrutura também prepara a Etapa 4 ao impedir que recoletas da mesma partida inflem artificialmente o tamanho da amostra de validação.
+
+O replay só pode ser considerado validado depois que a camada materializada passar por todos os gates, for mergeada e aplicada, o histórico for preenchido por janelas e a mesma run real de 15/09 for retomada até `DONE`, com `model_predictions > 0` antes de `READY_FOR_ODDS`.
