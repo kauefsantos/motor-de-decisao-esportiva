@@ -20,7 +20,8 @@ describe("security hardening contracts", () => {
   it("keeps a second Web Push destination check at the server fetch boundary", () => {
     const pushServer = source("src/lib/push.server.ts");
     expect(pushServer).toContain("isTrustedPushEndpoint(subscription.endpoint)");
-    expect(pushServer).toContain('redirect: "error"');
+    expect(pushServer).toContain('redirect: "manual"');
+    expect(pushServer).not.toContain('redirect: "error"');
   });
 
   it("keeps a nonce-based CSP without unsafe inline execution", () => {
