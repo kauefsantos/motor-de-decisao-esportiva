@@ -49,12 +49,18 @@ select ok(
 );
 
 select ok(
-  position('h.first_observed_at < p_prediction_at' in pg_get_functiondef('public.get_five_dollar_model_history_rows(timestamptz,integer)'::regprocedure))>0,
+  position(
+    'h.first_observed_at<p_prediction_at'
+    in regexp_replace(lower(pg_get_functiondef('public.get_five_dollar_model_history_rows(timestamptz,integer)'::regprocedure)), '\s+', '', 'g')
+  )>0,
   'canonical model history keeps strict point-in-time cutoff'
 );
 
 select ok(
-  position('h.has_conflict = false' in lower(pg_get_functiondef('public.get_five_dollar_model_history_rows(timestamptz,integer)'::regprocedure)))>0,
+  position(
+    'h.has_conflict=false'
+    in regexp_replace(lower(pg_get_functiondef('public.get_five_dollar_model_history_rows(timestamptz,integer)'::regprocedure)), '\s+', '', 'g')
+  )>0,
   'conflicting historical fixtures fail closed out of inference'
 );
 
