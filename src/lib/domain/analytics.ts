@@ -1,4 +1,4 @@
-export const RESULT_VALUES = ["PENDING", "WIN", "LOSS", "PUSH", "VOID"] as const;
+export const RESULT_VALUES = ["PENDING", "WIN", "HALF_WIN", "LOSS", "HALF_LOSS", "PUSH", "VOID"] as const;
 export type TrackingResult = (typeof RESULT_VALUES)[number];
 export type BetStatus = "PROPOSED" | "OPEN" | "DECLINED" | "SETTLED";
 export type DecisionPolicyVersion = "decision-v1-legacy-pre-strict70" | "decision-v2-strict70";
