@@ -6,32 +6,19 @@ import { assertRunOwner } from "./authorization.server";
 import { filterQuoteAnchorPredictions } from "./engine/market-policy";
 import { selectExperimentalPortfolio } from "./engine/portfolio-selection";
 import { MAX_SELECTIONS } from "./engine/value";
-import { loadFiveDollarRawValues, loadRunFiveDollarRawValues } from "./raw-observations.server";
 import {
   EXPERIMENTAL_MARKETS_STATUS,
   PRODUCTION_STATUS,
-  type ExperimentalCandidate,
-  type RawValue,
-  type RunRawRow,
 } from "./application/experimental-markets/contracts";
-import {
-  asRecord,
-  buildDatasets,
-} from "./application/experimental-markets/datasets";
-import { buildExperimentalPredictions } from "./application/experimental-markets/prediction-service";
+import { prepareExperimentalPredictionsForRun } from "./application/experimental-markets/prepare-run.server";
 import {
   buildDirectionAssessments,
   buildTrackingRows,
   evaluateExperimentalEntries,
 } from "./application/experimental-markets/value-tracking";
 import {
-  clearExperimentalPredictions,
-  insertExperimentalPredictions,
-  loadExperimentalExternalIds,
-  loadExperimentalMatches,
   loadExperimentalMatchesByIds,
   loadExperimentalOddsState,
-  loadExperimentalRun,
   upsertExperimentalTracking,
 } from "./repositories/experimental-markets.repository.server";
 
@@ -44,57 +31,7 @@ export const prepareExperimentalMarketsRun = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const db = await adminDb();
     await assertRunOwner(db, context.userId, data.runId);
-
-    const run = await loadExperimentalRun(db, data.runId);
-    const storedPredictionAt = (run.notes as { prediction_at?: unknown } | null)?.prediction_at;
-    const predictionAt = typeof storedPredictionAt === "string" && Number.isFinite(Date.parse(storedPredictionAt))
-      ? storedPredictionAt
-      : run.created_at ?? new Date().toISOString();
-    const predictionDate = predictionAt.slice(0, 10);
-
-    const matches = await loadExperimentalMatches(db, data.runId);
-    const matchIds = matches.map((match) => match.id);
-    if (matchIds.length === 0) {
-      return {
-        candidates: [] as ExperimentalCandidate[],
-        issues: ["Nenhuma partida encontrada na run."],
-        predictionAt,
-      };
-    }
-
-    const [externalIds, runRaws, historicalRaws] = await Promise.all([
-      loadExperimentalExternalIds(db, matchIds),
-      loadRunFiveDollarRawValues(db, data.runId),
-      loadFiveDollarRawValues(db, predictionAt, 365),
-    ]);
-    const datasets = buildDatasets(
-      historicalRaws
-        .map((row) => asRecord(row.raw_value))
-        .filter((row): row is RawValue => Boolean(row)),
-    );
-
-    // Preserve the original replacement semantics: stale experimental rows are
-    // cleared before a fresh calculation begins, not after it succeeds.
-    await clearExperimentalPredictions(db, data.runId);
-    const predictions = await buildExperimentalPredictions({
-      runId: data.runId,
-      predictionAt,
-      predictionDate,
-      matches,
-      externalIds,
-      runRaws: runRaws as RunRawRow[],
-      datasets,
-    });
-    await insertExperimentalPredictions(db, predictions.predictionRows);
-
-    return {
-      candidates: predictions.candidates,
-      issues: predictions.issues,
-      predictionAt,
-      modelStatus: EXPERIMENTAL_MARKETS_STATUS,
-      productionStatus: PRODUCTION_STATUS,
-      calibrationVersion: null,
-    };
+    return prepareExperimentalPredictionsForRun(db, data.runId);
   });
 
 const oddsSchema = z.object({
