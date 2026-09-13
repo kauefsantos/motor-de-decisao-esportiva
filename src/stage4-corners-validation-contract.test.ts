@@ -16,7 +16,8 @@ const validator = fs.readFileSync(
 describe("Stage 4 corners validation contract", () => {
   it("requires a one-time job dispatch token and never exposes a GET execution path", () => {
     expect(route).toContain('dispatchToken');
-    expect(route).toContain('claim_stage4_model_validation');
+    expect(route).toContain('claim_model_validation');
+    expect(route).toContain('stage4-corners-walk-forward-v1');
     expect(route).toContain('Method Not Allowed');
   });
 
