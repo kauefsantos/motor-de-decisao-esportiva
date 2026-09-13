@@ -20,6 +20,9 @@ import {
   settleBetAtomic,
 } from "./repositories/bankroll.repository.server";
 
+const EXECUTION_QUOTE_MAX_AGE_MS = 10 * 60 * 1000;
+const EXECUTION_QUOTE_FUTURE_TOLERANCE_MS = 60 * 1000;
+
 async function bankrollSnapshot(db: AdminDb, userId: string) {
   const { row, error } = await loadBankrollMetrics(db, userId);
   if (error) throw new BackendError("INTERNAL_ERROR", "Não foi possível calcular a banca.", 500);
@@ -89,6 +92,7 @@ const confirmSchema = z.object({
   stakeBrl: z.number().finite().min(0).max(1_000_000),
   currentOdd: z.number().finite().gt(1).lt(1000).nullable().optional(),
   currentLine: z.number().finite().nullable().optional(),
+  currentQuoteCapturedAt: z.string().datetime().nullable().optional(),
 });
 
 function rejectionMessage(reason: RejectionReason | null) {
@@ -98,6 +102,21 @@ function rejectionMessage(reason: RejectionReason | null) {
   if (reason === "REFORECAST_REQUIRED") return "A linha atual mudou em relação à linha modelada. É necessário recalcular a partida antes de apostar.";
   if (reason === "MODEL_PROBABILITY_BELOW_THRESHOLD") return "A probabilidade operacional ficou abaixo de 70%. Não registre a aposta.";
   return "A cotação atual não atende mais a todos os critérios da decisão. Nada foi registrado.";
+}
+
+function assertFreshExecutionQuote(capturedAt: string | null | undefined) {
+  if (!capturedAt) {
+    throw new BackendError("CONFLICT", "Confira novamente a cotação atual da Bet365 antes de registrar a aposta.", 409);
+  }
+  const observedAt = Date.parse(capturedAt);
+  const now = Date.now();
+  if (
+    !Number.isFinite(observedAt) ||
+    observedAt < now - EXECUTION_QUOTE_MAX_AGE_MS ||
+    observedAt > now + EXECUTION_QUOTE_FUTURE_TOLERANCE_MS
+  ) {
+    throw new BackendError("CONFLICT", "A cotação confirmada ficou desatualizada. Confira novamente a odd e a linha atuais da Bet365.", 409);
+  }
 }
 
 export const confirmExperimentalBet = createServerFn({ method: "POST" })
@@ -117,6 +136,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
         expectedValue: null,
         edge: null,
         lineCanonical: null,
+        quoteCapturedAt: null,
       });
       if (error) throw new BackendError("CONFLICT", error.message, 409);
       if (!row) throw new BackendError("INTERNAL_ERROR", "A confirmação da banca não retornou resultado.", 500);
@@ -132,6 +152,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
     if (data.currentOdd === null || data.currentOdd === undefined) {
       throw new BackendError("CONFLICT", "Confira a odd atual na Bet365 antes de registrar a aposta.", 409);
     }
+    assertFreshExecutionQuote(data.currentQuoteCapturedAt);
 
     const { data: tracking, error: trackingError } = await db
       .from("experimental_bet_tracking")
@@ -220,6 +241,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       expectedValue: evaluation.evCons,
       edge: evaluation.edgeCons,
       lineCanonical,
+      quoteCapturedAt: data.currentQuoteCapturedAt ?? null,
     });
     if (error) throw new BackendError("CONFLICT", error.message, 409);
     if (!row) throw new BackendError("INTERNAL_ERROR", "A confirmação da banca não retornou resultado.", 500);
@@ -233,6 +255,7 @@ export const confirmExperimentalBet = createServerFn({ method: "POST" })
       executionOdd: data.currentOdd,
       executionExpectedValue: evaluation.evCons,
       executionEdge: evaluation.edgeCons,
+      executionQuoteCapturedAt: data.currentQuoteCapturedAt,
     };
   });
 
