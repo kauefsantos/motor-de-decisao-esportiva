@@ -1,1 +1,0 @@
-Stage 4 corners walk-forward validation branch is ready for CI; no production model promotion is included.

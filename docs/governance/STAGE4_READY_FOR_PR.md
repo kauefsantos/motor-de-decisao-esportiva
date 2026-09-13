@@ -1,1 +1,0 @@
-Ready for pull request review and mandatory gates.
