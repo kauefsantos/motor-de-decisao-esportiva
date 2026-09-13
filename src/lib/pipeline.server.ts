@@ -1,6 +1,7 @@
 // Pipeline único: CSV -> resolução -> coleta -> limpeza -> features -> modelo -> mercados.
 // Provedores suportados: 5DollarFootballAPI (padrão) e API-Football/API-Sports.
 
+import { MIN_MODEL_PROBABILITY, percentageLabel } from "./engine/decision-rules";
 import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
 
@@ -189,8 +190,9 @@ async function probability(db: Db, runId: string) {
 }
 
 async function gates(db: Db, runId: string) {
-  await log(db, runId, "GATES", "Gate-base: binários >= 0,65; asiáticos p_profit >= 0,65.");
-  return { gate: 0.65 };
+  const label = percentageLabel(MIN_MODEL_PROBABILITY);
+  await log(db, runId, "GATES", `Gate canônico de probabilidade: binários e asiáticos p_profit >= ${label}.`);
+  return { gate: MIN_MODEL_PROBABILITY };
 }
 
 async function markets(db: Db, runId: string) {
