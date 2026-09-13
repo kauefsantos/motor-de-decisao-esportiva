@@ -42,8 +42,8 @@ select ok(
 
 select ok(
   position('p_quote_captured_atisnull' in lower(regexp_replace(pg_get_functiondef('public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz)'::regprocedure),'\s+','','g'))) > 0
-  and position("interval'10minutes'" in lower(regexp_replace(pg_get_functiondef('public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz)'::regprocedure),'\s+','','g'))) > 0
-  and position("interval'1minute'" in lower(regexp_replace(pg_get_functiondef('public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz)'::regprocedure),'\s+','','g'))) > 0,
+  and position($needle$interval'10minutes'$needle$ in lower(regexp_replace(pg_get_functiondef('public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz)'::regprocedure),'\s+','','g'))) > 0
+  and position($needle$interval'1minute'$needle$ in lower(regexp_replace(pg_get_functiondef('public.confirm_experimental_bet_atomic(uuid,numeric,numeric,numeric,numeric,numeric,timestamptz)'::regprocedure),'\s+','','g'))) > 0,
   'execution quote freshness is revalidated at the Lovable Cloud boundary'
 );
 
