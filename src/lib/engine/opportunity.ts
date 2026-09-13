@@ -1,6 +1,7 @@
 // MOTOR 1 — OPPORTUNITY ENGINE. Independente de preço.
 // A odd da casa NUNCA entra como feature aqui.
 
+import { MIN_MODEL_PROBABILITY, percentageLabel } from "./decision-rules";
 import { canonicalLine, AmbiguousLineError, asianOutcomes, pProfit } from "./settlement";
 import type {
   BlockReason,
@@ -10,7 +11,8 @@ import type {
   OpportunityOutput,
 } from "./types";
 
-export const BASE_GATE = 0.75;
+/** Compatibilidade: o gate-base operacional é a mesma régua canônica do funil final. */
+export const BASE_GATE = MIN_MODEL_PROBABILITY;
 
 export interface NormalizedFeature {
   metric: string;
@@ -142,7 +144,7 @@ export function evaluateContract(
       blockReason: published ? null : "BASE_GATE_NOT_MET",
       reasonShort: published
         ? "Suporte quantitativo suficiente no gate-base asiático."
-        : `p_profit_cal ${(pProfitCal * 100).toFixed(1)}% abaixo do gate de 75%.`,
+        : `p_profit_cal ${(pProfitCal * 100).toFixed(1)}% abaixo do gate de ${percentageLabel(BASE_GATE)}.`,
     };
   }
 
@@ -184,7 +186,7 @@ export function evaluateContract(
     blockReason: published ? null : "BASE_GATE_NOT_MET",
     reasonShort: published
       ? "Suporte quantitativo suficiente no gate-base binário."
-      : `p_cal ${(pCal * 100).toFixed(1)}% abaixo do gate de 75%.`,
+      : `p_cal ${(pCal * 100).toFixed(1)}% abaixo do gate de ${percentageLabel(BASE_GATE)}.`,
   };
 }
 
