@@ -7,12 +7,16 @@ function source(path: string) {
 
 describe("market qualification business rule", () => {
   it("uses inclusive 70%, odd >=1.70, EV >=8% and edge >=5pp in the value engine", () => {
+    const decisionRules = source("./lib/engine/decision-rules.ts");
     const value = source("./lib/engine/value.ts");
-    expect(value).toContain("MIN_MODEL_PROBABILITY = 0.70");
+
+    expect(decisionRules).toContain("MIN_MODEL_PROBABILITY = 0.70");
+    expect(decisionRules).toContain("MIN_ENTRY_ODD = 1.70");
+    expect(decisionRules).toContain("EV_TARGET = 0.08");
+    expect(decisionRules).toContain("MIN_EDGE = 0.05");
+    expect(value).toContain('from "./decision-rules"');
     expect(value).toContain("probability >= MIN_MODEL_PROBABILITY");
-    expect(value).toContain("MIN_ENTRY_ODD = 1.70");
-    expect(value).toContain("EV_TARGET = 0.08");
-    expect(value).toContain("MIN_EDGE = 0.05");
+    expect(value).toContain("odd >= MIN_ENTRY_ODD");
     expect(value).toContain('"ODD_BELOW_MINIMUM"');
   });
 
