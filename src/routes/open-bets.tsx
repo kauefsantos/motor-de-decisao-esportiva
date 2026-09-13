@@ -12,6 +12,10 @@ import {
   getOpenExperimentalBets,
   settleOpenExperimentalBet,
 } from "@/lib/bankroll.functions";
+import {
+  allowedFinancialSettlementOutcomes,
+  type FinancialSettlementOutcome,
+} from "@/lib/engine/financial-settlement";
 import { repairMojibake } from "@/lib/text";
 
 export const Route = createFileRoute("/open-bets")({
@@ -32,7 +36,16 @@ function openBetCountLabel(count: number) {
   return count === 1 ? "1 aposta em andamento" : `${count} apostas em andamento`;
 }
 
-type PendingOutcome = { id: string; outcome: "WIN" | "LOSS" } | null;
+const OUTCOME_COPY: Record<FinancialSettlementOutcome, { button: string; confirmation: string; toast: string }> = {
+  WIN: { button: "Ganhou", confirmation: "ganhou", toast: "aposta ganha" },
+  HALF_WIN: { button: "Meia vitória", confirmation: "teve meia vitória", toast: "meia vitória registrada" },
+  PUSH: { button: "Devolvida", confirmation: "foi devolvida (push)", toast: "push registrado" },
+  HALF_LOSS: { button: "Meia derrota", confirmation: "teve meia derrota", toast: "meia derrota registrada" },
+  LOSS: { button: "Perdeu", confirmation: "perdeu", toast: "aposta perdida" },
+  VOID: { button: "Anulada", confirmation: "foi anulada", toast: "aposta anulada" },
+};
+
+type PendingOutcome = { id: string; outcome: FinancialSettlementOutcome } | null;
 
 function OpenBetsScreen() {
   const load = useServerFn(getOpenExperimentalBets);
@@ -44,18 +57,14 @@ function OpenBetsScreen() {
     queryFn: () => load(),
   });
 
-  async function finish(id: string, outcome: "WIN" | "LOSS") {
+  async function finish(id: string, outcome: FinancialSettlementOutcome) {
     if (settlingId !== null) return;
     setSettlingId(id);
     try {
       await settle({ data: { id, outcome } });
       setPendingOutcome(null);
       await refetch();
-      toast.success(
-        outcome === "WIN"
-          ? "Resultado salvo: aposta ganha. A banca foi atualizada."
-          : "Resultado salvo: aposta perdida. A banca foi atualizada.",
-      );
+      toast.success(`Resultado salvo: ${OUTCOME_COPY[outcome].toast}. A banca foi atualizada.`);
     } catch {
       toast.error("Não foi possível salvar o resultado. A banca não foi alterada; tente novamente.");
     } finally {
@@ -127,6 +136,12 @@ function OpenBetsScreen() {
             {data?.rows.map((row) => {
               const confirming = pendingOutcome?.id === row.id;
               const saving = settlingId === row.id;
+              const lineCanonical = row.line_canonical === null ? null : Number(row.line_canonical);
+              const outcomes = allowedFinancialSettlementOutcomes({
+                market: row.market,
+                lineCanonical: Number.isFinite(lineCanonical) ? lineCanonical : null,
+                side: row.side,
+              });
               return (
                 <article key={row.id} className="panel overflow-hidden p-4 sm:p-5">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -137,38 +152,35 @@ function OpenBetsScreen() {
                     </div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:block sm:text-right">
                       <div><p className="text-xs text-muted-foreground">Valor apostado</p><p className="num mt-1 text-xl font-semibold">{money(Number(row.stake_brl ?? 0))}</p></div>
-                      <div className="sm:mt-2"><p className="text-xs text-muted-foreground">Odd</p><p className="num mt-1 text-xl font-semibold sm:text-sm sm:font-medium sm:text-muted-foreground">{Number(row.entry_odd).toFixed(2)}</p></div>
+                      <div className="sm:mt-2"><p className="text-xs text-muted-foreground">Odd executada</p><p className="num mt-1 text-xl font-semibold sm:text-sm sm:font-medium sm:text-muted-foreground">{Number(row.entry_odd).toFixed(2)}</p></div>
                     </div>
                   </div>
 
                   {!confirming ? (
                     <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                      <Button
-                        className="min-h-12 sm:min-h-11 sm:min-w-28"
-                        disabled={settlingId !== null}
-                        onClick={() => setPendingOutcome({ id: row.id, outcome: "WIN" })}
-                      >
-                        <Check className="mr-2 size-4" aria-hidden /> Ganhou
-                      </Button>
-                      <Button
-                        className="min-h-12 sm:min-h-11 sm:min-w-28"
-                        variant="destructive"
-                        disabled={settlingId !== null}
-                        onClick={() => setPendingOutcome({ id: row.id, outcome: "LOSS" })}
-                      >
-                        <X className="mr-2 size-4" aria-hidden /> Perdeu
-                      </Button>
+                      {outcomes.map((outcome) => (
+                        <Button
+                          key={outcome}
+                          className="min-h-12 sm:min-h-11 sm:min-w-28"
+                          variant={outcome === "LOSS" || outcome === "HALF_LOSS" ? "destructive" : outcome === "WIN" || outcome === "HALF_WIN" ? "default" : "outline"}
+                          disabled={settlingId !== null}
+                          onClick={() => setPendingOutcome({ id: row.id, outcome })}
+                        >
+                          {outcome === "WIN" || outcome === "HALF_WIN" ? <Check className="mr-2 size-4" aria-hidden /> : outcome === "LOSS" || outcome === "HALF_LOSS" ? <X className="mr-2 size-4" aria-hidden /> : null}
+                          {OUTCOME_COPY[outcome].button}
+                        </Button>
+                      ))}
                     </div>
-                  ) : (
+                  ) : pendingOutcome ? (
                     <div className="mt-4 rounded-xl bg-warning/8 p-3 ring-1 ring-warning/25" role="alert">
                       <p className="text-sm font-medium">
-                        Confirmar que esta aposta {pendingOutcome.outcome === "WIN" ? "ganhou" : "perdeu"}?
+                        Confirmar que esta aposta {OUTCOME_COPY[pendingOutcome.outcome].confirmation}?
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">Ao confirmar, a aposta será encerrada e a banca será recalculada. Esta ação não deve ser repetida.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Ao confirmar, a aposta será encerrada e a banca será recalculada pela odd realmente executada. Esta ação não deve ser repetida.</p>
                       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                         <Button
                           className="min-h-12 w-full sm:min-h-11 sm:w-auto"
-                          variant={pendingOutcome.outcome === "WIN" ? "default" : "destructive"}
+                          variant={pendingOutcome.outcome === "LOSS" || pendingOutcome.outcome === "HALF_LOSS" ? "destructive" : "default"}
                           disabled={settlingId !== null}
                           onClick={() => void finish(row.id, pendingOutcome.outcome)}
                         >
@@ -180,7 +192,7 @@ function OpenBetsScreen() {
                         </Button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </article>
               );
             })}
