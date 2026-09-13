@@ -48,7 +48,7 @@ A migration `20260913170000_stage3_d2_background_inference.sql` substitui soment
 
 Após merge, sincronização e publicação, a execução perdida de 13/09/2026 deve ser recuperada por uma chamada manual idempotente a `kick_scheduled_daily_analysis()` e acompanhada até seu estado final.
 
-## Replay real de produção
+## Replay real de produção — criação da run
 
 Depois da publicação do primeiro pacote da Etapa 3, o replay idempotente conseguiu criar o request HTTP do dispatcher, comprovando a correção do `ON CONFLICT`. O request `96`, porém, retornou HTTP 500 ao tentar criar a run D+2 de 15/09/2026.
 
@@ -56,4 +56,21 @@ A resposta pública mascarava corretamente o detalhe interno, então a falha foi
 
 A causa estava em `create_scheduled_analysis_run_atomic`: a função executa com `search_path=''` e qualificava `COALESCE` como `pg_catalog.coalesce(...)`. `COALESCE` é uma expressão SQL nativa, não uma função do catálogo. A migration `20260913173500_stage3_d2_create_run_coalesce_fix.sql` mantém todos os gates de identidade, competição, idempotência e autorização, alterando somente essas expressões para o `coalesce(...)` válido.
 
-O replay só pode ser considerado validado depois que a run real de 15/09 for criada, o worker chegar a `DONE` e o Lovable Cloud comprovar `model_predictions > 0` antes de `READY_FOR_ODDS`.
+## Replay real de produção — inferência
+
+Após a correção acima, o request `97` criou com sucesso a run `37b0c61d-05b3-4505-9abc-5a6a74b5b077` para 15/09/2026 com 12 partidas resolvidas por IDs oficiais. A coleta concluiu 12/12 e o worker avançou por `CLEAN` e `FEATURES` até `PROBABILITY`.
+
+A primeira chamada longa do worker excedeu 120 segundos durante a coleta, mas o mecanismo de retomada preservou o mesmo job e as chamadas seguintes concluíram os checkpoints sem `last_error`, comprovando a retomada idempotente do fluxo.
+
+Em `PROBABILITY`, o replay revelou um terceiro bloqueio real: `Falha ao paginar raw_observations: canceling statement due to statement timeout`. A leitura antiga tentava transferir todas as observações 5Dollar dos 365 dias anteriores para depois deduplicar em memória. No Lovable Cloud, essa janela continha 291.401 linhas JSON.
+
+A migration `20260913183000_stage3_model_history_query.sql` cria uma leitura server-only e point-in-time-safe que:
+
+- mantém `observed_at < prediction_at`;
+- transfere somente as métricas necessárias aos modelos atuais de gols, escanteios e proxy de cartões;
+- mantém somente a observação mais recente por fixture/time/métrica antes do cutoff;
+- usa índice parcial direcionado a esse conjunto de dados;
+- remove da inferência o custo de paginação por offset sobre centenas de milhares de JSONs;
+- evita que a mesma partida histórica, coletada em diferentes runs, infle artificialmente a amostra dos modelos.
+
+O replay só pode ser considerado validado depois que essa correção passar por todos os gates, for mergeada/publicada e a mesma run real de 15/09 for retomada até `DONE`, com `model_predictions > 0` antes de `READY_FOR_ODDS`.
