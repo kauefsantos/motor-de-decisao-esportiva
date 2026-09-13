@@ -25,18 +25,22 @@ function deriveVapidKeyPair() {
   const publicBytes = ecdh.getPublicKey(undefined, "uncompressed");
   const x = publicBytes.subarray(1, 33);
   const y = publicBytes.subarray(33, 65);
-  const privateKey = createPrivateKey({ key: { kty: "EC", crv: "P-256", x: base64Url(x), y: base64Url(y), d: base64Url(privateBytes) }, format: "jwk" });
-  return { publicKey: base64Url(publicBytes), privateKey };
+  const privateKey = createPrivateKey({
+    key: { kty: "EC", crv: "P-256", x: base64Url(x), y: base64Url(y), d: base64Url(privateBytes) },
+    format: "jwk",
+  });
+  const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" });
+  return { publicKey: base64Url(publicBytes), privateKeyPem };
 }
 
 function makeVapidAuthorization(endpoint: string) {
-  const { publicKey, privateKey } = deriveVapidKeyPair();
+  const { publicKey, privateKeyPem } = deriveVapidKeyPair();
   const audience = new URL(endpoint).origin;
   const now = Math.floor(Date.now() / 1000);
   const header = base64Url(Buffer.from(JSON.stringify({ typ: "JWT", alg: "ES256" })));
   const payload = base64Url(Buffer.from(JSON.stringify({ aud: audience, exp: now + 12 * 60 * 60, sub: "https://quant-football-insights.lovable.app" })));
   const unsigned = `${header}.${payload}`;
-  const signature = cryptoSign("sha256", Buffer.from(unsigned), { key: privateKey, dsaEncoding: "ieee-p1363" });
+  const signature = cryptoSign("sha256", Buffer.from(unsigned), { key: privateKeyPem, dsaEncoding: "ieee-p1363" });
   return { publicKey, authorization: `vapid t=${unsigned}.${base64Url(signature)}, k=${publicKey}` };
 }
 
