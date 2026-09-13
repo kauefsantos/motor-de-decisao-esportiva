@@ -5,6 +5,7 @@ import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backe
 import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DAILY_D2_ACTION = "DAILY_D2_ANALYSIS";
 const limitMaintenance = createFixedWindowRequestLimiter({ limit: 6, windowMs: 60_000 });
 
 export const Route = createFileRoute("/api/five-dollar-maintenance")({
@@ -24,6 +25,13 @@ export const Route = createFileRoute("/api/five-dollar-maintenance")({
         try {
           const body = await readBoundedJsonObject(request);
           const token = typeof body?.["dispatchToken"] === "string" ? body["dispatchToken"] : "";
+          const action = typeof body?.["action"] === "string" ? body["action"] : null;
+          if (action !== null && action !== DAILY_D2_ACTION) {
+            return Response.json(
+              { ok: false, error: { code: "VALIDATION_ERROR", message: "Ação de automação inválida." }, requestId },
+              { status: 400, headers: { "Cache-Control": "no-store" } },
+            );
+          }
           if (!UUID_RE.test(token)) {
             return Response.json(
               { ok: false, error: { code: "FORBIDDEN", message: "Solicitação de manutenção inválida." }, requestId },
@@ -40,10 +48,16 @@ export const Route = createFileRoute("/api/five-dollar-maintenance")({
               { status: 403, headers: { "Cache-Control": "no-store" } },
             );
           }
+
+          if (action === DAILY_D2_ACTION) {
+            const { runScheduledDailyAnalysis } = await import("@/lib/scheduled-analysis.server");
+            return backendJson(await runScheduledDailyAnalysis(), undefined, requestId);
+          }
+
           const { runFiveDollarMaintenance } = await import("@/lib/five-dollar-maintenance.server");
           return backendJson(await runFiveDollarMaintenance(), undefined, requestId);
         } catch (error) {
-          console.error("[FiveDollar maintenance] failed", error);
+          console.error("[FiveDollar automation] failed", error);
           return backendErrorResponse(error, requestId);
         }
       },
