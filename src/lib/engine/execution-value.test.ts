@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { executionValueContract } from "./execution-value";
 
 function probabilitySum(values: NonNullable<ReturnType<typeof executionValueContract>["outcomeDistribution"]>) {
-  return values.WIN + values.HALF_WIN + values.PUSH + values.HALF_LOSS + values.LOSS;
+  return values.FULL_WIN + values.HALF_WIN + values.PUSH + values.HALF_LOSS + values.FULL_LOSS;
 }
 
 describe("executionValueContract", () => {
