@@ -1,5 +1,6 @@
 import { adminDb } from "../../admin-db";
 import { isOneXTwoIsotonicParameters } from "../../engine/multiclass-isotonic-calibration";
+import { isOneXTwoJointCalibrationParameters } from "../../engine/multiclass-joint-calibration";
 import { callRuntimeRpc, type RuntimeRpcResult } from "../../repositories/runtime-rpc.server";
 import { loadStage6GoalsValidationRows } from "./goals-validation.server";
 import {
@@ -179,6 +180,16 @@ export async function loadStage7ActiveCalibration() {
       modelVersion: STAGE7_1X2_TARGET_MODEL,
       calibrationVersion: row.calibration_version,
       method: "classwise_isotonic_blend" as const,
+      parameters: row.parameters,
+      status: row.status,
+    };
+  }
+  if (isOneXTwoJointCalibrationParameters(row.parameters)) {
+    return {
+      marketFamily: "1X2" as const,
+      modelVersion: STAGE7_1X2_TARGET_MODEL,
+      calibrationVersion: row.calibration_version,
+      method: "joint_multiclass_logit" as const,
       parameters: row.parameters,
       status: row.status,
     };
