@@ -26,6 +26,12 @@ export interface GoalsModelParams {
   globalMeanAway: number;
   attack: Record<string, { home: number; away: number }>;
   defense: Record<string, { home: number; away: number }>;
+  // Audit-only Stage 8 counterfactual. These pooled fields intentionally remove venue
+  // information while preserving the same training rows, shrinkage and recency weights.
+  leagueMeanNeutral: Record<string, number>;
+  globalMeanNeutral: number;
+  neutralAttack: Record<string, number>;
+  neutralDefense: Record<string, number>;
   sampleSizes: Record<string, number>;
   trainMatches: number;
   referenceDate: string;
@@ -70,10 +76,13 @@ export function fitGoalsBaseline(train: GoalMatchRow[], referenceDate?: string):
   const inferredReference = referenceDate ?? [...train].sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? new Date(0).toISOString().slice(0, 10);
   const leagueHome = new Map<string, WeightedAgg>();
   const leagueAway = new Map<string, WeightedAgg>();
+  const leagueNeutral = new Map<string, WeightedAgg>();
   const forHome = new Map<string, WeightedAgg>();
   const forAway = new Map<string, WeightedAgg>();
   const agHome = new Map<string, WeightedAgg>();
   const agAway = new Map<string, WeightedAgg>();
+  const forNeutral = new Map<string, WeightedAgg>();
+  const agNeutral = new Map<string, WeightedAgg>();
 
   const bump = (m: Map<string, WeightedAgg>, k: string, v: number, weight: number) => {
     const cur = m.get(k) ?? { sum: 0, weight: 0, n: 0 };
@@ -85,23 +94,39 @@ export function fitGoalsBaseline(train: GoalMatchRow[], referenceDate?: string):
 
   const weightedRows = train.map((row) => ({ row, weight: recencyWeight(dayDiff(inferredReference, row.date)) }));
   for (const { row, weight } of weightedRows) {
+    const homeKey = teamKey(row.league, row.homeTeam);
+    const awayKey = teamKey(row.league, row.awayTeam);
     bump(leagueHome, row.league, row.homeGoals, weight);
     bump(leagueAway, row.league, row.awayGoals, weight);
-    bump(forHome, teamKey(row.league, row.homeTeam), row.homeGoals, weight);
-    bump(agHome, teamKey(row.league, row.awayTeam), row.homeGoals, weight);
-    bump(forAway, teamKey(row.league, row.awayTeam), row.awayGoals, weight);
-    bump(agAway, teamKey(row.league, row.homeTeam), row.awayGoals, weight);
+    bump(leagueNeutral, row.league, row.homeGoals, weight);
+    bump(leagueNeutral, row.league, row.awayGoals, weight);
+    bump(forHome, homeKey, row.homeGoals, weight);
+    bump(agHome, awayKey, row.homeGoals, weight);
+    bump(forAway, awayKey, row.awayGoals, weight);
+    bump(agAway, homeKey, row.awayGoals, weight);
+    bump(forNeutral, homeKey, row.homeGoals, weight);
+    bump(forNeutral, awayKey, row.awayGoals, weight);
+    bump(agNeutral, homeKey, row.awayGoals, weight);
+    bump(agNeutral, awayKey, row.homeGoals, weight);
   }
 
   const globalMeanHome = weightedMean(weightedRows.map(({ row, weight }) => ({ value: row.homeGoals, weight })));
   const globalMeanAway = weightedMean(weightedRows.map(({ row, weight }) => ({ value: row.awayGoals, weight })));
+  const globalMeanNeutral = weightedMean(weightedRows.flatMap(({ row, weight }) => [
+    { value: row.homeGoals, weight },
+    { value: row.awayGoals, weight },
+  ]));
   const leagueMeanHome: Record<string, number> = {};
   const leagueMeanAway: Record<string, number> = {};
+  const leagueMeanNeutral: Record<string, number> = {};
   for (const [league, agg] of leagueHome) leagueMeanHome[league] = agg.weight > 0 ? agg.sum / agg.weight : globalMeanHome;
   for (const [league, agg] of leagueAway) leagueMeanAway[league] = agg.weight > 0 ? agg.sum / agg.weight : globalMeanAway;
+  for (const [league, agg] of leagueNeutral) leagueMeanNeutral[league] = agg.weight > 0 ? agg.sum / agg.weight : globalMeanNeutral;
 
   const attack: GoalsModelParams["attack"] = {};
   const defense: GoalsModelParams["defense"] = {};
+  const neutralAttack: Record<string, number> = {};
+  const neutralDefense: Record<string, number> = {};
   const sampleSizes: Record<string, number> = {};
   const keys = new Set([...forHome.keys(), ...forAway.keys(), ...agHome.keys(), ...agAway.keys()]);
 
@@ -109,6 +134,7 @@ export function fitGoalsBaseline(train: GoalMatchRow[], referenceDate?: string):
     const league = key.split("::")[0] ?? "";
     const baseHome = leagueMeanHome[league] ?? globalMeanHome;
     const baseAway = leagueMeanAway[league] ?? globalMeanAway;
+    const baseNeutral = leagueMeanNeutral[league] ?? globalMeanNeutral;
     attack[key] = {
       home: factor(forHome.get(key), baseHome),
       away: factor(forAway.get(key), baseAway),
@@ -117,6 +143,8 @@ export function fitGoalsBaseline(train: GoalMatchRow[], referenceDate?: string):
       home: factor(agAway.get(key), baseAway),
       away: factor(agHome.get(key), baseHome),
     };
+    neutralAttack[key] = factor(forNeutral.get(key), baseNeutral);
+    neutralDefense[key] = factor(agNeutral.get(key), baseNeutral);
     sampleSizes[key] = (forHome.get(key)?.n ?? 0) + (forAway.get(key)?.n ?? 0);
   }
 
@@ -128,6 +156,10 @@ export function fitGoalsBaseline(train: GoalMatchRow[], referenceDate?: string):
     globalMeanAway,
     attack,
     defense,
+    leagueMeanNeutral,
+    globalMeanNeutral,
+    neutralAttack,
+    neutralDefense,
     sampleSizes,
     trainMatches: train.length,
     referenceDate: inferredReference,
@@ -151,6 +183,26 @@ export function predictGoals(
   const baseAway = params.leagueMeanAway[input.league] ?? params.globalMeanAway;
   const lambdaHome = Math.max(0.05, baseHome * (params.attack[kh]?.home ?? 1) * (params.defense[ka]?.away ?? 1));
   const lambdaAway = Math.max(0.05, baseAway * (params.attack[ka]?.away ?? 1) * (params.defense[kh]?.home ?? 1));
+  return {
+    lambdaHome,
+    lambdaAway,
+    lambdaTotal: lambdaHome + lambdaAway,
+    sampleSize: Math.min(params.sampleSizes[kh] ?? 0, params.sampleSizes[ka] ?? 0),
+  };
+}
+
+// Stage 8 counterfactual only: same teams, history, recency and shrinkage as the incumbent,
+// but every goal observation is pooled across venues. No home/away mean or venue-specific
+// team factor is allowed to influence the forecast.
+export function predictGoalsNeutralVenue(
+  params: GoalsModelParams,
+  input: { league: string; homeTeam: string; awayTeam: string },
+): GoalsPrediction {
+  const kh = teamKey(input.league, input.homeTeam);
+  const ka = teamKey(input.league, input.awayTeam);
+  const base = params.leagueMeanNeutral[input.league] ?? params.globalMeanNeutral;
+  const lambdaHome = Math.max(0.05, base * (params.neutralAttack[kh] ?? 1) * (params.neutralDefense[ka] ?? 1));
+  const lambdaAway = Math.max(0.05, base * (params.neutralAttack[ka] ?? 1) * (params.neutralDefense[kh] ?? 1));
   return {
     lambdaHome,
     lambdaAway,
