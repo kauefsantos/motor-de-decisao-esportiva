@@ -5,6 +5,7 @@ import {
   GOALS_MODEL_VERSION,
   goalOutcomeProbabilities,
   predictGoals,
+  predictGoalsNeutralVenue,
   type GoalMatchRow,
 } from "../../engine/goals";
 import {
@@ -44,20 +45,48 @@ type TemporalStage6GoalRow = Stage6GoalRow & {
   kickoffAt: number;
 };
 
-type WalkForwardPrediction = {
+export type WalkForwardPrediction = {
   fixtureId: string;
   date: string;
   league: string;
+  homeTeamId: string;
+  awayTeamId: string;
   modelVersion: Stage6GoalsArtifact;
   trainingMatches: number;
+  recentTrainingShare120: number;
   homeProbability: number;
   drawProbability: number;
   awayProbability: number;
   bttsYesProbability: number;
+  noEloHomeProbability: number;
+  noEloDrawProbability: number;
+  noEloAwayProbability: number;
+  noHomeHomeProbability: number;
+  noHomeDrawProbability: number;
+  noHomeAwayProbability: number;
   baselineHomeProbability: number;
   baselineDrawProbability: number;
   baselineAwayProbability: number;
   baselineBttsYesProbability: number;
+  rawLambdaHome: number;
+  rawLambdaAway: number;
+  lambdaHome: number;
+  lambdaAway: number;
+  lambdaTotal: number;
+  noHomeRawLambdaHome: number;
+  noHomeRawLambdaAway: number;
+  noHomeLambdaHome: number;
+  noHomeLambdaAway: number;
+  goalsSampleSize: number;
+  leagueMeanHome: number;
+  leagueMeanAway: number;
+  homeAttackFactor: number;
+  homeDefenseFactor: number;
+  awayAttackFactor: number;
+  awayDefenseFactor: number;
+  eloHomeRatingBefore: number | null;
+  eloAwayRatingBefore: number | null;
+  eloDifference: number | null;
   outcome1x2: MulticlassLabel;
   outcomeBtts: 0 | 1;
 };
@@ -111,6 +140,13 @@ function conservativeKickoffCutoff(date: string): number {
   return timestamp;
 }
 
+function daysBetween(laterDate: string, earlierDate: string): number {
+  const later = Date.parse(`${laterDate.slice(0, 10)}T00:00:00Z`);
+  const earlier = Date.parse(`${earlierDate.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(later) || !Number.isFinite(earlier)) return 0;
+  return Math.max(0, (later - earlier) / 86_400_000);
+}
+
 export function buildStage6GoalsPredictions(
   sourceRows: readonly Stage6GoalRow[],
   artifact: Stage6GoalsArtifact,
@@ -138,11 +174,14 @@ export function buildStage6GoalsPredictions(
     )) continue;
 
     const params = fitGoalsBaseline(training.map(asGoalMatch), target.date);
-    const rawForecast = predictGoals(params, {
+    const input = {
       league: target.league,
       homeTeam: target.homeTeamId,
       awayTeam: target.awayTeamId,
-    });
+    };
+    const rawForecast = predictGoals(params, input);
+    const noHomeRawForecast = predictGoalsNeutralVenue(params, input);
+    const noEloProbabilities = goalOutcomeProbabilities(rawForecast.lambdaHome, rawForecast.lambdaAway);
     const forecast = useElo
       ? applyEloToGoalLambdas(
           rawForecast.lambdaHome,
@@ -151,28 +190,70 @@ export function buildStage6GoalsPredictions(
           target.eloAwayRatingBefore as number,
         )
       : rawForecast;
+    const noHomeForecast = useElo
+      ? applyEloToGoalLambdas(
+          noHomeRawForecast.lambdaHome,
+          noHomeRawForecast.lambdaAway,
+          target.eloHomeRatingBefore as number,
+          target.eloAwayRatingBefore as number,
+        )
+      : noHomeRawForecast;
     const probabilities = goalOutcomeProbabilities(forecast.lambdaHome, forecast.lambdaAway);
+    const noHomeProbabilities = goalOutcomeProbabilities(noHomeForecast.lambdaHome, noHomeForecast.lambdaAway);
     const baseline = empiricalBaseline(training);
     const outcome1x2: MulticlassLabel = target.homeGoals > target.awayGoals
       ? "HOME"
       : target.homeGoals === target.awayGoals
         ? "DRAW"
         : "AWAY";
+    const homeKey = `${target.league}::${target.homeTeamId}`;
+    const awayKey = `${target.league}::${target.awayTeamId}`;
+    const recentTrainingMatches = training.filter((row) => daysBetween(target.date, row.date) <= 120).length;
 
     predictions.push({
       fixtureId: target.fixtureId,
       date: target.date,
       league: target.league,
+      homeTeamId: target.homeTeamId,
+      awayTeamId: target.awayTeamId,
       modelVersion: artifact,
       trainingMatches: training.length,
+      recentTrainingShare120: training.length > 0 ? recentTrainingMatches / training.length : 0,
       homeProbability: probabilities.home,
       drawProbability: probabilities.draw,
       awayProbability: probabilities.away,
       bttsYesProbability: probabilities.bttsYes,
+      noEloHomeProbability: noEloProbabilities.home,
+      noEloDrawProbability: noEloProbabilities.draw,
+      noEloAwayProbability: noEloProbabilities.away,
+      noHomeHomeProbability: noHomeProbabilities.home,
+      noHomeDrawProbability: noHomeProbabilities.draw,
+      noHomeAwayProbability: noHomeProbabilities.away,
       baselineHomeProbability: baseline.home,
       baselineDrawProbability: baseline.draw,
       baselineAwayProbability: baseline.away,
       baselineBttsYesProbability: baseline.bttsYes,
+      rawLambdaHome: rawForecast.lambdaHome,
+      rawLambdaAway: rawForecast.lambdaAway,
+      lambdaHome: forecast.lambdaHome,
+      lambdaAway: forecast.lambdaAway,
+      lambdaTotal: forecast.lambdaTotal,
+      noHomeRawLambdaHome: noHomeRawForecast.lambdaHome,
+      noHomeRawLambdaAway: noHomeRawForecast.lambdaAway,
+      noHomeLambdaHome: noHomeForecast.lambdaHome,
+      noHomeLambdaAway: noHomeForecast.lambdaAway,
+      goalsSampleSize: rawForecast.sampleSize,
+      leagueMeanHome: params.leagueMeanHome[target.league] ?? params.globalMeanHome,
+      leagueMeanAway: params.leagueMeanAway[target.league] ?? params.globalMeanAway,
+      homeAttackFactor: params.attack[homeKey]?.home ?? 1,
+      homeDefenseFactor: params.defense[homeKey]?.home ?? 1,
+      awayAttackFactor: params.attack[awayKey]?.away ?? 1,
+      awayDefenseFactor: params.defense[awayKey]?.away ?? 1,
+      eloHomeRatingBefore: useElo ? target.eloHomeRatingBefore : null,
+      eloAwayRatingBefore: useElo ? target.eloAwayRatingBefore : null,
+      eloDifference: useElo && target.eloHomeRatingBefore !== null && target.eloAwayRatingBefore !== null
+        ? target.eloHomeRatingBefore - target.eloAwayRatingBefore
+        : null,
       outcome1x2,
       outcomeBtts: target.homeGoals > 0 && target.awayGoals > 0 ? 1 : 0,
     });
