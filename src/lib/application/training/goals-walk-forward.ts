@@ -5,6 +5,7 @@ import {
   GOALS_MODEL_VERSION,
   goalOutcomeProbabilities,
   predictGoals,
+  predictGoalsNeutralVenue,
   type GoalMatchRow,
 } from "../../engine/goals";
 import {
@@ -60,6 +61,9 @@ export type WalkForwardPrediction = {
   noEloHomeProbability: number;
   noEloDrawProbability: number;
   noEloAwayProbability: number;
+  noHomeHomeProbability: number;
+  noHomeDrawProbability: number;
+  noHomeAwayProbability: number;
   baselineHomeProbability: number;
   baselineDrawProbability: number;
   baselineAwayProbability: number;
@@ -69,6 +73,10 @@ export type WalkForwardPrediction = {
   lambdaHome: number;
   lambdaAway: number;
   lambdaTotal: number;
+  noHomeRawLambdaHome: number;
+  noHomeRawLambdaAway: number;
+  noHomeLambdaHome: number;
+  noHomeLambdaAway: number;
   goalsSampleSize: number;
   leagueMeanHome: number;
   leagueMeanAway: number;
@@ -166,11 +174,13 @@ export function buildStage6GoalsPredictions(
     )) continue;
 
     const params = fitGoalsBaseline(training.map(asGoalMatch), target.date);
-    const rawForecast = predictGoals(params, {
+    const input = {
       league: target.league,
       homeTeam: target.homeTeamId,
       awayTeam: target.awayTeamId,
-    });
+    };
+    const rawForecast = predictGoals(params, input);
+    const noHomeRawForecast = predictGoalsNeutralVenue(params, input);
     const noEloProbabilities = goalOutcomeProbabilities(rawForecast.lambdaHome, rawForecast.lambdaAway);
     const forecast = useElo
       ? applyEloToGoalLambdas(
@@ -180,7 +190,16 @@ export function buildStage6GoalsPredictions(
           target.eloAwayRatingBefore as number,
         )
       : rawForecast;
+    const noHomeForecast = useElo
+      ? applyEloToGoalLambdas(
+          noHomeRawForecast.lambdaHome,
+          noHomeRawForecast.lambdaAway,
+          target.eloHomeRatingBefore as number,
+          target.eloAwayRatingBefore as number,
+        )
+      : noHomeRawForecast;
     const probabilities = goalOutcomeProbabilities(forecast.lambdaHome, forecast.lambdaAway);
+    const noHomeProbabilities = goalOutcomeProbabilities(noHomeForecast.lambdaHome, noHomeForecast.lambdaAway);
     const baseline = empiricalBaseline(training);
     const outcome1x2: MulticlassLabel = target.homeGoals > target.awayGoals
       ? "HOME"
@@ -207,6 +226,9 @@ export function buildStage6GoalsPredictions(
       noEloHomeProbability: noEloProbabilities.home,
       noEloDrawProbability: noEloProbabilities.draw,
       noEloAwayProbability: noEloProbabilities.away,
+      noHomeHomeProbability: noHomeProbabilities.home,
+      noHomeDrawProbability: noHomeProbabilities.draw,
+      noHomeAwayProbability: noHomeProbabilities.away,
       baselineHomeProbability: baseline.home,
       baselineDrawProbability: baseline.draw,
       baselineAwayProbability: baseline.away,
@@ -216,6 +238,10 @@ export function buildStage6GoalsPredictions(
       lambdaHome: forecast.lambdaHome,
       lambdaAway: forecast.lambdaAway,
       lambdaTotal: forecast.lambdaTotal,
+      noHomeRawLambdaHome: noHomeRawForecast.lambdaHome,
+      noHomeRawLambdaAway: noHomeRawForecast.lambdaAway,
+      noHomeLambdaHome: noHomeForecast.lambdaHome,
+      noHomeLambdaAway: noHomeForecast.lambdaAway,
       goalsSampleSize: rawForecast.sampleSize,
       leagueMeanHome: params.leagueMeanHome[target.league] ?? params.globalMeanHome,
       leagueMeanAway: params.leagueMeanAway[target.league] ?? params.globalMeanAway,
