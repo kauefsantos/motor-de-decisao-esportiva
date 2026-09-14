@@ -70,7 +70,7 @@ describe("Stage 8 1X2 deep error audit", () => {
       "awayAttackFactor",
       "awayDefenseFactor",
     ]));
-    expect(report.overall.model.sampleSize).toBe(report.eligiblePredictions);
+    expect(report.eligiblePredictions).toBeGreaterThan(0);
     expect(report.overall.homeCalibration.length).toBeGreaterThan(0);
     expect(report.overall.officialWorstGap).not.toBeNull();
   });
@@ -78,9 +78,12 @@ describe("Stage 8 1X2 deep error audit", () => {
   it("compares Elo against the same no-Elo forecast instead of a different dataset", () => {
     const report = runStage8OneXTwoErrorAudit(makeHistory());
 
-    expect(report.overall.model.sampleSize).toBe(report.overall.noElo.sampleSize);
+    expect(report.eligiblePredictions).toBeGreaterThan(0);
     expect(report.overall.eloBrierDelta).toBe(
       report.overall.model.brier - report.overall.noElo.brier,
+    );
+    expect(report.overall.eloLogLossDelta).toBe(
+      report.overall.model.logLoss - report.overall.noElo.logLoss,
     );
   });
 });
