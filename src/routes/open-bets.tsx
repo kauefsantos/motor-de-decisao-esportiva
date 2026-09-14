@@ -12,6 +12,7 @@ import {
   getOpenExperimentalBets,
   settleOpenExperimentalBet,
 } from "@/lib/bankroll.functions";
+import { getCanonicalBankrollSnapshot } from "@/lib/canonical-bankroll.browser";
 import {
   allowedFinancialSettlementOutcomes,
   type FinancialSettlementOutcome,
@@ -56,6 +57,18 @@ function OpenBetsScreen() {
     queryKey: ["open-experimental-bets"],
     queryFn: () => load(),
   });
+  const bankrollQuery = useQuery({
+    queryKey: ["canonical-bankroll"],
+    queryFn: getCanonicalBankrollSnapshot,
+  });
+  const bankroll = bankrollQuery.data?.bankroll;
+  const loading = isLoading || bankrollQuery.isLoading;
+  const loadFailed = isError || bankrollQuery.isError;
+  const displayError = error ?? bankrollQuery.error;
+
+  async function refreshAll() {
+    await Promise.all([refetch(), bankrollQuery.refetch()]);
+  }
 
   async function finish(id: string, outcome: FinancialSettlementOutcome) {
     if (settlingId !== null) return;
@@ -63,7 +76,7 @@ function OpenBetsScreen() {
     try {
       await settle({ data: { id, outcome } });
       setPendingOutcome(null);
-      await refetch();
+      await refreshAll();
       toast.success(`Resultado salvo: ${OUTCOME_COPY[outcome].toast}. A banca foi atualizada.`);
     } catch {
       toast.error("Não foi possível salvar o resultado. A banca não foi alterada; tente novamente.");
@@ -88,12 +101,12 @@ function OpenBetsScreen() {
           </Button>
         </div>
 
-        {data && (
+        {data && bankroll && (
           <div className="mt-5">
             <div className="panel flex flex-col gap-3 border-primary/15 bg-primary/[0.035] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
               <div>
                 <p className="text-xs text-muted-foreground">Saldo disponível</p>
-                <p className="num mt-1 text-3xl font-semibold tracking-tight text-primary sm:text-2xl">{money(data.bankroll.available)}</p>
+                <p className="num mt-1 text-3xl font-semibold tracking-tight text-primary sm:text-2xl">{money(bankroll.available)}</p>
               </div>
               <div className="flex items-center justify-between gap-3 rounded-xl bg-secondary/35 px-3 py-2 sm:bg-transparent sm:p-0">
                 <span className="text-xs text-muted-foreground sm:hidden">Em aberto</span>
@@ -102,36 +115,36 @@ function OpenBetsScreen() {
             </div>
             <CollapsiblePanel className="mt-3" title="Ver saldo completo" description="Banca total e valor já comprometido">
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <div><p className="text-xs text-muted-foreground">Banca total</p><p className="num mt-1 text-lg font-semibold">{money(data.bankroll.equity)}</p></div>
-                <div><p className="text-xs text-muted-foreground">Em apostas</p><p className="num mt-1 text-lg font-semibold">{money(data.bankroll.locked)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Banca total</p><p className="num mt-1 text-lg font-semibold">{money(bankroll.equity)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Em apostas</p><p className="num mt-1 text-lg font-semibold">{money(bankroll.locked)}</p></div>
               </div>
             </CollapsiblePanel>
           </div>
         )}
 
-        {isLoading && (
+        {loading && (
           <div className="panel mt-5 flex items-center gap-3 p-5 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="size-4 animate-spin" aria-hidden /> Carregando apostas…</div>
         )}
 
-        {isError && (
+        {loadFailed && (
           <div className="panel mt-5 border-destructive/30 p-5" role="alert">
             <div className="flex items-start gap-3">
               <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Não foi possível carregar as apostas em andamento</p>
                 <p className="mt-1 text-sm text-muted-foreground">Tente novamente antes de registrar qualquer resultado.</p>
-                {error instanceof Error && <p className="mt-2 text-xs text-destructive">{error.message}</p>}
-                <Button className="mt-4 min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => void refetch()}>Tentar novamente</Button>
+                {displayError instanceof Error && <p className="mt-2 text-xs text-destructive">{displayError.message}</p>}
+                <Button className="mt-4 min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => void refreshAll()}>Tentar novamente</Button>
               </div>
             </div>
           </div>
         )}
 
-        {!isLoading && !isError && data?.rows.length === 0 && (
+        {!loading && !loadFailed && data?.rows.length === 0 && (
           <div className="panel mt-5 p-5"><p className="font-medium">Nenhuma aposta em andamento agora.</p><p className="mt-1 text-sm text-muted-foreground">Quando você registrar uma sugestão, ela aparece aqui até o resultado ser informado.</p></div>
         )}
 
-        {!isError && (
+        {!loadFailed && (
           <div className="mt-5 grid gap-3 sm:gap-4">
             {data?.rows.map((row) => {
               const confirming = pendingOutcome?.id === row.id;
@@ -184,7 +197,7 @@ function OpenBetsScreen() {
                           disabled={settlingId !== null}
                           onClick={() => void finish(row.id, pendingOutcome.outcome)}
                         >
-                          {saving && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />}
+                          {saving && <Loader2 className="mr-2 size-4" aria-hidden />}
                           {saving ? "Salvando…" : "Confirmar resultado"}
                         </Button>
                         <Button className="min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" disabled={settlingId !== null} onClick={() => setPendingOutcome(null)}>
