@@ -27,6 +27,8 @@ import {
   STAGE7C_1X2_CALIBRATION_PROTOCOL,
   STAGE7C_1X2_HOLDOUT_PROTOCOL,
 } from "@/lib/application/training/stage7c-1x2-calibration";
+import { runStage8OneXTwoErrorAuditValidation } from "@/lib/application/training/stage8-1x2-error-audit.server";
+import { STAGE8_1X2_ERROR_AUDIT_PROTOCOL } from "@/lib/application/training/stage8-1x2-error-audit";
 import { createFixedWindowRequestLimiter, readBoundedJsonObject } from "@/lib/analysis-worker-security";
 import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
 import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
@@ -178,7 +180,29 @@ async function executeValidation(claim: ClaimRow): Promise<{ report: Record<stri
       },
     };
   }
+  if (protocol === STAGE8_1X2_ERROR_AUDIT_PROTOCOL) {
+    const report = await runStage8OneXTwoErrorAuditValidation();
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions: report.eligiblePredictions,
+        details: {
+          marketFamily: report.marketFamily,
+          auditVersion: report.auditVersion,
+          promotionAttempted: false,
+        },
+      },
+    };
+  }
   throw new Error(`Unsupported model-validation protocol: ${protocol || "missing"}`);
+}
+
+function completionRpcFor(claim: ClaimRow) {
+  return claim.protocol_version === STAGE8_1X2_ERROR_AUDIT_PROTOCOL
+    ? "complete_stage8_model_error_audit"
+    : "complete_model_validation";
 }
 
 export const Route = createFileRoute("/api/model-validation")({
@@ -211,11 +235,12 @@ export const Route = createFileRoute("/api/model-validation")({
           if (claimError) throw new Error(claimError.message);
           const claim = claimed?.[0];
           if (!claim?.accepted) return backendJson({ status: "IDLE" as const }, { status: 202 }, requestId);
+          const completionRpc = completionRpcFor(claim);
 
           try {
             const { report, summary } = await executeValidation(claim);
             const { data: completed, error: completeError } = await callAdminRuntimeRpc<boolean>(
-              "complete_model_validation",
+              completionRpc,
               {
                 p_job_id: jobId,
                 p_dispatch_token: dispatchToken,
@@ -235,7 +260,7 @@ export const Route = createFileRoute("/api/model-validation")({
             }, undefined, requestId);
           } catch (error) {
             const message = error instanceof Error ? error.message : "Falha desconhecida na validação quantitativa.";
-            await callAdminRuntimeRpc("complete_model_validation", {
+            await callAdminRuntimeRpc(completionRpc, {
               p_job_id: jobId,
               p_dispatch_token: dispatchToken,
               p_report: {},
