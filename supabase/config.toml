@@ -1,1 +1,4 @@
 project_id = "vsygkpwptoppbrlnrpcp"
+
+[functions.bankroll-dashboard]
+verify_jwt = true
