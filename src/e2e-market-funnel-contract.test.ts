@@ -65,7 +65,7 @@ describe("production E2E market funnel contract", () => {
 
   it("does not retain the legacy weekday/weekend quota or stale threshold copy", () => {
     const experimental = source("./lib/experimental-markets-run.functions.ts");
-    const automaticOdds = source("./lib/auto-bet365-odds.functions.ts");
+    const automaticOdds = source("./lib/auto-bet365-odds.service.server.ts");
 
     expect(experimental).toContain("MAX_SELECTIONS");
     expect(experimental).toContain("const selectionLimit = MAX_SELECTIONS");
