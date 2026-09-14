@@ -93,6 +93,15 @@ describe("Stage 8 HOME20 challenger", () => {
     expect(Number.isFinite(report.challenger.logLoss)).toBe(true);
     expect(report.homeCalibration.incumbent.length).toBeGreaterThan(0);
     expect(report.homeCalibration.challenger.length).toBeGreaterThan(0);
+    expect(report.stabilityByMonth.length).toBeGreaterThan(0);
+    expect(report.stabilityByMonth.every((row) => Number.isFinite(row.expectedCalibrationErrorDelta))).toBe(true);
+    expect(report.stabilityByLeague).toHaveLength(1);
+    expect(report.stabilityByLeague[0]?.league).toBe("england-premier-league");
+    expect(report.stabilityByLeague[0]?.sampleSize).toBe(report.pairedSampleSize);
+    expect(Number.isFinite(report.stabilityByLeague[0]?.brierDelta)).toBe(true);
+    expect(Number.isFinite(report.stabilityByLeague[0]?.logLossDelta)).toBe(true);
+    expect(Number.isFinite(report.stabilityByLeague[0]?.expectedCalibrationErrorDelta)).toBe(true);
+    expect(Number.isFinite(report.stabilityByLeague[0]?.maxCalibrationGapDelta)).toBe(true);
     expect(report.governance.benchmarkFrozen).toBe(true);
     expect(report.governance.incumbentModified).toBe(false);
     expect(report.governance.productionValidated).toBe(false);

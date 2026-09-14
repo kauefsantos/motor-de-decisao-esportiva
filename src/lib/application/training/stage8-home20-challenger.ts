@@ -34,6 +34,8 @@ type Home20RatingBefore = {
   awayRating: number;
 };
 
+type IncumbentPrediction = ReturnType<typeof buildStage6GoalsPredictions>[number];
+
 export type Stage8Home20Prediction = {
   fixtureId: string;
   date: string;
@@ -200,9 +202,7 @@ function home20MetricInputs(rows: readonly Stage8Home20Prediction[]): Multiclass
   }));
 }
 
-function incumbentMetricInputs(
-  rows: ReturnType<typeof buildStage6GoalsPredictions>,
-): MulticlassMetricInput[] {
+function incumbentMetricInputs(rows: readonly IncumbentPrediction[]): MulticlassMetricInput[] {
   return rows.map((row) => ({
     probabilities: {
       HOME: row.homeProbability,
@@ -211,6 +211,38 @@ function incumbentMetricInputs(
     },
     outcome: row.outcome1x2,
   }));
+}
+
+function pairedDiagnosticMetrics(
+  challengerRows: readonly Stage8Home20Prediction[],
+  incumbentRows: readonly IncumbentPrediction[],
+) {
+  const fixtureKeys = new Set(challengerRows.map(fixtureKey));
+  const incumbentSlice = incumbentRows.filter((row) => fixtureKeys.has(fixtureKey(row)));
+  if (incumbentSlice.length !== challengerRows.length) {
+    throw new Error(
+      `Stage 8 HOME20 diagnostic pairing mismatch: incumbent=${incumbentSlice.length} challenger=${challengerRows.length}`,
+    );
+  }
+
+  const incumbentMetrics = multiclassMetrics(incumbentMetricInputs(incumbentSlice));
+  const challengerMetrics = multiclassMetrics(home20MetricInputs(challengerRows));
+  return {
+    sampleSize: challengerRows.length,
+    incumbentBrier: incumbentMetrics.brier,
+    home20Brier: challengerMetrics.brier,
+    brierDelta: challengerMetrics.brier - incumbentMetrics.brier,
+    incumbentLogLoss: incumbentMetrics.logLoss,
+    home20LogLoss: challengerMetrics.logLoss,
+    logLossDelta: challengerMetrics.logLoss - incumbentMetrics.logLoss,
+    incumbentExpectedCalibrationError: incumbentMetrics.expectedCalibrationError,
+    home20ExpectedCalibrationError: challengerMetrics.expectedCalibrationError,
+    expectedCalibrationErrorDelta:
+      challengerMetrics.expectedCalibrationError - incumbentMetrics.expectedCalibrationError,
+    incumbentMaxCalibrationGap: incumbentMetrics.maxCalibrationGap,
+    home20MaxCalibrationGap: challengerMetrics.maxCalibrationGap,
+    maxCalibrationGapDelta: challengerMetrics.maxCalibrationGap - incumbentMetrics.maxCalibrationGap,
+  };
 }
 
 export function runStage8Home20Challenger(
@@ -238,25 +270,22 @@ export function runStage8Home20Challenger(
   const home20Metrics = multiclassMetrics(home20MetricInputs(home20));
 
   const monthKeys = [...new Set(home20.map((row) => row.date.slice(0, 7)))].sort();
-  const stabilityByMonth = monthKeys.map((month) => {
-    const home20Month = home20.filter((row) => row.date.startsWith(month));
-    const fixtureKeys = new Set(home20Month.map(fixtureKey));
-    const incumbentMonth = incumbent.filter((row) => fixtureKeys.has(fixtureKey(row)));
-    const incumbentMonthMetrics = multiclassMetrics(incumbentMetricInputs(incumbentMonth));
-    const home20MonthMetrics = multiclassMetrics(home20MetricInputs(home20Month));
-    return {
-      month,
-      sampleSize: home20Month.length,
-      incumbentBrier: incumbentMonthMetrics.brier,
-      home20Brier: home20MonthMetrics.brier,
-      brierDelta: home20MonthMetrics.brier - incumbentMonthMetrics.brier,
-      incumbentLogLoss: incumbentMonthMetrics.logLoss,
-      home20LogLoss: home20MonthMetrics.logLoss,
-      logLossDelta: home20MonthMetrics.logLoss - incumbentMonthMetrics.logLoss,
-      incumbentMaxCalibrationGap: incumbentMonthMetrics.maxCalibrationGap,
-      home20MaxCalibrationGap: home20MonthMetrics.maxCalibrationGap,
-    };
-  });
+  const stabilityByMonth = monthKeys.map((month) => ({
+    month,
+    ...pairedDiagnosticMetrics(
+      home20.filter((row) => row.date.startsWith(month)),
+      incumbent,
+    ),
+  }));
+
+  const leagueKeys = [...new Set(home20.map((row) => row.league))].sort();
+  const stabilityByLeague = leagueKeys.map((league) => ({
+    league,
+    ...pairedDiagnosticMetrics(
+      home20.filter((row) => row.league === league),
+      incumbent,
+    ),
+  }));
 
   return {
     challengerArtifact: STAGE8_HOME20_ARTIFACT,
@@ -276,6 +305,7 @@ export function runStage8Home20Challenger(
       challenger: home20Metrics.calibration.HOME.calibration,
     },
     stabilityByMonth,
+    stabilityByLeague,
     governance: {
       benchmarkFrozen: true,
       challengerFormulaChanged: true,
