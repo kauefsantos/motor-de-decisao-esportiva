@@ -1,8 +1,10 @@
 import type { AdminDb } from "../../admin-db";
+import { applyOneXTwoTemperature, type OneXTwoProbabilities } from "../../engine/multiclass-calibration";
 import {
   EXPERIMENTAL_MARKETS_STATUS,
   PRODUCTION_STATUS,
   type ExperimentalCandidate,
+  type PredictionInsert,
   type RawValue,
   type RunRawRow,
 } from "./contracts";
@@ -19,6 +21,56 @@ import {
   loadFiveDollarRawValues,
   loadRunFiveDollarRawValues,
 } from "../../raw-observations.server";
+import { loadStage7ActiveCalibration } from "../training/stage7-1x2-calibration.server";
+
+async function applyStage7ShadowCalibration(rows: PredictionInsert[]) {
+  let calibration: Awaited<ReturnType<typeof loadStage7ActiveCalibration>> = null;
+  try {
+    calibration = await loadStage7ActiveCalibration();
+  } catch (error) {
+    return {
+      applied: 0,
+      calibrationVersion: null,
+      warning: `Stage 7 shadow calibration unavailable: ${error instanceof Error ? error.message : "unknown error"}`,
+    };
+  }
+  if (!calibration || calibration.status !== "SHADOW_READY" && calibration.status !== "HOLDOUT_PASSED") {
+    return { applied: 0, calibrationVersion: null, warning: null };
+  }
+
+  const groups = new Map<string, PredictionInsert[]>();
+  for (const row of rows) {
+    if (row.market !== "1x2" || row.model_version !== calibration.modelVersion || !row.match_id) continue;
+    const key = String(row.match_id);
+    const group = groups.get(key) ?? [];
+    group.push(row);
+    groups.set(key, group);
+  }
+
+  let applied = 0;
+  for (const group of groups.values()) {
+    const bySide = new Map(group.map((row) => [String(row.side), row]));
+    const home = bySide.get("HOME");
+    const draw = bySide.get("DRAW");
+    const away = bySide.get("AWAY");
+    if (!home || !draw || !away) continue;
+    const raw: OneXTwoProbabilities = {
+      HOME: Number(home.model_probability),
+      DRAW: Number(draw.model_probability),
+      AWAY: Number(away.model_probability),
+    };
+    if (!Object.values(raw).every(Number.isFinite)) continue;
+    const calibrated = applyOneXTwoTemperature(raw, calibration.temperature);
+    for (const [side, row] of [["HOME", home], ["DRAW", draw], ["AWAY", away]] as const) {
+      row.p_cal = calibrated[side];
+      row.calibration_version = calibration.calibrationVersion;
+      // Stage 7 is shadow-only: model_status remains experimental and
+      // conservative_probability remains null until explicit governed promotion.
+      applied += 1;
+    }
+  }
+  return { applied, calibrationVersion: calibration.calibrationVersion, warning: null };
+}
 
 /**
  * Prepara e persiste as previsões experimentais de uma run usando exclusivamente
@@ -77,6 +129,13 @@ export async function prepareExperimentalPredictionsForRun(
     runRaws: runRaws as RunRawRow[],
     datasets,
   });
+  const stage7 = await applyStage7ShadowCalibration(predictions.predictionRows);
+  if (stage7.warning) predictions.issues.push(stage7.warning);
+  if (stage7.applied > 0) {
+    predictions.issues.push(
+      `Stage 7 shadow: ${stage7.applied} previsões 1X2 receberam calibração ${stage7.calibrationVersion}; o status segue experimental e stake real continua bloqueada.`,
+    );
+  }
   await insertExperimentalPredictions(db, predictions.predictionRows);
 
   return {
@@ -86,6 +145,6 @@ export async function prepareExperimentalPredictionsForRun(
     predictionCount: predictions.predictionRows.length,
     modelStatus: EXPERIMENTAL_MARKETS_STATUS,
     productionStatus: PRODUCTION_STATUS,
-    calibrationVersion: null,
+    calibrationVersion: stage7.calibrationVersion,
   };
 }
