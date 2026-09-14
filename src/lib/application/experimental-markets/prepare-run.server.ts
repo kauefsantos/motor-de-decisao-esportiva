@@ -1,4 +1,5 @@
 import type { AdminDb } from "../../admin-db";
+import { applyOneXTwoClasswiseIsotonic } from "../../engine/multiclass-isotonic-calibration";
 import { applyOneXTwoTemperature, type OneXTwoProbabilities } from "../../engine/multiclass-calibration";
 import {
   EXPERIMENTAL_MARKETS_STATUS,
@@ -60,12 +61,14 @@ async function applyStage7ShadowCalibration(rows: PredictionInsert[]) {
       AWAY: Number(away.model_probability),
     };
     if (!Object.values(raw).every(Number.isFinite)) continue;
-    const calibrated = applyOneXTwoTemperature(raw, calibration.temperature);
+    const calibrated = calibration.method === "temperature_scaling"
+      ? applyOneXTwoTemperature(raw, calibration.temperature)
+      : applyOneXTwoClasswiseIsotonic(raw, calibration.parameters);
     for (const [side, row] of [["HOME", home], ["DRAW", draw], ["AWAY", away]] as const) {
       row.p_cal = calibrated[side];
       row.calibration_version = calibration.calibrationVersion;
-      // Stage 7 is shadow-only: model_status remains experimental and
-      // conservative_probability remains null until explicit governed promotion.
+      // Shadow-only: model_status remains experimental and conservative_probability
+      // remains null until an explicit governed production promotion.
       applied += 1;
     }
   }
@@ -117,8 +120,6 @@ export async function prepareExperimentalPredictionsForRun(
       .filter((row): row is RawValue => Boolean(row)),
   );
 
-  // Substituição determinística da mesma família experimental. Linhas de outros
-  // status/modelos não são removidas.
   await clearExperimentalPredictions(db, runId);
   const predictions = await buildExperimentalPredictions({
     runId,
