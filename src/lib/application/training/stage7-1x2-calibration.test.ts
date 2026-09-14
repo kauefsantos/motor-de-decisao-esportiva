@@ -33,8 +33,12 @@ describe("Stage 7 prospective 1X2 holdout", () => {
   });
 
   it("can pass the statistical holdout gate but still never auto-promotes", () => {
-    const leagues = ["league-a", "league-b", "league-c"];
-    const rows = Array.from({ length: 240 }, (_, index) => fixture(index, leagues[Math.floor(index / 80)]));
+    const leagues = ["league-a", "league-b", "league-c"] as const;
+    const rows = Array.from({ length: 240 }, (_, index) => {
+      const league = leagues[Math.floor(index / 80)];
+      if (!league) throw new Error("Synthetic holdout league partition is invalid.");
+      return fixture(index, league);
+    });
     const report = runStage7ProspectiveHoldout(rows);
     expect(report.readinessStatus).toBe("HOLDOUT_PASSED");
     expect(report.prospectiveHoldout.calibratedMetrics.brier).toBeLessThan(report.prospectiveHoldout.rawMetrics.brier);
