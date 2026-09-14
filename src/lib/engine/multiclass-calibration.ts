@@ -7,7 +7,6 @@ export type OneXTwoCalibrationInput = {
   outcome: OneXTwoLabel;
 };
 
-const LABELS: readonly OneXTwoLabel[] = ["HOME", "DRAW", "AWAY"];
 const EPSILON = 1e-12;
 const MIN_TEMPERATURE = 0.25;
 const MAX_TEMPERATURE = 4;
@@ -18,12 +17,14 @@ function finiteProbability(value: number): number {
 }
 
 export function normalizeOneXTwo(probabilities: OneXTwoProbabilities): OneXTwoProbabilities {
-  const raw = LABELS.map((label) => finiteProbability(probabilities[label]));
-  const total = raw.reduce((sum, value) => sum + value, 0);
+  const home = finiteProbability(probabilities.HOME);
+  const draw = finiteProbability(probabilities.DRAW);
+  const away = finiteProbability(probabilities.AWAY);
+  const total = home + draw + away;
   return {
-    HOME: raw[0] / total,
-    DRAW: raw[1] / total,
-    AWAY: raw[2] / total,
+    HOME: home / total,
+    DRAW: draw / total,
+    AWAY: away / total,
   };
 }
 
@@ -39,14 +40,18 @@ export function applyOneXTwoTemperature(
     throw new Error("Temperature must be a finite positive number.");
   }
   const normalized = normalizeOneXTwo(probabilities);
-  const logits = LABELS.map((label) => Math.log(finiteProbability(normalized[label])) / temperature);
-  const maxLogit = Math.max(...logits);
-  const weights = logits.map((logit) => Math.exp(logit - maxLogit));
-  const total = weights.reduce((sum, value) => sum + value, 0);
+  const homeLogit = Math.log(finiteProbability(normalized.HOME)) / temperature;
+  const drawLogit = Math.log(finiteProbability(normalized.DRAW)) / temperature;
+  const awayLogit = Math.log(finiteProbability(normalized.AWAY)) / temperature;
+  const maxLogit = Math.max(homeLogit, drawLogit, awayLogit);
+  const homeWeight = Math.exp(homeLogit - maxLogit);
+  const drawWeight = Math.exp(drawLogit - maxLogit);
+  const awayWeight = Math.exp(awayLogit - maxLogit);
+  const total = homeWeight + drawWeight + awayWeight;
   return {
-    HOME: weights[0] / total,
-    DRAW: weights[1] / total,
-    AWAY: weights[2] / total,
+    HOME: homeWeight / total,
+    DRAW: drawWeight / total,
+    AWAY: awayWeight / total,
   };
 }
 
