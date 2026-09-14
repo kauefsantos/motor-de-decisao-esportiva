@@ -7,7 +7,8 @@ export const PIPELINE_STEPS = [
   { key: "FEATURES", label: "Resumindo os dados dos times" },
   { key: "PROBABILITY", label: "Calculando as chances" },
   { key: "GATES", label: "Separando as melhores opções" },
-  { key: "MARKETS", label: "Montando a lista para conferir" },
+  { key: "MARKETS", label: "Montando os mercados elegíveis" },
+  { key: "ODDS", label: "Buscando as odds da Bet365" },
 ] as const;
 
 export type PipelineStepKey = (typeof PIPELINE_STEPS)[number]["key"];
