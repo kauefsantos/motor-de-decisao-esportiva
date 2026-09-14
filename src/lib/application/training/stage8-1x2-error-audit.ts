@@ -325,7 +325,7 @@ export function runStage8OneXTwoErrorAudit(sourceRows: readonly Stage6GoalRow[])
     },
     dimensions,
     diagnostics: {
-      temporalStability: temporalStability(dimensions.month ?? []),
+      temporalStability: temporalStability(dimensions["month"] ?? []),
       topEloImprovements: topEloEffects(dimensions, "IMPROVES"),
       topEloWorsening: topEloEffects(dimensions, "WORSENS"),
       officialGapComesFromSmallBucket: (officialWorstGap?.count ?? 0) < STAGE8_STRUCTURAL_BIN_MIN,
