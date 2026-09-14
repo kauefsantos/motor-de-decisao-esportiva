@@ -71,7 +71,7 @@
   --warning: #fbbf24;
   --warning-foreground: #1d1402;
   --border: #243b32;
-  --input: #3b5a4e;
+  --input: #557568;
   --ring: #3be0b1;
   --grid: #10201a;
 }
@@ -101,7 +101,7 @@
     --warning: oklch(0.837 0.164 84.4);
     --warning-foreground: oklch(0.198 0.036 84.9);
     --border: oklch(0.330 0.033 167.8);
-    --input: oklch(0.439 0.042 168.2);
+    --input: oklch(0.534 0.042 167.8);
     --ring: oklch(0.813 0.149 169.0);
     --grid: oklch(0.227 0.025 168.3);
   }
