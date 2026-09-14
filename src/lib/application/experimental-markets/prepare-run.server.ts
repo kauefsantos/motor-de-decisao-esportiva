@@ -1,5 +1,6 @@
 import type { AdminDb } from "../../admin-db";
 import { applyOneXTwoClasswiseIsotonic } from "../../engine/multiclass-isotonic-calibration";
+import { applyOneXTwoJointCalibration } from "../../engine/multiclass-joint-calibration";
 import { applyOneXTwoTemperature, type OneXTwoProbabilities } from "../../engine/multiclass-calibration";
 import {
   EXPERIMENTAL_MARKETS_STATUS,
@@ -63,7 +64,9 @@ async function applyStage7ShadowCalibration(rows: PredictionInsert[]) {
     if (!Object.values(raw).every(Number.isFinite)) continue;
     const calibrated = calibration.method === "temperature_scaling"
       ? applyOneXTwoTemperature(raw, calibration.temperature)
-      : applyOneXTwoClasswiseIsotonic(raw, calibration.parameters);
+      : calibration.method === "classwise_isotonic_blend"
+        ? applyOneXTwoClasswiseIsotonic(raw, calibration.parameters)
+        : applyOneXTwoJointCalibration(raw, calibration.parameters);
     for (const [side, row] of [["HOME", home], ["DRAW", draw], ["AWAY", away]] as const) {
       row.p_cal = calibrated[side];
       row.calibration_version = calibration.calibrationVersion;
