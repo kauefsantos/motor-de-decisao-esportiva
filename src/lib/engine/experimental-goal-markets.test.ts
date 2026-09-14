@@ -50,4 +50,26 @@ describe("experimental goal quote markets", () => {
     expect(oneXtwo.reduce((sum, m) => sum + m.probability, 0)).toBeCloseTo(1, 8);
     expect(familyForMarket("cards_match_total")).toBe("CARDS");
   });
+
+  it("routes 1X2 and double chance through an ensemble distribution without changing goal totals", () => {
+    const ensemble = { HOME: 0.52, DRAW: 0.27, AWAY: 0.21 };
+    const withEnsemble = buildGoalMarketProjections({
+      homeTeam: "Time A",
+      awayTeam: "Time B",
+      lambdaHome: 1.55,
+      lambdaAway: 1.05,
+      oneXTwoProbabilities: ensemble,
+    });
+
+    expect(withEnsemble.find((m) => m.market === "1x2" && m.side === "HOME")?.probability).toBeCloseTo(0.52);
+    expect(withEnsemble.find((m) => m.market === "1x2" && m.side === "DRAW")?.probability).toBeCloseTo(0.27);
+    expect(withEnsemble.find((m) => m.market === "1x2" && m.side === "AWAY")?.probability).toBeCloseTo(0.21);
+    expect(withEnsemble.find((m) => m.market === "double_chance" && m.side === "1X")?.probability).toBeCloseTo(0.79);
+    expect(withEnsemble.find((m) => m.market === "double_chance" && m.side === "X2")?.probability).toBeCloseTo(0.48);
+    expect(withEnsemble.find((m) => m.market === "double_chance" && m.side === "12")?.probability).toBeCloseTo(0.73);
+
+    const baseTotals = markets.filter((m) => m.market === "goals_match_total").map((m) => m.probability);
+    const ensembleTotals = withEnsemble.filter((m) => m.market === "goals_match_total").map((m) => m.probability);
+    expect(ensembleTotals).toEqual(baseTotals);
+  });
 });
