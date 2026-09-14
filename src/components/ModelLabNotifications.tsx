@@ -9,12 +9,15 @@ import {
   type ModelLabEvent,
 } from "@/lib/model-lab.functions";
 
+const MODEL_LAB_QUERY_KEY = ["model-lab-notifications"] as const;
+const MODEL_LAB_TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
+  dateStyle: "short",
+  timeStyle: "short",
+  timeZone: "America/Sao_Paulo",
+});
+
 function timeLabel(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/Sao_Paulo",
-  }).format(new Date(value));
+  return MODEL_LAB_TIME_FORMATTER.format(new Date(value));
 }
 
 function EventIcon({ severity }: { severity: ModelLabEvent["severity"] }) {
@@ -29,7 +32,7 @@ export function ModelLabNotifications() {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: ["model-lab-notifications"],
+    queryKey: MODEL_LAB_QUERY_KEY,
     queryFn: () => load(),
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -37,7 +40,7 @@ export function ModelLabNotifications() {
 
   const markMutation = useMutation({
     mutationFn: () => markRead(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["model-lab-notifications"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: MODEL_LAB_QUERY_KEY }),
   });
 
   const events = query.data?.events ?? [];

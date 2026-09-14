@@ -43,8 +43,6 @@ export const getModelLabNotifications = createServerFn({ method: "GET" }).handle
   return {
     events,
     unreadCount: events.filter((event) => !event.read_at).length,
-    experimentalMode: "ACTIVE" as const,
-    labMode: "STAGE9_BACKGROUND" as const,
   };
 });
 
