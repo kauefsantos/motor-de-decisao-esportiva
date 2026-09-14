@@ -4,6 +4,14 @@ import { adminDb } from "./admin-db";
 import { BackendError } from "./backend-contract";
 import { callRuntimeRpc } from "./repositories/runtime-rpc.server";
 
+export type ModelLabJson =
+  | string
+  | number
+  | boolean
+  | null
+  | ModelLabJson[]
+  | { [key: string]: ModelLabJson };
+
 export type ModelLabEvent = {
   id: string;
   stage: string;
@@ -13,7 +21,7 @@ export type ModelLabEvent = {
   message: string;
   model_version: string | null;
   candidate_version: string | null;
-  payload: Record<string, unknown> | null;
+  payload: { [key: string]: ModelLabJson } | null;
   created_at: string;
   read_at: string | null;
 };
