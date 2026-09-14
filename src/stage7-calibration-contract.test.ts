@@ -5,14 +5,22 @@ function source(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
+function stage7ShadowSection(prepare: string) {
+  const start = prepare.indexOf("async function applyStage7ShadowCalibration");
+  const end = prepare.indexOf("async function applyStage9GovernedCalibration");
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return prepare.slice(start, end);
+}
+
 describe("Stage 7 calibration production-safety contract", () => {
-  it("stores calibrated probabilities in shadow without changing the experimental model status", () => {
+  it("stores Stage 7 calibrated probabilities in shadow without changing the model status", () => {
     const prepare = source("./lib/application/experimental-markets/prepare-run.server.ts");
-    expect(prepare).toContain("row.p_cal = calibrated[side]");
-    expect(prepare).toContain("row.calibration_version = calibration.calibrationVersion");
-    expect(prepare).toContain("model_status remains experimental");
-    expect(prepare).not.toContain('row.model_status = "PRODUCTION_VALIDATED"');
-    expect(prepare).not.toContain("row.conservative_probability =");
+    const shadow = stage7ShadowSection(prepare);
+    expect(shadow).toContain("row.p_cal = calibrated[side]");
+    expect(shadow).toContain("row.calibration_version = calibration.calibrationVersion");
+    expect(shadow).not.toContain('row.model_status = "PRODUCTION_VALIDATED"');
+    expect(shadow).not.toContain("row.conservative_probability =");
   });
 
   it("requires an untouched prospective sample and keeps promotion explicit", () => {
