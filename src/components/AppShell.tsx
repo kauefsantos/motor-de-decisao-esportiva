@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { BarChart3, Clock3, LogOut, Search, ShieldCheck } from "lucide-react";
 
+import { ModelLabNotifications } from "@/components/ModelLabNotifications";
 import { supabase } from "@/integrations/supabase/client";
 
 const STAGES = [
@@ -129,6 +130,7 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
       </header>
 
       <main id="conteudo-principal" tabIndex={-1} className="mx-auto min-w-0 max-w-[1400px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
+        {stage === "upload" && <ModelLabNotifications />}
         {children}
       </main>
 

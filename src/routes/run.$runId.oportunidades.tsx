@@ -21,6 +21,13 @@ function OpportunitiesScreen() {
           As chances já foram calculadas. Agora conferimos o preço real e mostramos somente as opções que ainda fazem sentido. Você pode escolher até 3 para esta rodada.
         </p>
 
+        <div className="mt-4 rounded-xl border border-primary/15 bg-primary/[0.04] px-4 py-3 text-sm" data-testid="experimental-fun-mode-banner">
+          <p className="font-medium text-foreground">Modo diversão · experimental ativo</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Estas sugestões usam o uncertainty-linear 40% para acompanhamento e entretenimento. A Stage 9 testa calibração em paralelo e não bloqueia esta análise. A certificação estatística e qualquer uso com stake real continuam separados.
+          </p>
+        </div>
+
         <DecisionQueueGate runId={runId} />
         <SourceAudit runId={runId} refreshKey={0} />
       </div>
