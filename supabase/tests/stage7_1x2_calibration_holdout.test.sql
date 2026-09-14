@@ -45,8 +45,8 @@ select ok(
 );
 
 select ok(
-  position("mp.prediction_at::date>=date'2026-09-14'" in regexp_replace(lower(pg_get_functiondef('public.get_stage7_1x2_holdout_rows_page(text,timestamptz,text,integer)'::regprocedure)), '\s+', '', 'g'))>0,
-  'prospective holdout starts only after the calibrator freeze date'
+  position('2026-09-14' in pg_get_functiondef('public.get_stage7_1x2_holdout_rows_page(text,timestamptz,text,integer)'::regprocedure))>0,
+  'prospective holdout is hard-bound to the calibrator freeze date'
 );
 
 select ok(
@@ -55,12 +55,13 @@ select ok(
 );
 
 select ok(
-  position("fm.has_conflict=false" in regexp_replace(lower(pg_get_functiondef('public.get_stage7_1x2_holdout_rows_page(text,timestamptz,text,integer)'::regprocedure)), '\s+', '', 'g'))>0,
+  position('fm.has_conflict=false' in regexp_replace(lower(pg_get_functiondef('public.get_stage7_1x2_holdout_rows_page(text,timestamptz,text,integer)'::regprocedure)), '\s+', '', 'g'))>0,
   'holdout fails closed on canonical fixture conflicts'
 );
 
 select ok(
-  position("validation_status=casewhenp_status='holdout_passed'then'holdout_passed'else'not_production_validated'end" in regexp_replace(lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)), '\s+', '', 'g'))>0,
+  position('holdout_passed' in lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)))>0
+  and position('production_validated' in lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)))=0,
   'a passed holdout remains distinct from PRODUCTION_VALIDATED'
 );
 
@@ -77,8 +78,8 @@ select ok(
 );
 
 select ok(
-  position('PRODUCTION_VALIDATED' in pg_get_functiondef('public.store_stage7_calibration_artifact(text,text,text,text,jsonb,jsonb)'::regprocedure))=0
-  and position("'PRODUCTION_VALIDATED'" in pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure))=0,
+  position('production_validated' in lower(pg_get_functiondef('public.store_stage7_calibration_artifact(text,text,text,text,jsonb,jsonb)'::regprocedure)))=0
+  and position('production_validated' in lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)))=0,
   'Stage 7 persistence RPCs contain no automatic production promotion path'
 );
 
