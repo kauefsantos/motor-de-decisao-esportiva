@@ -37,7 +37,7 @@ stable
 security definer
 set search_path=''
 as $$
-  select pg_catalog.coalesce(
+  select coalesce(
     (
       select c.owner_id
       from private.scheduled_analysis_config c
@@ -80,7 +80,7 @@ begin
   if p_severity not in ('INFO','SUCCESS','WARNING','ERROR') then
     raise exception 'Invalid model-lab event severity.';
   end if;
-  if pg_catalog.btrim(pg_catalog.coalesce(p_dedupe_key,''))='' then
+  if pg_catalog.btrim(coalesce(p_dedupe_key,''))='' then
     raise exception 'Model-lab event requires a dedupe key.';
   end if;
 
@@ -155,10 +155,6 @@ $$;
 revoke all on function public.mark_model_lab_events_read(uuid) from public,anon,authenticated;
 grant execute on function public.mark_model_lab_events_read(uuid) to service_role;
 
--- Turn generic Stage 9 validation-job lifecycle changes into concise user-facing
--- notifications. We intentionally do not create one event per candidate: the
--- calibration job can test dozens of candidates, while the user sees only
--- meaningful start/result/progress transitions.
 create or replace function private.notify_stage9_validation_job()
 returns trigger
 language plpgsql
@@ -194,7 +190,7 @@ begin
   end if;
 
   if tg_op='UPDATE' and new.status='DONE' and old.status is distinct from 'DONE' then
-    v_readiness:=pg_catalog.coalesce(new.report->>'readinessStatus','');
+    v_readiness:=coalesce(new.report->>'readinessStatus','');
     v_selected:=new.report#>>'{selection,selected,id}';
     if v_is_calibration then
       v_gap:=nullif(new.report#>>'{retrospective,calibratedMetrics,maxCalibrationGap}','')::numeric;
@@ -210,7 +206,7 @@ begin
           else 'Nenhum candidato desta rodada ficou apto para promoção. O modo diversão segue igual enquanto o laboratório procura uma melhora segura.'
         end,
         'stage9-job:'||new.id::text||':done',
-        new.id,pg_catalog.coalesce(v_selected,new.target_calibration_version),
+        new.id,coalesce(v_selected,new.target_calibration_version),
         pg_catalog.jsonb_build_object(
           'readinessStatus',v_readiness,
           'selectedCandidate',v_selected,
@@ -219,7 +215,7 @@ begin
         )
       );
     else
-      v_sample:=pg_catalog.coalesce(nullif(new.report#>>'{prospectiveHoldout,sampleSize}','')::integer,0);
+      v_sample:=coalesce(nullif(new.report#>>'{prospectiveHoldout,sampleSize}','')::integer,0);
       select mv.validation_status into v_validation
       from public.model_versions mv
       where mv.market_family='1X2'
@@ -254,7 +250,7 @@ begin
       'LAB_ERROR','ERROR','Stage 9 encontrou um erro técnico',
       'O laboratório não conseguiu concluir esta rodada. O erro não desativa o modo diversão; a próxima correção pode retomar os testes.',
       'stage9-job:'||new.id::text||':error',new.id,new.target_calibration_version,
-      pg_catalog.jsonb_build_object('protocolVersion',new.protocol_version,'error',pg_catalog.left(pg_catalog.coalesce(new.last_error,'Erro não informado.'),500))
+      pg_catalog.jsonb_build_object('protocolVersion',new.protocol_version,'error',pg_catalog.left(coalesce(new.last_error,'Erro não informado.'),500))
     );
   end if;
 
@@ -269,10 +265,6 @@ create trigger trg_stage9_model_lab_notifications
   after insert or update on private.model_validation_jobs
   for each row execute function private.notify_stage9_validation_job();
 
--- Daily orchestrator. It runs the expensive calibration once when no Stage 9
--- artifact exists. Once SHADOW_READY, it only refreshes the untouched holdout.
--- A rejected fixed experiment is not re-run every day because that would waste
--- compute without adding evidence; instead we record one daily status event.
 create or replace function public.kick_stage9_daily_lab()
 returns text
 language plpgsql
@@ -325,11 +317,11 @@ begin
         then 'A calibração atual foi rejeitada. Não vou repetir o mesmo teste sem informação nova; o modo diversão continua ativo enquanto uma nova hipótese é preparada.'
         else 'O último candidato não pode avançar. O modo diversão continua ativo e independente da certificação estatística.'
       end,
-      'stage9-daily:'||v_today::text||':'||pg_catalog.coalesce(v_artifact_status,'UNKNOWN'),
+      'stage9-daily:'||v_today::text||':'||coalesce(v_artifact_status,'UNKNOWN'),
       null,'stage9-ensemble-calibration-v1-fit-through-2026-05-31',
       pg_catalog.jsonb_build_object('artifactStatus',v_artifact_status,'validationStatus',v_validation_status)
     );
-    return 'LAB_WAITING_'||pg_catalog.coalesce(v_artifact_status,'UNKNOWN');
+    return 'LAB_WAITING_'||coalesce(v_artifact_status,'UNKNOWN');
   end if;
 
   if exists(
@@ -350,16 +342,14 @@ begin
   end if;
 
   return case when v_request_id is null
-    then 'JOB_ALREADY_ACTIVE:'||pg_catalog.coalesce(v_job_id::text,'unknown')
-    else 'DISPATCHED:'||pg_catalog.coalesce(v_job_id::text,'unknown') end;
+    then 'JOB_ALREADY_ACTIVE:'||coalesce(v_job_id::text,'unknown')
+    else 'DISPATCHED:'||coalesce(v_job_id::text,'unknown') end;
 end;
 $$;
 
 revoke all on function public.kick_stage9_daily_lab() from public,anon,authenticated;
 grant execute on function public.kick_stage9_daily_lab() to service_role;
 
--- Evaluate the Sao Paulo wall clock explicitly. The second slot is only a
--- delivery recovery attempt; kick_stage9_daily_lab is date-idempotent.
 do $$ begin
   if exists(select 1 from cron.job where jobname='stage9-daily-lab') then
     perform cron.unschedule('stage9-daily-lab');
@@ -375,8 +365,6 @@ select cron.schedule(
   $cron$
 );
 
--- Seed one friendly event so the new notification box has an explicit initial
--- state immediately after deployment.
 select private.emit_stage9_model_lab_event(
   'LAB_ENABLED','INFO','Stage 9 agora trabalha em paralelo',
   'O uncertainty-linear 40% continua disponível no modo diversão. A Stage 9 valida melhorias em segundo plano e avisa aqui quando houver uma mudança relevante.',
