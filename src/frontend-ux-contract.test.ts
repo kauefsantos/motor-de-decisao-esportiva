@@ -58,7 +58,8 @@ describe("frontend UX/UI clarity contract", () => {
     const flow = source("./components/DecisionQueueFlow.tsx");
     expect(route).toContain("Conferir as odds e escolher");
     expect(route).toContain("até 3 para esta rodada");
-    expect(flow).toContain("Ver opções com valor");
+    expect(flow).toContain("Odds pendentes");
+    expect(flow).toContain("Confirmar odds e recalcular");
     expect(flow).toContain("Opções com valor");
     expect(flow).toContain("Escolha até {dailyLimit} opções para esta rodada");
     expect(flow).not.toContain("AVALIAR E ABRIR FILA DE DECISÃO");
