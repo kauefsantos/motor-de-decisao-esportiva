@@ -18,22 +18,33 @@ function contrast(a: string, b: string) {
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
+function fallbackToken(styles: string, name: string) {
+  const match = styles.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
+  if (!match?.[1]) throw new Error(`Fallback hexadecimal ausente para --${name}`);
+  return match[1];
+}
+
 describe("WCAG 2.2 AA accessibility and typography contract", () => {
   it("keeps primary and destructive button text at AA contrast in fallback colors", () => {
-    expect(contrast("#8a6ef2", "#101118")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#e1645a", "#101118")).toBeGreaterThanOrEqual(4.5);
     const styles = source("./styles.css");
-    expect(styles).toContain("--primary-foreground: #101118");
-    expect(styles).toContain("--destructive-foreground: #101118");
-    expect(styles).toContain("--primary-foreground: oklch(0.14 0.018 272)");
-    expect(styles).toContain("--destructive-foreground: oklch(0.14 0.018 272)");
+    const primary = fallbackToken(styles, "primary");
+    const primaryForeground = fallbackToken(styles, "primary-foreground");
+    const destructive = fallbackToken(styles, "destructive");
+    const destructiveForeground = fallbackToken(styles, "destructive-foreground");
+
+    expect(contrast(primary, primaryForeground)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(destructive, destructiveForeground)).toBeGreaterThanOrEqual(4.5);
+    expect(styles).toContain("--primary-foreground: oklch(");
+    expect(styles).toContain("--destructive-foreground: oklch(");
   });
 
   it("keeps unfocused input boundaries above the non-text contrast floor", () => {
-    expect(contrast("#70768f", "#202230")).toBeGreaterThanOrEqual(3);
     const styles = source("./styles.css");
-    expect(styles).toContain("--input: #70768f");
-    expect(styles).toContain("--input: oklch(0.55 0.035 273)");
+    const input = fallbackToken(styles, "input");
+    const surface = fallbackToken(styles, "surface");
+
+    expect(contrast(input, surface)).toBeGreaterThanOrEqual(3);
+    expect(styles).toContain("--input: oklch(");
   });
 
   it("associates validation errors with the affected fields and focuses remaining errors", () => {
