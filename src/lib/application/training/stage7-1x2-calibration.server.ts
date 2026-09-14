@@ -1,4 +1,5 @@
 import { adminDb } from "../../admin-db";
+import { isOneXTwoIsotonicParameters } from "../../engine/multiclass-isotonic-calibration";
 import { callRuntimeRpc, type RuntimeRpcResult } from "../../repositories/runtime-rpc.server";
 import { loadStage6GoalsValidationRows } from "./goals-validation.server";
 import {
@@ -69,7 +70,7 @@ export async function runStage7CalibrationValidation() {
   return report;
 }
 
-async function loadStage7HoldoutRows(): Promise<Stage7HoldoutFixture[]> {
+export async function loadStage7HoldoutRows(calibrationVersion = STAGE7_1X2_CALIBRATION_VERSION): Promise<Stage7HoldoutFixture[]> {
   const db = await adminDb();
   const rawRows: RawHoldoutRow[] = [];
   let afterPredictionAt: string | null = null;
@@ -80,7 +81,7 @@ async function loadStage7HoldoutRows(): Promise<Stage7HoldoutFixture[]> {
       db,
       "get_stage7_1x2_holdout_rows_page",
       {
-        p_calibration_version: STAGE7_1X2_CALIBRATION_VERSION,
+        p_calibration_version: calibrationVersion,
         p_after_prediction_at: afterPredictionAt,
         p_after_prediction_id: afterPredictionId,
         p_limit: PAGE_SIZE,
@@ -160,17 +161,29 @@ export async function loadStage7ActiveCalibration() {
   if (response.error) throw new Error(response.error.message);
   const row = response.data?.[0];
   if (!row) return null;
-  const parameters = row.parameters as { temperature?: unknown } | null;
-  const temperature = Number(parameters?.temperature);
-  if (!Number.isFinite(temperature) || temperature <= 0) return null;
-  return {
-    marketFamily: "1X2" as const,
-    modelVersion: STAGE7_1X2_TARGET_MODEL,
-    calibrationVersion: row.calibration_version,
-    method: "temperature_scaling" as const,
-    temperature,
-    status: row.status,
-  };
+
+  const temperature = Number((row.parameters as { temperature?: unknown } | null)?.temperature);
+  if (Number.isFinite(temperature) && temperature > 0) {
+    return {
+      marketFamily: "1X2" as const,
+      modelVersion: STAGE7_1X2_TARGET_MODEL,
+      calibrationVersion: row.calibration_version,
+      method: "temperature_scaling" as const,
+      temperature,
+      status: row.status,
+    };
+  }
+  if (isOneXTwoIsotonicParameters(row.parameters)) {
+    return {
+      marketFamily: "1X2" as const,
+      modelVersion: STAGE7_1X2_TARGET_MODEL,
+      calibrationVersion: row.calibration_version,
+      method: "classwise_isotonic_blend" as const,
+      parameters: row.parameters,
+      status: row.status,
+    };
+  }
+  return null;
 }
 
 export async function runStage7HoldoutValidation() {
