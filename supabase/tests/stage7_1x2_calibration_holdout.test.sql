@@ -61,7 +61,7 @@ select ok(
 
 select ok(
   position('holdout_passed' in lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)))>0
-  and position('production_validated' in lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)))=0,
+  and position('validation_status=''production_validated''' in regexp_replace(lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)), '\s+', '', 'g'))=0,
   'a passed holdout remains distinct from PRODUCTION_VALIDATED'
 );
 
@@ -78,8 +78,8 @@ select ok(
 );
 
 select ok(
-  position('production_validated' in lower(pg_get_functiondef('public.store_stage7_calibration_artifact(text,text,text,text,jsonb,jsonb)'::regprocedure)))=0
-  and position('production_validated' in lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)))=0,
+  position('validation_status=''production_validated''' in regexp_replace(lower(pg_get_functiondef('public.store_stage7_calibration_artifact(text,text,text,text,jsonb,jsonb)'::regprocedure)), '\s+', '', 'g'))=0
+  and position('validation_status=''production_validated''' in regexp_replace(lower(pg_get_functiondef('public.update_stage7_holdout_artifact(text,text,text,text,jsonb)'::regprocedure)), '\s+', '', 'g'))=0,
   'Stage 7 persistence RPCs contain no automatic production promotion path'
 );
 
