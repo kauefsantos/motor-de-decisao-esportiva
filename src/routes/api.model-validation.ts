@@ -3,6 +3,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { runStage4CornersValidation } from "@/lib/application/training/corners-validation.server";
 import { runStage6GoalsValidation } from "@/lib/application/training/goals-validation.server";
 import { STAGE6_GOALS_PROTOCOL } from "@/lib/application/training/goals-walk-forward";
+import {
+  runStage7CalibrationValidation,
+  runStage7HoldoutValidation,
+} from "@/lib/application/training/stage7-1x2-calibration.server";
+import {
+  STAGE7_1X2_CALIBRATION_PROTOCOL,
+  STAGE7_1X2_HOLDOUT_PROTOCOL,
+} from "@/lib/application/training/stage7-1x2-calibration";
 import { createFixedWindowRequestLimiter, readBoundedJsonObject } from "@/lib/analysis-worker-security";
 import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
 import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
@@ -52,6 +60,39 @@ async function executeValidation(claim: ClaimRow): Promise<{ report: Record<stri
         readinessStatus: report.readinessStatus,
         eligiblePredictions: report.eligiblePredictions,
         details: { marketFamily: report.marketFamily },
+      },
+    };
+  }
+  if (protocol === STAGE7_1X2_CALIBRATION_PROTOCOL) {
+    const report = await runStage7CalibrationValidation();
+    const eligiblePredictions = (report.calibrationFit?.sampleSize ?? 0) + (report.retrospective?.sampleSize ?? 0);
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions,
+        details: {
+          marketFamily: report.marketFamily,
+          calibrationVersion: report.calibrationVersion,
+          prospectiveHoldoutStart: report.prospectiveHoldout.startsAt,
+        },
+      },
+    };
+  }
+  if (protocol === STAGE7_1X2_HOLDOUT_PROTOCOL) {
+    const report = await runStage7HoldoutValidation();
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions: report.prospectiveHoldout.sampleSize,
+        details: {
+          marketFamily: report.marketFamily,
+          calibrationVersion: report.calibrationVersion,
+          requiredFixtures: report.prospectiveHoldout.requiredFixtures,
+        },
       },
     };
   }
