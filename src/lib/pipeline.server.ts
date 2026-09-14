@@ -1,9 +1,10 @@
-// Pipeline único: CSV -> resolução -> coleta -> limpeza -> features -> modelo -> mercados.
+// Pipeline único: CSV -> resolução -> coleta -> limpeza -> features -> modelo -> mercados -> odds.
 // Provedores suportados: 5DollarFootballAPI (padrão) e API-Football/API-Sports.
 
 import { adminDb } from "./admin-db";
 import { prepareExperimentalPredictionsForRun } from "./application/experimental-markets/prepare-run.server";
 import { EXPERIMENTAL_MARKETS_STATUS } from "./application/experimental-markets/contracts";
+import { collectAutomaticBet365OddsForRun } from "./auto-bet365-odds.service.server";
 import { MIN_MODEL_PROBABILITY, percentageLabel } from "./engine/decision-rules";
 import { buildContracts } from "./engine/markets";
 import { evaluateContract, type MatchContext, type ModelRegistryEntry } from "./engine/opportunity";
@@ -52,6 +53,7 @@ export async function executeStep(runId: string, step: PipelineStepKey) {
     case "PROBABILITY": return probability(db, runId);
     case "GATES": return gates(db, runId);
     case "MARKETS": return markets(db, runId);
+    case "ODDS": return odds(db, runId);
   }
 }
 
@@ -232,10 +234,10 @@ async function markets(db: Db, runId: string) {
     .eq("run_id", runId)
     .eq("model_status", EXPERIMENTAL_MARKETS_STATUS);
   if (predictionCountError) {
-    throw new Error(`Falha ao validar previsões persistidas antes de READY_FOR_ODDS: ${predictionCountError.message}`);
+    throw new Error(`Falha ao validar previsões persistidas antes da cotação: ${predictionCountError.message}`);
   }
   if (!preparedPredictionCount) {
-    throw new Error("READY_FOR_ODDS bloqueado: nenhuma previsão persistida para a análise.");
+    throw new Error("Cotação bloqueada: nenhuma previsão persistida para a análise.");
   }
 
   const predictionAt = await runPredictionAt(db, runId);
@@ -324,7 +326,7 @@ async function markets(db: Db, runId: string) {
   await db.from("analysis_runs").update({
     candidates_published: published,
     candidates_blocked: blocked,
-    status: "READY_FOR_ODDS",
+    status: "RUNNING",
     current_step: "MARKETS",
     updated_at: new Date().toISOString(),
   }).eq("id", runId);
@@ -332,9 +334,47 @@ async function markets(db: Db, runId: string) {
     db,
     runId,
     "MARKETS",
-    `${published} contratos de produção publicados, ${blocked} bloqueados; ${preparedPredictionCount} previsões experimentais já persistidas para conferência de odds.`,
+    `${published} contratos de produção publicados, ${blocked} bloqueados; ${preparedPredictionCount} previsões experimentais persistidas e prontas para cotação automática.`,
     published ? "INFO" : "WARN",
     { provider: activeFootballProvider(), preparedPredictionCount },
   );
   return { published, blocked, preparedPredictionCount, provider: activeFootballProvider() };
+}
+
+async function odds(db: Db, runId: string) {
+  const collected = await collectAutomaticBet365OddsForRun(db, runId);
+  await db.from("analysis_runs").update({
+    status: "READY_FOR_ODDS",
+    current_step: "ODDS",
+    updated_at: new Date().toISOString(),
+  }).eq("id", runId);
+
+  await log(
+    db,
+    runId,
+    "ODDS",
+    collected.manualFieldCount > 0
+      ? `${collected.matched} odds Bet365 encontradas automaticamente; ${collected.manualFieldCount} cotação(ões) aguardam conferência manual.`
+      : `${collected.matched} odds Bet365 encontradas automaticamente; nenhuma cotação manual pendente.`,
+    collected.sourceUnavailable > 0 ? "WARN" : "INFO",
+    {
+      matched: collected.matched,
+      manualFieldCount: collected.manualFieldCount,
+      lineMismatch: collected.lineMismatch,
+      unsupported: collected.unsupported,
+      noPrice: collected.noPrice,
+      sourceUnavailable: collected.sourceUnavailable,
+      fixturesRequested: collected.fixturesRequested,
+      dayPagesRequested: collected.dayPagesRequested,
+    },
+  );
+
+  return {
+    matched: collected.matched,
+    manualFieldCount: collected.manualFieldCount,
+    lineMismatch: collected.lineMismatch,
+    unsupported: collected.unsupported,
+    noPrice: collected.noPrice,
+    sourceUnavailable: collected.sourceUnavailable,
+  };
 }
