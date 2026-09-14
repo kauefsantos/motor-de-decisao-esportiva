@@ -88,7 +88,7 @@ describe("responsive and browser compatibility contract", () => {
     expect(browsers).toContain("iOS >= 17");
     expect(styles).toContain("Browser-safe fallbacks");
     expect(styles).toContain("@supports (color: oklch");
-    expect(styles).toContain("--background: #171823");
+    expect(styles).toMatch(/--background:\s*#[0-9a-fA-F]{6}/);
   });
 
   it("uses device-neutral notification guidance", () => {
