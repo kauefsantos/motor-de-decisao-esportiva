@@ -5,6 +5,14 @@ function source(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
+function stage7ShadowSection(prepare: string) {
+  const start = prepare.indexOf("async function applyStage7ShadowCalibration");
+  const end = prepare.indexOf("async function applyStage9GovernedCalibration");
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return prepare.slice(start, end);
+}
+
 describe("Stage 7B robust calibration governance contract", () => {
   it("keeps internal model selection separate from the untouched retrospective window", () => {
     const stage7b = source("./lib/application/training/stage7b-1x2-calibration.ts");
@@ -32,11 +40,12 @@ describe("Stage 7B robust calibration governance contract", () => {
   it("keeps Stage 7B shadow-only and requires 200 untouched future fixtures", () => {
     const stage7b = source("./lib/application/training/stage7b-1x2-calibration.ts");
     const prepare = source("./lib/application/experimental-markets/prepare-run.server.ts");
+    const shadow = stage7ShadowSection(prepare);
     const migration = source("../supabase/migrations/20260914113000_stage7b_1x2_robust_calibration.sql");
     expect(stage7b).toContain("STAGE7B_MIN_PROSPECTIVE_HOLDOUT_SAMPLE = 200");
     expect(stage7b).toContain("productionValidated: false");
-    expect(prepare).toContain("conservative_probability");
-    expect(prepare).not.toContain('row.model_status = "PRODUCTION_VALIDATED"');
+    expect(shadow).not.toContain('row.model_status = "PRODUCTION_VALIDATED"');
+    expect(shadow).not.toContain("row.conservative_probability =");
     expect(migration).not.toContain("validation_status='PRODUCTION_VALIDATED'");
   });
 });

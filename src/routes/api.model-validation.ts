@@ -29,6 +29,14 @@ import {
 } from "@/lib/application/training/stage7c-1x2-calibration";
 import { runStage8OneXTwoErrorAuditValidation } from "@/lib/application/training/stage8-1x2-error-audit.server";
 import { STAGE8_1X2_ERROR_AUDIT_PROTOCOL } from "@/lib/application/training/stage8-1x2-error-audit";
+import {
+  runStage9CalibrationValidation,
+  runStage9HoldoutValidation,
+} from "@/lib/application/training/stage9-1x2-ensemble-calibration.server";
+import {
+  STAGE9_1X2_CALIBRATION_PROTOCOL,
+  STAGE9_1X2_HOLDOUT_PROTOCOL,
+} from "@/lib/application/training/stage9-1x2-ensemble-calibration";
 import { createFixedWindowRequestLimiter, readBoundedJsonObject } from "@/lib/analysis-worker-security";
 import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
 import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
@@ -192,6 +200,41 @@ async function executeValidation(claim: ClaimRow): Promise<{ report: Record<stri
           marketFamily: report.marketFamily,
           auditVersion: report.auditVersion,
           promotionAttempted: false,
+        },
+      },
+    };
+  }
+  if (protocol === STAGE9_1X2_CALIBRATION_PROTOCOL) {
+    const report = await runStage9CalibrationValidation();
+    const eligiblePredictions = (report.calibrationFit?.sampleSize ?? 0) + (report.retrospective?.sampleSize ?? 0);
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions,
+        details: {
+          marketFamily: report.marketFamily,
+          calibrationVersion: report.calibrationVersion,
+          prospectiveHoldoutStart: report.prospectiveHoldout.startsAt,
+          productionValidated: false,
+        },
+      },
+    };
+  }
+  if (protocol === STAGE9_1X2_HOLDOUT_PROTOCOL) {
+    const report = await runStage9HoldoutValidation();
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions: report.prospectiveHoldout.sampleSize,
+        details: {
+          marketFamily: report.marketFamily,
+          calibrationVersion: report.calibrationVersion,
+          requiredFixtures: report.prospectiveHoldout.requiredFixtures,
+          productionValidated: report.promotion.productionValidated,
         },
       },
     };

@@ -14,8 +14,9 @@ describe("Stage 3 D+2 background inference", () => {
     expect(service).toContain("buildExperimentalPredictions");
     expect(service).toContain("insertExperimentalPredictions");
     expect(service).toContain("clearExperimentalPredictions");
-    expect(service).toContain("EXPERIMENTAL_CURRENT_SEASON");
-    expect(service).toContain("MODEL_NOT_PRODUCTION_VALIDATED");
+    expect(service).toContain("EXPERIMENTAL_MARKETS_STATUS");
+    expect(service).toContain("PRODUCTION_STATUS");
+    expect(service).toContain("applyStage9GovernedCalibration");
 
     expect(wrapper).toContain("prepareExperimentalPredictionsForRun(db, data.runId)");
     expect(wrapper).not.toContain("buildExperimentalPredictions({");

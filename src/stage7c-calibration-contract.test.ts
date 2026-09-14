@@ -5,6 +5,14 @@ function source(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
+function stage7ShadowSection(prepare: string) {
+  const start = prepare.indexOf("async function applyStage7ShadowCalibration");
+  const end = prepare.indexOf("async function applyStage9GovernedCalibration");
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return prepare.slice(start, end);
+}
+
 describe("Stage 7C joint calibration production-safety contract", () => {
   it("selects vector/Dirichlet only on the internal window and leaves the retrospective window untouched", () => {
     const stage7c = source("./lib/application/training/stage7c-1x2-calibration.ts");
@@ -19,12 +27,13 @@ describe("Stage 7C joint calibration production-safety contract", () => {
   it("keeps joint calibration shadow-only and requires a 200-fixture prospective holdout", () => {
     const stage7c = source("./lib/application/training/stage7c-1x2-calibration.ts");
     const prepare = source("./lib/application/experimental-markets/prepare-run.server.ts");
+    const shadow = stage7ShadowSection(prepare);
     expect(stage7c).toContain("STAGE7C_MIN_PROSPECTIVE_HOLDOUT_SAMPLE = 200");
     expect(stage7c).toContain("productionValidated: false");
-    expect(prepare).toContain('calibration.method === "classwise_isotonic_blend"');
-    expect(prepare).toContain("applyOneXTwoJointCalibration");
-    expect(prepare).not.toContain('row.model_status = "PRODUCTION_VALIDATED"');
-    expect(prepare).not.toContain("row.conservative_probability =");
+    expect(shadow).toContain('calibration.method === "classwise_isotonic_blend"');
+    expect(shadow).toContain("applyOneXTwoJointCalibration");
+    expect(shadow).not.toContain('row.model_status = "PRODUCTION_VALIDATED"');
+    expect(shadow).not.toContain("row.conservative_probability =");
   });
 
   it("contains no automatic production promotion path in Lovable Cloud persistence", () => {
