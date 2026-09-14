@@ -30,7 +30,8 @@ const DONE_MESSAGE: Record<PipelineStepKey, string> = {
   FEATURES: "Resumo preparado.",
   PROBABILITY: "Chances calculadas.",
   GATES: "Opções filtradas.",
-  MARKETS: "Lista pronta.",
+  MARKETS: "Mercados elegíveis preparados.",
+  ODDS: "Odds automáticas conferidas e pendências separadas.",
 };
 
 function dateLabel(iso: string | null | undefined) {

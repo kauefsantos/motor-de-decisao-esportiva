@@ -20,6 +20,7 @@ import {
 } from "@/lib/application/decision-queue/view-model";
 import { collectAutomaticBet365Odds } from "@/lib/auto-bet365-odds.functions";
 import { buildDecisionOpportunityQueue, getDecisionQueueHistory } from "@/lib/decision-queue.functions";
+import { buildConfirmedQuoteEntries } from "@/lib/engine/quote-confirmation";
 import { prepareExperimentalMarketsRun } from "@/lib/experimental-markets-run.functions";
 
 type AutoQuote = {
@@ -58,6 +59,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
   const loadHistory = useServerFn(getDecisionQueueHistory);
 
   const [odds, setOdds] = useState<Record<string, string>>({});
+  const [manualEditedIds, setManualEditedIds] = useState<Set<string>>(() => new Set());
   const [autoQuotes, setAutoQuotes] = useState<Record<string, AutoQuote>>({});
   const [manualBatches, setManualBatches] = useState<string[][]>([]);
   const [visibleBatchCount, setVisibleBatchCount] = useState(1);
@@ -92,6 +94,7 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
   useEffect(() => {
     setOdds({});
+    setManualEditedIds(new Set());
     setAutoQuotes({});
     setManualBatches([]);
     setVisibleBatchCount(1);
@@ -148,31 +151,45 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
   const canFinalize = !history?.selectionFinalized && acceptedCount > 0 && (acceptedCount >= dailyLimit || exhausted);
 
   async function createDecisionQueue() {
-    const entries = eligible
-      .map((candidate) => ({
-        predictionId: candidate.predictionId,
-        odd: Number((odds[candidate.predictionId] ?? "").replace(",", ".")),
-        lineAtEntry: candidate.lineCanonical,
-      }))
-      .filter((entry) => Number.isFinite(entry.odd) && entry.odd > 1);
-
-    if (entries.length === 0) {
-      toast.error("Nenhuma odd válida está disponível para avaliar. Preencha ao menos uma odd para continuar.");
-      return;
-    }
-
     setBuilding(true);
     try {
+      const refreshed = await collectAutoOdds({ data: { runId } });
+      const refreshedByPrediction: Record<string, AutoQuote> = {};
+      const freshAutomaticValues: Record<string, string> = {};
+      for (const quote of refreshed.quotes) {
+        refreshedByPrediction[quote.predictionId] = quote as AutoQuote;
+        if (quote.status === "MATCHED" && quote.odd !== null && quote.odd > 1) {
+          freshAutomaticValues[quote.predictionId] = String(quote.odd);
+        }
+      }
+
+      const manualValues = Object.fromEntries(
+        [...manualEditedIds]
+          .map((predictionId) => [predictionId, odds[predictionId]] as const)
+          .filter((entry): entry is readonly [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0),
+      );
+      const entries = buildConfirmedQuoteEntries(eligible, refreshed.quotes as AutoQuote[], manualValues);
+
+      setAutoQuotes(refreshedByPrediction);
+      setManualBatches(refreshed.manualBatches ?? []);
+      setVisibleBatchCount((count) => Math.max(1, Math.min(count, Math.max(1, refreshed.manualBatches?.length ?? 1))));
+      setOdds({ ...manualValues, ...freshAutomaticValues });
+
+      if (entries.length === 0) {
+        toast.error("Depois de atualizar a Bet365, nenhuma odd válida ficou disponível para avaliar. Confira as pendências manuais.");
+        return;
+      }
+
       const result = await buildQueue({ data: { runId, entries } });
       setEmptyQueueMessage(result.data.totalQualified === 0 ? result.data.message : null);
       await historyQuery.refetch();
       toast.success(
         result.data.totalQualified === 0
-          ? "Avaliação concluída: nenhuma opção passou por todos os critérios."
-          : `${result.data.totalQualified} opção${result.data.totalQualified === 1 ? "" : "ões"} com valor encontrada${result.data.totalQualified === 1 ? "" : "s"}.`,
+          ? "Odds atualizadas e avaliação concluída: nenhuma opção passou por todos os critérios."
+          : `Odds atualizadas: ${result.data.totalQualified} opção${result.data.totalQualified === 1 ? "" : "ões"} com valor encontrada${result.data.totalQualified === 1 ? "" : "s"}.`,
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível avaliar as odds. Nada foi alterado.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar as odds e recalcular a análise. Nada foi alterado.");
     } finally {
       setBuilding(false);
     }
@@ -294,11 +311,11 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
       <div className="border-b border-border p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="label-eyebrow">Conferir preços</p>
+            <p className="label-eyebrow">Odds pendentes</p>
             <h2 className="mt-1 text-lg font-semibold">Conferir as odds reais</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Buscamos a Bet365 automaticamente quando há um preço compatível. Mercados que a API não expõe diretamente — como dupla chance e alguns totais por equipe — continuam disponíveis para você informar a odd manualmente.</p>
+            <p className="mt-1 text-xs text-muted-foreground">A análise automática já filtra as chances fortes e tenta cotar a Bet365. Complete somente os contratos que a API não conseguiu precificar. Ao confirmar, as odds automáticas são consultadas novamente antes do cálculo final.</p>
           </div>
-          {autoLoading && <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite"><Loader2 className="size-3.5 animate-spin" aria-hidden /> Buscando odds</span>}
+          {autoLoading && <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite"><Loader2 className="size-3.5 animate-spin" aria-hidden /> Atualizando odds</span>}
         </div>
       </div>
 
@@ -352,7 +369,11 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
                           placeholder="Ex.: 1,85"
                           aria-describedby={guidance ? guidanceId : undefined}
                           value={odds[candidate.predictionId] ?? ""}
-                          onChange={(event) => setOdds((current) => ({ ...current, [candidate.predictionId]: event.target.value }))}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setOdds((current) => ({ ...current, [candidate.predictionId]: value }));
+                            setManualEditedIds((current) => new Set(current).add(candidate.predictionId));
+                          }}
                           className="num mt-1 w-28"
                         />
                       </label>
@@ -366,14 +387,14 @@ export function DecisionQueueFlow({ runId }: { runId: string }) {
 
           <div className="border-t border-border p-4 sm:p-5">
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="min-h-12" disabled={building} onClick={() => void createDecisionQueue()}>{building ? "Avaliando…" : "Ver opções com valor"}</Button>
+              <Button className="min-h-12" disabled={building} onClick={() => void createDecisionQueue()}>{building ? "Atualizando odds e recalculando…" : "Confirmar odds e recalcular"}</Button>
               {remainingManual > 0 && <Button variant="outline" className="min-h-12" onClick={() => setVisibleBatchCount((count) => Math.min(manualBatches.length, count + 1))}>Mostrar mais odds manuais ({remainingManual})</Button>}
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">Pode haver menos de 10 opções ou nenhuma. Só avançam as que passam por todos os critérios da análise.</p>
+            <p className="mt-2 text-xs text-muted-foreground">As probabilidades permanecem congeladas no momento da análise. A confirmação atualiza apenas os preços automáticos e recalcula odd mínima, EV, vantagem e portfólio final.</p>
           </div>
 
-          <CollapsiblePanel className="mx-4 mb-4 bg-transparent shadow-none sm:mx-5 sm:mb-5" title="Detalhes técnicos desta etapa" description="Cache, limites de consulta e critérios de proteção">
-            <p className="text-xs leading-relaxed text-muted-foreground">As consultas externas, cache, limites compartilhados e novas tentativas são controlados no processamento central. Quando a API não possui o contrato ou a linha exata, a odd pode ser informada manualmente, mas continua sendo avaliada pelo mesmo motor de valor e pelas mesmas travas. Recarregar a página não deve repetir uma avaliação já salva.</p>
+          <CollapsiblePanel className="mx-4 mb-4 bg-transparent shadow-none sm:mx-5 sm:mb-5" title="Detalhes técnicos desta etapa" description="Previsão congelada, refresh de odds e critérios de proteção">
+            <p className="text-xs leading-relaxed text-muted-foreground">As probabilidades não são refeitas ao confirmar. O sistema consulta novamente as cotações automáticas da Bet365, substitui preços automáticos antigos, preserva somente as odds manuais que você realmente digitou e então aplica novamente as travas de odd, EV, vantagem, correlação e limite de escolhas. Se a API não possuir o contrato ou a linha exata, a entrada manual continua disponível.</p>
           </CollapsiblePanel>
         </>
       )}

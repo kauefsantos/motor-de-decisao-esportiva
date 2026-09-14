@@ -29,9 +29,9 @@ describe("Stage 3 D+2 background inference", () => {
     expect(pipeline).toContain("Nenhuma previsão pôde ser preparada com segurança");
     expect(pipeline).toContain('.from("model_predictions")');
     expect(pipeline).toContain('.eq("model_status", EXPERIMENTAL_MARKETS_STATUS)');
-    expect(pipeline).toContain("READY_FOR_ODDS bloqueado: nenhuma previsão persistida");
+    expect(pipeline).toContain("Cotação bloqueada: nenhuma previsão persistida para a análise.");
 
-    const guard = pipeline.indexOf("READY_FOR_ODDS bloqueado: nenhuma previsão persistida");
+    const guard = pipeline.indexOf("Cotação bloqueada: nenhuma previsão persistida para a análise.");
     const ready = pipeline.indexOf('status: "READY_FOR_ODDS"');
     expect(guard).toBeGreaterThan(-1);
     expect(ready).toBeGreaterThan(guard);

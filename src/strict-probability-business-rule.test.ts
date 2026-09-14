@@ -21,7 +21,7 @@ describe("market qualification business rule", () => {
   });
 
   it("does not request Bet365 prices for experimental rows below the confidence gate", () => {
-    const automaticOdds = source("./lib/auto-bet365-odds.functions.ts");
+    const automaticOdds = source("./lib/auto-bet365-odds.service.server.ts");
     expect(automaticOdds).toContain("passesExperimentalModelGate(Number(row.model_probability))");
   });
 
