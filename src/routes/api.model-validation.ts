@@ -11,6 +11,14 @@ import {
   STAGE7_1X2_CALIBRATION_PROTOCOL,
   STAGE7_1X2_HOLDOUT_PROTOCOL,
 } from "@/lib/application/training/stage7-1x2-calibration";
+import {
+  runStage7BCalibrationValidation,
+  runStage7BHoldoutValidation,
+} from "@/lib/application/training/stage7b-1x2-calibration.server";
+import {
+  STAGE7B_1X2_CALIBRATION_PROTOCOL,
+  STAGE7B_1X2_HOLDOUT_PROTOCOL,
+} from "@/lib/application/training/stage7b-1x2-calibration";
 import { createFixedWindowRequestLimiter, readBoundedJsonObject } from "@/lib/analysis-worker-security";
 import { backendErrorResponse, backendJson, backendRequestId } from "@/lib/backend-contract";
 import { callAdminRuntimeRpc } from "@/lib/repositories/runtime-rpc.server";
@@ -82,6 +90,39 @@ async function executeValidation(claim: ClaimRow): Promise<{ report: Record<stri
   }
   if (protocol === STAGE7_1X2_HOLDOUT_PROTOCOL) {
     const report = await runStage7HoldoutValidation();
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions: report.prospectiveHoldout.sampleSize,
+        details: {
+          marketFamily: report.marketFamily,
+          calibrationVersion: report.calibrationVersion,
+          requiredFixtures: report.prospectiveHoldout.requiredFixtures,
+        },
+      },
+    };
+  }
+  if (protocol === STAGE7B_1X2_CALIBRATION_PROTOCOL) {
+    const report = await runStage7BCalibrationValidation();
+    const eligiblePredictions = (report.calibrationFit?.sampleSize ?? 0) + (report.retrospective?.sampleSize ?? 0);
+    return {
+      report: report as unknown as Record<string, unknown>,
+      summary: {
+        targetArtifact: report.targetArtifact,
+        readinessStatus: report.readinessStatus,
+        eligiblePredictions,
+        details: {
+          marketFamily: report.marketFamily,
+          calibrationVersion: report.calibrationVersion,
+          prospectiveHoldoutStart: report.prospectiveHoldout.startsAt,
+        },
+      },
+    };
+  }
+  if (protocol === STAGE7B_1X2_HOLDOUT_PROTOCOL) {
+    const report = await runStage7BHoldoutValidation();
     return {
       report: report as unknown as Record<string, unknown>,
       summary: {
