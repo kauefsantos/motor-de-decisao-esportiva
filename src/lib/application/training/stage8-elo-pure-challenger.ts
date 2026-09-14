@@ -21,7 +21,7 @@ export const STAGE8_ELO_PURE0_ARTIFACT = "stage8-elo-pure0-davidson-v1";
 
 const DAVIDSON_MIN_NU = 1e-4;
 const DAVIDSON_MAX_NU = 4;
-const DAVIDSON_BISECTION_STEPS = 60;
+const DAVIDSON_BISECTION_STEPS = 32;
 
 type TemporalGoalRow = Stage6GoalRow & { kickoffAt: number };
 type IncumbentPrediction = ReturnType<typeof buildStage6GoalsPredictions>[number];
@@ -29,6 +29,12 @@ type IncumbentPrediction = ReturnType<typeof buildStage6GoalsPredictions>[number
 type RatingBefore = {
   homeRating: number;
   awayRating: number;
+};
+
+type DavidsonObservation = {
+  homeStrength: number;
+  drawBase: number;
+  isDraw: boolean;
 };
 
 export type Stage8PureEloPrediction = {
@@ -58,6 +64,10 @@ function fixtureKey(row: Pick<Stage6GoalRow, "league" | "fixtureId">): string {
   return `${row.league}::${row.fixtureId}`;
 }
 
+function trainingKey(row: Pick<Stage6GoalRow, "league" | "date">): string {
+  return `${row.league}::${row.date}`;
+}
+
 function outcomeFor(row: Stage6GoalRow): MulticlassLabel {
   if (row.homeGoals > row.awayGoals) return "HOME";
   if (row.homeGoals === row.awayGoals) return "DRAW";
@@ -71,11 +81,19 @@ function domesticRows(sourceRows: readonly Stage6GoalRow[]): TemporalGoalRow[] {
     .sort((a, b) => a.date.localeCompare(b.date) || a.fixtureId.localeCompare(b.fixtureId));
 }
 
+function rowsByLeague(rows: readonly TemporalGoalRow[]): Map<string, TemporalGoalRow[]> {
+  const grouped = new Map<string, TemporalGoalRow[]>();
+  for (const row of rows) {
+    const bucket = grouped.get(row.league);
+    if (bucket) bucket.push(row);
+    else grouped.set(row.league, [row]);
+  }
+  return grouped;
+}
+
 /**
  * Replays Elo chronologically with a fixed home advantage while preserving the
- * same conservative calendar-day snapshot rule used by the Stage 8 challengers.
- * The replay uses only W/D/L information through updateElo; goal-model lambdas
- * and Poisson probabilities are never used by this challenger.
+ * conservative calendar-day snapshot rule used by the Stage 8 challengers.
  */
 export function buildStage8PureEloRatingsBefore(
   sourceRows: readonly Stage6GoalRow[],
@@ -137,11 +155,6 @@ function davidsonTerms(homeRating: number, awayRating: number, homeAdvantage: nu
   return { homeStrength, drawBase };
 }
 
-/**
- * Converts Elo strengths into proper 1X2 probabilities with Davidson's draw
- * term. Conditional on a decisive result, HOME/AWAY odds remain exactly the Elo
- * odds. nu controls only the draw mass.
- */
 export function davidsonEloProbabilities(
   homeRating: number,
   awayRating: number,
@@ -159,17 +172,13 @@ export function davidsonEloProbabilities(
   };
 }
 
-function davidsonDerivative(
-  nu: number,
-  training: readonly TemporalGoalRow[],
+function buildDavidsonObservationMap(
+  rows: readonly TemporalGoalRow[],
   ratingsBefore: ReadonlyMap<string, RatingBefore>,
   homeAdvantage: number,
-): number {
-  let draws = 0;
-  let denominatorTerm = 0;
-  let eligible = 0;
-
-  for (const row of training) {
+): Map<string, DavidsonObservation> {
+  const observations = new Map<string, DavidsonObservation>();
+  for (const row of rows) {
     const before = ratingsBefore.get(fixtureKey(row));
     if (!before) continue;
     const { homeStrength, drawBase } = davidsonTerms(
@@ -177,8 +186,30 @@ function davidsonDerivative(
       before.awayRating,
       homeAdvantage,
     );
-    if (row.homeGoals === row.awayGoals) draws += 1;
-    denominatorTerm += drawBase / (homeStrength + 1 + nu * drawBase);
+    observations.set(fixtureKey(row), {
+      homeStrength,
+      drawBase,
+      isDraw: row.homeGoals === row.awayGoals,
+    });
+  }
+  return observations;
+}
+
+function davidsonDerivative(
+  nu: number,
+  training: readonly TemporalGoalRow[],
+  observations: ReadonlyMap<string, DavidsonObservation>,
+): number {
+  let draws = 0;
+  let denominatorTerm = 0;
+  let eligible = 0;
+
+  for (const row of training) {
+    const observation = observations.get(fixtureKey(row));
+    if (!observation) continue;
+    if (observation.isDraw) draws += 1;
+    denominatorTerm += observation.drawBase
+      / (observation.homeStrength + 1 + nu * observation.drawBase);
     eligible += 1;
   }
 
@@ -186,28 +217,22 @@ function davidsonDerivative(
   return draws / nu - denominatorTerm;
 }
 
-/**
- * Fits only Davidson's scalar draw coefficient on prior league fixtures by
- * maximum likelihood. The fit is point-in-time: every row uses its rating as it
- * stood before that fixture, and the target fixture is never part of training.
- */
-export function fitDavidsonDrawCoefficient(
+function fitDavidsonDrawCoefficient(
   training: readonly TemporalGoalRow[],
-  ratingsBefore: ReadonlyMap<string, RatingBefore>,
-  homeAdvantage: number,
+  observations: ReadonlyMap<string, DavidsonObservation>,
 ): number {
   if (training.length === 0) return DAVIDSON_MIN_NU;
 
   let low = DAVIDSON_MIN_NU;
   let high = DAVIDSON_MAX_NU;
-  const lowDerivative = davidsonDerivative(low, training, ratingsBefore, homeAdvantage);
+  const lowDerivative = davidsonDerivative(low, training, observations);
   if (lowDerivative <= 0) return low;
-  const highDerivative = davidsonDerivative(high, training, ratingsBefore, homeAdvantage);
+  const highDerivative = davidsonDerivative(high, training, observations);
   if (highDerivative >= 0) return high;
 
   for (let step = 0; step < DAVIDSON_BISECTION_STEPS; step += 1) {
     const mid = (low + high) / 2;
-    const derivative = davidsonDerivative(mid, training, ratingsBefore, homeAdvantage);
+    const derivative = davidsonDerivative(mid, training, observations);
     if (derivative > 0) low = mid;
     else high = mid;
   }
@@ -220,18 +245,33 @@ export function buildStage8PureEloPredictions(
 ): Stage8PureEloPrediction[] {
   assertUniqueFixtures(sourceRows);
   const rows = domesticRows(sourceRows);
+  const leagueRows = rowsByLeague(rows);
   const ratingsBefore = buildStage8PureEloRatingsBefore(sourceRows, homeAdvantage);
+  const observations = buildDavidsonObservationMap(rows, ratingsBefore, homeAdvantage);
+  const trainingCache = new Map<string, TemporalGoalRow[]>();
+  const coefficientCache = new Map<string, number>();
   const predictions: Stage8PureEloPrediction[] = [];
 
   for (const target of rows) {
-    const training = temporalTrainingRows(rows, target.date, MODEL_VALIDATION_LOOKBACK_DAYS)
-      .filter((row) => row.league === target.league && row.kickoffAt < target.kickoffAt);
+    const cacheKey = trainingKey(target);
+    let training = trainingCache.get(cacheKey);
+    if (!training) {
+      const candidates = leagueRows.get(target.league) ?? [];
+      training = temporalTrainingRows(candidates, target.date, MODEL_VALIDATION_LOOKBACK_DAYS)
+        .filter((row) => row.kickoffAt < target.kickoffAt);
+      trainingCache.set(cacheKey, training);
+    }
     if (training.length < 3) continue;
 
     const before = ratingsBefore.get(fixtureKey(target));
     if (!before) continue;
 
-    const drawCoefficient = fitDavidsonDrawCoefficient(training, ratingsBefore, homeAdvantage);
+    let drawCoefficient = coefficientCache.get(cacheKey);
+    if (drawCoefficient === undefined) {
+      drawCoefficient = fitDavidsonDrawCoefficient(training, observations);
+      coefficientCache.set(cacheKey, drawCoefficient);
+    }
+
     const probabilities = davidsonEloProbabilities(
       before.homeRating,
       before.awayRating,
