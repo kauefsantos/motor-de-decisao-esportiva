@@ -1,5 +1,6 @@
 import { poissonDistribution } from "./corners";
 import { goalOutcomeProbabilities } from "./goals";
+import type { OneXTwoProbabilities } from "./one-x-two-ensemble";
 import {
   formatBookmakerLine,
   quoteAnchorFor,
@@ -29,10 +30,6 @@ export interface GoalMarketProjection {
   outcomeDistribution: null;
 }
 
-/**
- * Probability of a real half-line bookmaker total.
- * For example, OVER 2.5 means count >= 3 and UNDER 2.5 means count <= 2.
- */
 export function absoluteCountProbability(
   distribution: Map<number, number>,
   line: number,
@@ -45,10 +42,6 @@ export function absoluteCountProbability(
   return Math.min(1, Math.max(0, probability));
 }
 
-/**
- * Kept for backwards compatibility. Experimental lineCanonical is now already
- * the real bookmaker half-line, so no asymmetric +/- 0.5 translation is needed.
- */
 export function bookmakerLineForAbsoluteLimit(_side: string | null, line: number | null): number | null {
   return line;
 }
@@ -82,18 +75,24 @@ export function buildGoalMarketProjections(input: {
   awayTeam: string;
   lambdaHome: number;
   lambdaAway: number;
+  oneXTwoProbabilities?: OneXTwoProbabilities | null;
 }): GoalMarketProjection[] {
-  const outcomes = goalOutcomeProbabilities(input.lambdaHome, input.lambdaAway);
+  const poissonOutcomes = goalOutcomeProbabilities(input.lambdaHome, input.lambdaAway);
+  const outcomes: OneXTwoProbabilities = input.oneXTwoProbabilities ?? {
+    HOME: poissonOutcomes.home,
+    DRAW: poissonOutcomes.draw,
+    AWAY: poissonOutcomes.away,
+  };
   const totalDist = poissonDistribution(input.lambdaHome + input.lambdaAway, 15);
   const projections: GoalMarketProjection[] = [];
 
   projections.push(
-    binary("1X2", "1x2", `Vitória ${input.homeTeam}`, "HOME", outcomes.home),
-    binary("1X2", "1x2", "Empate", "DRAW", outcomes.draw),
-    binary("1X2", "1x2", `Vitória ${input.awayTeam}`, "AWAY", outcomes.away),
-    binary("DOUBLE_CHANCE", "double_chance", `${input.homeTeam} ou Empate (1X)`, "1X", outcomes.home + outcomes.draw),
-    binary("DOUBLE_CHANCE", "double_chance", `Empate ou ${input.awayTeam} (X2)`, "X2", outcomes.draw + outcomes.away),
-    binary("DOUBLE_CHANCE", "double_chance", `${input.homeTeam} ou ${input.awayTeam} (12)`, "12", outcomes.home + outcomes.away),
+    binary("1X2", "1x2", `Vitória ${input.homeTeam}`, "HOME", outcomes.HOME),
+    binary("1X2", "1x2", "Empate", "DRAW", outcomes.DRAW),
+    binary("1X2", "1x2", `Vitória ${input.awayTeam}`, "AWAY", outcomes.AWAY),
+    binary("DOUBLE_CHANCE", "double_chance", `${input.homeTeam} ou Empate (1X)`, "1X", outcomes.HOME + outcomes.DRAW),
+    binary("DOUBLE_CHANCE", "double_chance", `Empate ou ${input.awayTeam} (X2)`, "X2", outcomes.DRAW + outcomes.AWAY),
+    binary("DOUBLE_CHANCE", "double_chance", `${input.homeTeam} ou ${input.awayTeam} (12)`, "12", outcomes.HOME + outcomes.AWAY),
   );
 
   const anchor = quoteAnchorFor("goals_match_total");

@@ -21,8 +21,15 @@ import {
 import {
   GOALS_MODEL_VERSION,
   fitGoalsBaseline,
+  goalOutcomeProbabilities,
   predictGoals,
 } from "../../engine/goals";
+import {
+  ONE_X_TWO_ENSEMBLE_MODEL_VERSION,
+  pureElo60DavidsonFromGoalHistory,
+  uncertaintyLinearOneXTwo,
+  type OneXTwoProbabilities,
+} from "../../engine/one-x-two-ensemble";
 import {
   experimentalPredictionId,
   quoteAnchorFor,
@@ -311,9 +318,8 @@ export async function buildExperimentalPredictions(input: {
       }
     }
 
-    const rollingGoals = input.datasets.goals.filter(
-      (row) => row.date < input.predictionDate && row.date >= rollingStartDate,
-    );
+    const allPriorGoals = input.datasets.goals.filter((row) => row.date < input.predictionDate);
+    const rollingGoals = allPriorGoals.filter((row) => row.date >= rollingStartDate);
     let goalForecast: {
       lambdaHome: number;
       lambdaAway: number;
@@ -373,11 +379,36 @@ export async function buildExperimentalPredictions(input: {
       goalModelVersion = `${goalModelVersion}+${eloForecast.modelVersionSuffix}`;
     }
 
+    let oneXTwoProbabilities: OneXTwoProbabilities | null = null;
+    let oneXTwoModelVersion = goalModelVersion;
+    if (!crossLeague) {
+      const pureElo = pureElo60DavidsonFromGoalHistory({
+        rows: allPriorGoals,
+        league,
+        homeTeam: String(homeId),
+        awayTeam: String(awayId),
+        drawWindowStart: rollingStartDate,
+      });
+      if (pureElo) {
+        const base = goalOutcomeProbabilities(adjustedLambdaHome, adjustedLambdaAway);
+        oneXTwoProbabilities = uncertaintyLinearOneXTwo(
+          { HOME: base.home, DRAW: base.draw, AWAY: base.away },
+          pureElo.probabilities,
+        );
+        oneXTwoModelVersion = `${goalModelVersion}+${ONE_X_TWO_ENSEMBLE_MODEL_VERSION}`;
+      } else {
+        issues.push(`${matchLabel}: 1X2 uncertainty-linear 40% sem histórico Elo-Davidson suficiente; mantido 1X2 do modelo de gols.`);
+      }
+    } else {
+      issues.push(`${matchLabel}: 1X2 uncertainty-linear 40% ainda não é aplicado a confronto interligas; mantido 1X2 hierárquico atual.`);
+    }
+
     const projections = buildGoalMarketProjections({
       homeTeam: match.home_team ?? "Mandante",
       awayTeam: match.away_team ?? "Visitante",
       lambdaHome: adjustedLambdaHome,
       lambdaAway: adjustedLambdaAway,
+      oneXTwoProbabilities,
     });
     for (const projection of projections) {
       const predictionId = experimentalPredictionId({
@@ -390,6 +421,8 @@ export async function buildExperimentalPredictions(input: {
         lineCanonical: projection.lineCanonical,
       });
       const isGoalTotal = projection.market === "goals_match_total";
+      const usesOneXTwoModel = projection.market === "1x2" || projection.market === "double_chance";
+      const projectionModelVersion = usesOneXTwoModel ? oneXTwoModelVersion : goalModelVersion;
       predictionRows.push({
         run_id: input.runId,
         match_id: match.id,
@@ -403,7 +436,7 @@ export async function buildExperimentalPredictions(input: {
         p_cal: null,
         conservative_probability: null,
         outcome_distribution: isGoalTotal ? { lambda: adjustedLambdaHome + adjustedLambdaAway } : {},
-        model_version: goalModelVersion,
+        model_version: projectionModelVersion,
         calibration_version: null,
         model_status: EXPERIMENTAL_MARKETS_STATUS,
         data_status: "OK",
@@ -427,7 +460,7 @@ export async function buildExperimentalPredictions(input: {
         sampleSize: goalForecast.sampleSize,
         trainingMatches: goalTrainingMatches,
         quoteAnchor: true,
-        modelVersion: goalModelVersion,
+        modelVersion: projectionModelVersion,
         modelStatus: EXPERIMENTAL_MARKETS_STATUS,
         productionStatus: PRODUCTION_STATUS,
         dataStatus: "OK",
