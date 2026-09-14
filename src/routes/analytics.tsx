@@ -9,6 +9,7 @@ import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { MetricHelp } from "@/components/MetricHelp";
 import { Button } from "@/components/ui/button";
 import { getExperimentalAnalytics } from "@/lib/analytics.functions";
+import { getCanonicalBankrollSnapshot } from "@/lib/canonical-bankroll.browser";
 
 export const Route = createFileRoute("/analytics")({
   head: () => ({ meta: [{ title: "Desempenho · Bet Value Engine" }] }),
@@ -54,7 +55,29 @@ function AnalyticsScreen() {
     queryKey: ["experimental-analytics"],
     queryFn: () => fetchAnalytics(),
   });
+  const bankrollQuery = useQuery({
+    queryKey: ["canonical-bankroll"],
+    queryFn: getCanonicalBankrollSnapshot,
+  });
+  const canonical = bankrollQuery.data?.bankroll;
+  const loading = isLoading || bankrollQuery.isLoading;
+  const loadFailed = isError || bankrollQuery.isError;
+  const displayError = error ?? bankrollQuery.error;
+  const summary = data && canonical
+    ? {
+        ...data.summary,
+        initialBankroll: canonical.initial,
+        currentBankroll: canonical.equity,
+        availableBankroll: canonical.available,
+        openStake: canonical.locked,
+        totalProfit: canonical.settledProfit,
+      }
+    : data?.summary;
   const recent = useMemo(() => (data?.rows ?? []).slice(0, 80), [data]);
+
+  async function refreshAll() {
+    await Promise.all([refetch(), bankrollQuery.refetch()]);
+  }
 
   return (
     <AppShell stage="analytics">
@@ -72,21 +95,21 @@ function AnalyticsScreen() {
           </Button>
         </div>
 
-        {isLoading && (
+        {loading && (
           <div className="panel mt-5 flex items-center gap-3 p-5 text-sm text-muted-foreground sm:mt-6" role="status">
             <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando o desempenho…
           </div>
         )}
 
-        {isError && (
+        {loadFailed && (
           <div className="panel mt-5 border-destructive/30 p-5 sm:mt-6" role="alert">
             <div className="flex items-start gap-3">
               <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Não foi possível carregar o desempenho.</p>
                 <p className="mt-1 text-sm text-muted-foreground">Nenhum resultado foi alterado. Tente novamente para atualizar os indicadores.</p>
-                {error instanceof Error && <p className="mt-1 text-xs text-muted-foreground">{error.message}</p>}
-                <Button className="mt-4 min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => void refetch()}>
+                {displayError instanceof Error && <p className="mt-1 text-xs text-muted-foreground">{displayError.message}</p>}
+                <Button className="mt-4 min-h-12 w-full sm:min-h-11 sm:w-auto" variant="outline" onClick={() => void refreshAll()}>
                   Tentar novamente
                 </Button>
               </div>
@@ -94,24 +117,24 @@ function AnalyticsScreen() {
           </div>
         )}
 
-        {data && (
+        {data && canonical && summary && (
           <>
             <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2 lg:mt-6 lg:grid-cols-4">
-              <MetricCard label="Banca atual" value={money(data.summary.currentBankroll)} hint={`Resultado realizado: ${money(data.summary.totalProfit)}`} highlight />
-              <MetricCard label="Resultado realizado" value={money(data.summary.totalProfit)} hint={`Desde ${date(data.config.startDate)}`} />
-              <MetricCard label="ROI realizado" value={pct(data.summary.roi)} hint={`${data.summary.settled} aposta(s) encerrada(s)`} help="ROI" />
-              <MetricCard label="Taxa de acerto" value={pct(data.summary.hitRate)} hint={`${data.summary.wins} ganhos · ${data.summary.losses} perdas`} />
+              <MetricCard label="Banca atual" value={money(summary.currentBankroll)} hint={`Resultado realizado: ${money(summary.totalProfit)}`} highlight />
+              <MetricCard label="Resultado realizado" value={money(summary.totalProfit)} hint={`Desde ${date(bankrollQuery.data?.config.startDate ?? data.config.startDate)}`} />
+              <MetricCard label="ROI realizado" value={pct(summary.roi)} hint={`${summary.settled} aposta(s) encerrada(s)`} help="ROI" />
+              <MetricCard label="Taxa de acerto" value={pct(summary.hitRate)} hint={`${summary.wins} ganhos · ${summary.losses} perdas`} />
             </div>
 
-            <p className="mt-3 rounded-xl bg-secondary/25 px-4 py-3 text-sm leading-relaxed text-muted-foreground ring-1 ring-border/45">{data.summary.sampleMessage}</p>
+            <p className="mt-3 rounded-xl bg-secondary/25 px-4 py-3 text-sm leading-relaxed text-muted-foreground ring-1 ring-border/45">{summary.sampleMessage}</p>
 
             <CollapsiblePanel className="mt-3" title="Mais indicadores" description="Métricas complementares da banca e das estimativas">
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-5">
-                <MetricValue label="Banca inicial" value={money(data.summary.initialBankroll)} />
-                <MetricValue label="CLV médio" value={pct(data.summary.avgClv)} help="CLV" />
-                <MetricValue label="Chance média calculada" value={pct(data.summary.avgPredicted)} />
-                <MetricValue label="Maior queda da banca" value={pct(data.summary.maxDrawdown)} />
-                <MetricValue label="Aguardando resultado" value={String(data.summary.pending)} />
+                <MetricValue label="Banca inicial" value={money(summary.initialBankroll)} />
+                <MetricValue label="CLV médio" value={pct(summary.avgClv)} help="CLV" />
+                <MetricValue label="Chance média calculada" value={pct(summary.avgPredicted)} />
+                <MetricValue label="Maior queda da banca" value={pct(summary.maxDrawdown)} />
+                <MetricValue label="Aguardando resultado" value={String(summary.pending)} />
               </div>
             </CollapsiblePanel>
 
@@ -170,7 +193,7 @@ function AnalyticsScreen() {
 
             <CollapsiblePanel className="mt-4" title="Histórico" description="Registro consolidado; resultados são alterados apenas em Em andamento" meta={recent.length}>
               {recent.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma sugestão registrada desde 08/09/2026.</p>
+                <p className="text-sm text-muted-foreground">Nenhuma sugestão registrada desde {date(bankrollQuery.data?.config.startDate ?? data.config.startDate)}.</p>
               ) : (
                 <>
                   <div className="hidden overflow-x-auto lg:block">
