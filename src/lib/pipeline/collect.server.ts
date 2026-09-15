@@ -4,6 +4,8 @@ import { activeFootballProvider } from "./provider.server";
 
 const COLLECT_BATCH_SIZE = 4;
 const COLLECT_MATCH_DONE_STEP = "COLLECT_MATCH_DONE";
+// O banco recalcula a chave real pelos triggers de identidade/deduplicação antes de persistir.
+const RAW_OBSERVATION_KEY_PLACEHOLDER = "";
 
 async function pipelineLog(
   db: AdminDb,
@@ -204,8 +206,7 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
               observed_at: observation.observedAt,
               fetched_at: observation.fetchedAt,
               definition_version: FIVE_DOLLAR_DEFINITION_VERSION,
-              // Recalculado pelo trigger set_raw_observation_key() no banco.
-              observation_key: "",
+              observation_key: RAW_OBSERVATION_KEY_PLACEHOLDER,
             })));
           }
         }
@@ -312,8 +313,7 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
               observed_at: observation.observedAt,
               fetched_at: observation.fetchedAt,
               definition_version: API_FOOTBALL_DEFINITION_VERSION,
-              // Recalculado pelo trigger set_raw_observation_key() no banco.
-              observation_key: "",
+              observation_key: RAW_OBSERVATION_KEY_PLACEHOLDER,
             })));
           }
         }
