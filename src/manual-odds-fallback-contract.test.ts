@@ -12,9 +12,9 @@ describe("manual odds fallback contract", () => {
 
     expect(autoOdds).toContain('status: "UNSUPPORTED"');
     expect(autoOdds).toContain("buildManualQuoteBatches");
-    expect(flow).toContain("Odds que precisam de conferência manual");
-    expect(flow).toContain("Odd Bet365 manual");
-    expect(flow).toContain("A API não fornece este contrato automaticamente");
+    expect(flow).toContain("Confira as odds que faltam");
+    expect(flow).toContain("Odd Bet365");
+    expect(flow).toContain("Esta opção precisa ser conferida diretamente na Bet365");
   });
 
   it("requires the exact modeled contract and preserves the same value gates", () => {
@@ -23,9 +23,10 @@ describe("manual odds fallback contract", () => {
     const queue = source("./lib/decision-queue.functions.ts");
     const policy = source("./lib/engine/market-policy.ts");
 
-    expect(flow).toContain("mesmo mercado, lado e linha");
-    expect(flow).toContain("Não use essa cotação; informe manualmente somente a odd da linha exata mostrada aqui.");
-    expect(flow).toContain("chance ≥70%, odd ≥1,70, EV ≥8% e vantagem ≥5 p.p.");
+    expect(flow).toContain("Digite apenas a odd da linha exata mostrada aqui");
+    expect(flow).toContain("candidate.marketLabel");
+    expect(flow).toContain("candidate.lineCanonical");
+    expect(flow).toContain("filtros de probabilidade, odd, valor esperado, vantagem, correlação e limite de escolhas");
     expect(confirmation).toContain("lineAtEntry: candidate.lineCanonical");
     expect(confirmation).toContain('quote?.status === "MATCHED"');
     expect(queue).toContain("evaluateValue({");
