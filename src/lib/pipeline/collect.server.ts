@@ -312,6 +312,8 @@ export async function collectPipelineData(db: AdminDb, runId: string) {
               observed_at: observation.observedAt,
               fetched_at: observation.fetchedAt,
               definition_version: API_FOOTBALL_DEFINITION_VERSION,
+              // Recalculado pelo trigger set_raw_observation_key() no banco.
+              observation_key: "",
             })));
           }
         }
