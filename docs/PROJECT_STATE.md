@@ -1,6 +1,6 @@
 # Motor de Decisão Esportiva — estado canônico
 
-> Atualizado: 14/09/2026  
+> Atualizado: 15/09/2026  
 > Repositório: `kauefsantos/motor-de-decisao-esportiva`  
 > Lovable canônico: `28664075-8af4-4155-9ee9-8ed86021681a`  
 > Aplicação: `https://quant-football-insights.lovable.app/`
@@ -12,17 +12,18 @@ Este documento registra o estado vigente do produto. Auditorias datadas preserva
 - **GitHub `main`**: código, testes, migrations, contratos e documentação versionados.
 - **Lovable Cloud**: banco, runtime e estado operacional vivos.
 - **Lovable**: aplicação canônica ligada a este repositório; não criar projeto paralelo para continuar o produto.
-- Implementado, testado, mergeado, publicado e validado em produção são estados distintos e devem ser descritos separadamente.
+- Implementado, testado, mergeado, sincronizado, publicado e validado em produção são estados distintos e devem ser descritos separadamente.
 
 ## Estado técnico atual
 
 - Aplicação full-stack: operacional.
 - Autenticação/autorização: implementadas e cobertas por regressões.
-- Lovable Cloud: migrations versionadas, com regressões no CI.
+- Lovable Cloud: migrations versionadas e regressões no CI.
 - Pipeline principal: operacional com checkpoints, retries e retomada.
 - Elo hierárquico: automatizado e auditável.
 - Motor de valor: regras determinísticas de probabilidade, odd, EV e edge.
 - Modelo 1X2 de uso diário: experimental.
+- Stage 9: primeira execução automática natural concluída em 15/09/2026; calibração rejeitada pelos gates.
 - Certificação estatística formal: **não concluída**.
 - Execução automática de apostas: não existe.
 
@@ -73,31 +74,85 @@ O holdout prospectivo começa em `14/09/2026` e exige no mínimo `200` partidas 
 
 Somente o caminho governado de promoção pode definir `PRODUCTION_VALIDATED`. Stake real permanece separado e bloqueado até essa certificação formal.
 
-## Auditoria operacional da Stage 9 — 14/09/2026
+## Auditoria operacional da Stage 9 — 15/09/2026
 
-Estado vivo confirmado no Lovable Cloud após a publicação do dual-track:
+A primeira execução automática natural ocorreu na janela principal das **06:15 America/Sao_Paulo**.
 
-- migration-base da Stage 9 aplicada e registrada;
-- migration de notificações/orquestração dual-track aplicada e registrada;
-- registry do modelo Stage 9 presente;
-- funções de calibração, holdout e promoção governada presentes;
-- `private.model_lab_events` presente;
-- feed da UI exposto por RPC server-side owner-scoped;
-- `anon` e `authenticated` sem permissão direta de execução do feed;
-- `service_role` com permissão de execução;
-- trigger de eventos da Stage 9 presente;
-- cron `stage9-daily-lab` ativo;
-- janela principal às `06:15 America/Sao_Paulo`;
-- recuperação às `06:20 America/Sao_Paulo`;
-- evento inicial `LAB_ENABLED` registrado com o título “Stage 9 agora trabalha em paralelo”;
-- status atual do modelo: `NOT_PRODUCTION_VALIDATED`.
+Estado vivo confirmado no Lovable Cloud:
 
-No momento desta auditoria havia:
+- job `stage9-1x2-ensemble-calibration-v1` criado às `09:15:00Z`, iniciado às `09:15:02Z` e concluído às `09:15:54Z`;
+- status do job: `DONE`;
+- `last_error`: vazio;
+- artefato `stage9-ensemble-calibration-v1-fit-through-2026-05-31` criado;
+- status do artefato: `REJECTED`;
+- readiness: `CALIBRATION_REJECTED`;
+- holdout prospectivo: `NOT_STARTED`;
+- status do modelo: `NOT_PRODUCTION_VALIDATED`;
+- modo diversão permaneceu ativo e inalterado.
 
-- `0` jobs Stage 9 executados;
-- `0` artefatos de calibração/holdout Stage 9.
+Resultado retrospectivo da rodada:
 
-Esse estado é esperado: a rotina foi instalada após a janela diária de 14/09. Nenhuma execução manual foi forçada apenas para produzir evidência. A primeira execução automática natural deve ocorrer em **15/09/2026 às 06:15 America/Sao_Paulo**, com recuperação às 06:20 se necessária.
+| Métrica | Bruto | Calibrado | Gate |
+| --- | ---: | ---: | --- |
+| Brier | 0,622963 | 0,623138 | não poderia piorar — falhou |
+| LogLoss | 1,035706 | 1,035890 | não poderia piorar — falhou |
+| Max calibration gap | — | 19,68% | <= 10% — falhou |
+
+A rodada preservou evidência de ausência de leakage e cobertura de estabilidade, mas isso não compensa a falha simultânea dos gates de calibração, Brier e LogLoss. A promoção foi corretamente bloqueada.
+
+Eventos registrados no laboratório:
+
+- `CALIBRATION_STARTED`;
+- `CALIBRATION_RESULT`, avisando que nenhum candidato ficou apto para promoção;
+- `DAILY_STATUS`, registrando o artefato como `REJECTED` e o modelo como `NOT_PRODUCTION_VALIDATED`.
+
+Não repetir a mesma calibração apenas para buscar aprovação. Uma nova tentativa deve depender de nova hipótese/evidência e continuar respeitando os mesmos gates.
+
+## Hardening de segurança — 15/09/2026
+
+Foi aplicada no Lovable Cloud e versionada a migration:
+
+`20260915004337_ce1bb2f6-ab04-45f5-987c-d2e16299e813.sql`
+
+Ela adiciona defesa em profundidade sem ampliar acesso do browser:
+
+- `analysis_drafts`: policies owner-scoped para SELECT/INSERT/UPDATE/DELETE;
+- `analysis_draft_games`: policies herdando a propriedade do draft pai;
+- `decision_opportunity_queue`: policies por proprietário da run via `private.owns_run(run_id)`;
+- `push_delivery_outbox`: leitura limitada ao próprio usuário; escrita/dispatch continuam server-side;
+- as quatro tabelas permanecem com RLS habilitado e sem grants diretos para `anon`/`authenticated`.
+
+Também foi fixado `search_path=''` em:
+
+- `public.elo_is_target_league(text, text)`;
+- `public.elo_league_key(text, text)`;
+- `public.normalize_brazil_league_lineage()`;
+- `public.normalize_prediction_outcome_distribution()`.
+
+`public.is_approved_app_user()` continua como exceção intencional `SECURITY DEFINER`: `anon` não possui EXECUTE, `authenticated` possui EXECUTE porque o middleware de autenticação precisa consultar o gate sobre o próprio usuário. Essa função não deve ser aberta para consulta arbitrária de terceiros.
+
+O insert de `raw_observations` passou a enviar `observation_key=''` apenas para satisfazer o contrato tipado. A identidade não confia nesse valor: `ignore_duplicate_raw_observation()` e `set_raw_observation_key()` recalculam a chave no banco antes da persistência/deduplicação.
+
+## Limpeza operacional — 15/09/2026
+
+Foi concluída a limpeza que havia parado por timeout no Lovable:
+
+- 53 runs paradas removidas: 6 `ERROR` e 47 `READY_FOR_ODDS`;
+- 881 partidas pertencentes a essas runs removidas;
+- antes da remoção foi confirmado que **nenhuma das 53 runs possuía aposta registrada**;
+- dados pesados dessas runs já removidos anteriormente foram reconciliados;
+- rascunhos com erro, job com erro e outbox morto já haviam sido removidos.
+
+O gargalo foi identificado: `raw_observations` tinha `0` linhas vivas, mas ainda ocupava aproximadamente `463 MB` físicos após os deletes anteriores. FKs de `matches` precisavam percorrer tabelas logicamente vazias porém fisicamente grandes. A limpeza cancelou apenas a tentativa de manutenção travada e compactou por `TRUNCATE` exclusivamente tabelas confirmadas com `0` registros vivos, sem apagar registros válidos.
+
+Estado final revalidado:
+
+- `0` runs `ERROR`;
+- `0` runs `READY_FOR_ODDS`;
+- `0` partidas vinculadas às pendências removidas;
+- `1` run `COMPLETED` preservada;
+- `2` drafts `FINALIZED` preservados;
+- `5` notificações `SENT` preservadas.
 
 ## Fluxo principal
 
@@ -156,6 +211,10 @@ O CSV permanece como contingência. A aplicação não executa apostas.
 - a automação prepara a análise, mas não congela a odd como preço definitivo.
 
 Detalhes: `docs/governance/SCHEDULED_D2_ANALYSIS_2026-09-12.md`.
+
+### Exceção operacional de 15/09/2026
+
+Existe um job one-off `one-off-odds-alert-2026-09-15` programado para `09:00 America/Sao_Paulo` (`12:00 UTC`) com escopo dos dias 15 e 16. O próprio comando chama `cron.unschedule(...)` após o disparo, portanto não deve virar recorrência permanente. Como qualquer automação, o fato de estar agendada não prova execução: depois das 09:00, consultar o Lovable Cloud antes de afirmar entrega.
 
 ## Gate de produção e dinheiro real
 
@@ -240,24 +299,24 @@ lint + typecheck + architecture boundaries
 
 O repositório mantém `SECURITY.md`, `CONTRIBUTING.md`, CODEOWNERS, template de PR, Dependabot e documentação de arquitetura/governança.
 
-## Estado da publicação em 14/09/2026
+## Estado da publicação
 
-A PR #143 foi mergeada por squash e publicada. Na validação pós-publicação foi detectado que o código havia sincronizado antes das duas migrations da Stage 9 chegarem ao Lovable Cloud. A divergência foi corrigida aplicando, na ordem:
+Em 14/09/2026, a PR #143 foi mergeada por squash e publicada. Na validação pós-publicação foi detectado que o código havia sincronizado antes das duas migrations da Stage 9 chegarem ao Lovable Cloud. A divergência foi corrigida aplicando, na ordem:
 
 1. `20260914213000_stage9_1x2_ensemble_calibration.sql`;
 2. `20260914224500_stage9_dual_track_lab_notifications.sql`.
 
-Após isso foram revalidados registry, RPCs, trigger, cron, permissões do feed, evento inicial e status `NOT_PRODUCTION_VALIDATED`.
+Em 15/09/2026, o hardening produzido pelo ambiente Lovable chegou ao commit `76477df5d4d253b1d03d672a09960638caef90cc` e sua migration foi confirmada no Lovable Cloud. Esse conjunto deve passar pelo fluxo GitHub/PR/CI antes de ser considerado reconciliado com o `main`.
 
 ## Validações ainda não afirmadas
 
 Os itens abaixo não devem ser descritos como validados em produção até haver evidência viva correspondente:
 
-1. primeira execução automática real da Stage 9 em 15/09/2026 às 06:15;
-2. primeiro artefato de calibração da Stage 9 produzido pelo job automático;
-3. primeiro ciclo de atualização do holdout após eventual `SHADOW_READY`;
-4. `PRODUCTION_VALIDATED` para o modelo atual — continua falso até todos os gates retrospectivos e prospectivos serem cumpridos;
-5. interrupção deliberada no meio de `COLLECT` seguida de retomada real, caso ainda não exista evidência posterior específica desse kill test.
+1. `SHADOW_READY` para a Stage 9 — a calibração atual foi `REJECTED`;
+2. primeiro ciclo de atualização do holdout — permanece `NOT_STARTED` enquanto não houver candidato apto;
+3. `PRODUCTION_VALIDATED` para o modelo atual — continua falso até todos os gates retrospectivos e prospectivos serem cumpridos;
+4. interrupção deliberada no meio de `COLLECT` seguida de retomada real, caso ainda não exista evidência posterior específica desse kill test;
+5. entrega efetiva do alerta one-off das 09:00 de 15/09/2026 — verificar após a janela, não inferir apenas pela existência do cron.
 
 Esses itens não bloqueiam o modo diversão.
 
@@ -271,7 +330,8 @@ Antes de alterar comportamento:
 4. versionar mudanças de banco em migration;
 5. adicionar regressão correspondente;
 6. passar todos os gates obrigatórios antes do merge;
-7. registrar separadamente o que foi implementado, testado, mergeado, publicado e validado em produção.
+7. confirmar sincronização GitHub/Lovable após o merge;
+8. registrar separadamente o que foi implementado, testado, mergeado, sincronizado, publicado e validado em produção.
 
 ## Referências
 
@@ -283,4 +343,5 @@ Antes de alterar comportamento:
 - `docs/governance/1X2_UNCERTAINTY_LINEAR_40_2026-09-14.md` — modelo 1X2 experimental atual;
 - `docs/governance/STAGE9_1X2_ENSEMBLE_CALIBRATION_2026-09-14.md` — protocolo estatístico Stage 9;
 - `docs/governance/STAGE9_DUAL_TRACK_LAB.md` — separação modo diversão / laboratório;
+- `supabase/migrations/20260915004337_ce1bb2f6-ab04-45f5-987c-d2e16299e813.sql` — hardening owner-scoped/search_path de 15/09;
 - `docs/governance/` — evidências e decisões versionadas.
