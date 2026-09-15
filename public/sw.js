@@ -1,6 +1,6 @@
 const STATE_CACHE = "bet-value-push-state-v1";
 const TARGET_KEY = "/__bet-value/latest-analysis-target";
-const MANUAL_TARGET_TTL_MS = 4 * 60 * 60 * 1000;
+const MANUAL_TARGET_TTL_MS = 10 * 60 * 1000;
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -32,9 +32,23 @@ async function latestTarget() {
     if (!response) return "/";
     const data = await response.json();
     const fresh = typeof data?.setAt === "number" && Date.now() - data.setAt <= MANUAL_TARGET_TTL_MS;
-    return fresh && typeof data?.url === "string" && data.url.startsWith("/") ? data.url : "/";
+    const safePath = typeof data?.url === "string" && data.url.startsWith("/");
+    if (!fresh || !safePath) {
+      await cache.delete(TARGET_KEY);
+      return "/";
+    }
+    return data.url;
   } catch {
     return "/";
+  }
+}
+
+async function clearTarget() {
+  try {
+    const cache = await caches.open(STATE_CACHE);
+    await cache.delete(TARGET_KEY);
+  } catch {
+    // A stale deep-link cache must never block opening the app.
   }
 }
 
@@ -60,6 +74,7 @@ self.addEventListener("notificationclick", (event) => {
     (async () => {
       const path = event.notification?.data?.url || "/";
       const url = new URL(path, self.location.origin).href;
+      await clearTarget();
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const client of windows) {
         if ("focus" in client) {
