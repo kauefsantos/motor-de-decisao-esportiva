@@ -42,6 +42,7 @@ const FINALIZE_SCHEMA = z.object({
 });
 
 const SEPARATOR = /\s+(?:x|vs?|-)+\s+/i;
+const TERMINAL_DRAFT_STATUSES = new Set(["FINALIZED", "CANCELLED"]);
 
 function parseTeams(partida: string) {
   const parts = partida.split(SEPARATOR);
@@ -82,6 +83,23 @@ async function requireDraft(db: any, draftId: string, ownerId: string) {
   return data;
 }
 
+function assertDraftMutable(draft: any) {
+  const status = String(draft?.status ?? "");
+  if (TERMINAL_DRAFT_STATUSES.has(status)) {
+    throw new BackendError("CONFLICT", "Esta rodada já foi encerrada e não pode voltar para validação.", 409);
+  }
+}
+
+function assertDraftFinalizable(draft: any) {
+  const status = String(draft?.status ?? "");
+  if (status === "CANCELLED") {
+    throw new BackendError("CONFLICT", "Esta rodada foi cancelada. Envie um novo CSV para iniciar outra análise.", 409);
+  }
+  if (status === "FINALIZED" && !draft?.final_run_id) {
+    throw new BackendError("CONFLICT", "Esta rodada já foi encerrada e não possui análise ativa para retomar.", 409);
+  }
+}
+
 export const createAnalysisDraft = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => draftSchema.parse(input))
   .handler(async ({ data, context }) => {
@@ -119,7 +137,8 @@ export const validateAnalysisDraft = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
     const db = await adminDb();
-    await requireDraft(db, data.draftId, context.userId);
+    const draft = await requireDraft(db, data.draftId, context.userId);
+    assertDraftMutable(draft);
     const { data: games, error } = await db.from("analysis_draft_games").select("*").eq("draft_id", data.draftId).order("ordinal");
     if (error) throw new BackendError("INTERNAL_ERROR", "Não foi possível carregar as partidas para validação.", 500);
 
@@ -246,7 +265,8 @@ export const correctAnalysisDraft = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
     const db = await adminDb();
-    await requireDraft(db, data.draftId, context.userId);
+    const draft = await requireDraft(db, data.draftId, context.userId);
+    assertDraftMutable(draft);
     const { data: changed, error } = await db.rpc("apply_analysis_draft_corrections", {
       p_draft_id: data.draftId,
       p_owner_id: context.userId,
@@ -261,7 +281,8 @@ export const setAnalysisDraftGameIgnored = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
     const db = await adminDb();
-    await requireDraft(db, data.draftId, context.userId);
+    const draft = await requireDraft(db, data.draftId, context.userId);
+    assertDraftMutable(draft);
     const { data: game, error } = await db
       .from("analysis_draft_games")
       .update({ ignored: data.ignored, updated_at: new Date().toISOString() })
@@ -279,7 +300,8 @@ export const finalizeAnalysisDraft = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     if (!context.userId) throw new BackendError("UNAUTHENTICATED", "Faça login para continuar.", 401);
     const db = await adminDb();
-    await requireDraft(db, data.draftId, context.userId);
+    const draft = await requireDraft(db, data.draftId, context.userId);
+    assertDraftFinalizable(draft);
     const { data: finalized, error } = await db.rpc("finalize_analysis_draft_atomic", {
       p_draft_id: data.draftId,
       p_owner_id: context.userId,
