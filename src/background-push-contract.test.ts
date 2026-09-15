@@ -81,6 +81,14 @@ describe("iPhone Web Push contract", () => {
     expect(worker).toContain('addEventListener("notificationclick"');
   });
 
+  it("expires and clears stale analysis deep links before they can poison later reminders", () => {
+    const worker = source("../public/sw.js");
+    expect(worker).toContain("const MANUAL_TARGET_TTL_MS = 10 * 60 * 1000");
+    expect(worker).toContain("await cache.delete(TARGET_KEY)");
+    expect(worker).toContain('return "/"');
+    expect(worker).toContain("await clearTarget()");
+  });
+
   it("keeps signing secrets server-side while durable delivery state stays server-only", () => {
     const pushServer = source("./lib/push.server.ts");
     const pushFunctions = source("./lib/push.functions.ts");
