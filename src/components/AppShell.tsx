@@ -6,10 +6,10 @@ import { ModelLabNotifications } from "@/components/ModelLabNotifications";
 import { supabase } from "@/integrations/supabase/client";
 
 const STAGES = [
-  { key: "upload", label: "Enviar e validar", shortLabel: "Validar" },
-  { key: "processamento", label: "Preparar", shortLabel: "Preparar" },
-  { key: "oportunidades", label: "Conferir e escolher", shortLabel: "Escolher" },
-  { key: "resultado", label: "Revisar e registrar", shortLabel: "Registrar" },
+  { key: "upload", label: "Enviar jogos" },
+  { key: "processamento", label: "Analisar" },
+  { key: "oportunidades", label: "Escolher" },
+  { key: "resultado", label: "Registrar" },
 ] as const;
 
 type StageKey = (typeof STAGES)[number]["key"] | "open-bets" | "analytics" | "account";
@@ -59,22 +59,18 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
   return (
     <div className="min-h-[100dvh]" data-keyboard-open={keyboardOpen ? "true" : "false"}>
       <a href="#conteudo-principal" className="skip-link">Pular para o conteúdo principal</a>
-      <header className="sticky top-0 z-20 border-b border-border/80 bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-        <div className="mx-auto max-w-[1280px] px-4 py-2 sm:px-6 sm:py-2.5 lg:px-8">
+      <header className="sticky top-0 z-20 border-b border-border/70 bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+        <div className="mx-auto max-w-[1280px] px-4 py-2 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-3">
             <Link to="/" className="touch-target flex min-h-11 min-w-0 items-center gap-2.5" aria-label="Ir para o início">
               <img src="/icons/favicon-32.png" alt="" className="size-7 shrink-0 rounded-lg ring-1 ring-primary/15 sm:size-8 sm:rounded-xl" aria-hidden />
               <span className="min-w-0">
-                <span className="num block truncate text-sm font-semibold tracking-tight text-primary">
-                  <span className="sm:hidden">BET VALUE</span>
-                  <span className="hidden sm:inline">BET VALUE ENGINE</span>
-                </span>
-                <span className="hidden text-[10px] uppercase tracking-[0.14em] text-muted-foreground sm:block">Motor de decisão esportiva</span>
+                <span className="num block truncate text-sm font-semibold tracking-tight text-primary">BET VALUE</span>
+                <span className="hidden text-[10px] text-muted-foreground sm:block">Análise de jogos e oportunidades</span>
               </span>
-              <span className="num hidden rounded-md border border-border bg-secondary/35 px-1.5 py-0.5 text-[10px] text-muted-foreground md:inline">v2.1.1</span>
             </Link>
 
-            <nav className="hidden items-center rounded-xl border border-border bg-secondary/25 p-1 sm:flex" aria-label="Acompanhamento">
+            <nav className="hidden items-center rounded-xl bg-secondary/25 p-1 sm:flex" aria-label="Acompanhamento">
               <Link to="/open-bets" aria-current={stage === "open-bets" ? "page" : undefined} className={desktopNavClass(stage === "open-bets")}>Em andamento</Link>
               <Link to="/analytics" aria-current={stage === "analytics" ? "page" : undefined} className={desktopNavClass(stage === "analytics")}>Desempenho</Link>
             </nav>
@@ -90,54 +86,38 @@ export function AppShell({ stage, children }: { stage: StageKey; children: React
           </div>
 
           {showAnalysisProgress && (
-            <>
-              <div className="mt-2 hidden grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid">
-                <ol className="grid grid-cols-4 gap-1 rounded-xl border border-border bg-secondary/20 p-1" aria-label="Progresso da análise">
-                  {STAGES.map((item, index) => {
-                    const isActive = item.key === stage;
-                    const isDone = activeStageIndex > index;
-                    return (
-                      <li key={item.key} aria-current={isActive ? "step" : undefined} className={`flex min-h-10 min-w-0 items-center justify-center rounded-lg px-2 text-center text-xs transition-colors ${isActive ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20" : isDone ? "text-foreground" : "text-muted-foreground"}`}>
-                        <span className="mr-1.5 num text-[0.7rem] opacity-65">{index + 1}</span><span className="truncate">{item.label}</span>
-                      </li>
-                    );
-                  })}
-                </ol>
-                <div className="flex min-h-10 items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.06] px-3 text-[11px] text-muted-foreground">
-                  <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                  <span className="whitespace-nowrap"><span className="font-medium text-foreground">{activeStageIndex + 1} de {STAGES.length}</span><span className="mx-1.5 text-border">·</span>{STAGES[activeStageIndex]?.label}</span>
-                </div>
+            <div className="mt-1.5 flex items-center gap-3" aria-label="Progresso da análise">
+              <div className="flex min-w-0 flex-1 gap-1" aria-hidden>
+                {STAGES.map((item, index) => (
+                  <span
+                    key={item.key}
+                    className={`h-1.5 flex-1 rounded-full ${index <= activeStageIndex ? "bg-primary" : "bg-secondary"}`}
+                  />
+                ))}
               </div>
-
-              <ol className="mt-1 grid grid-cols-4 gap-1 sm:hidden" aria-label="Progresso da análise">
-                {STAGES.map((item, index) => {
-                  const isActive = item.key === stage;
-                  const isDone = activeStageIndex > index;
-                  return (
-                    <li key={item.key} aria-current={isActive ? "step" : undefined} className={`flex min-h-8 min-w-0 items-center justify-center rounded-lg px-1 text-center text-[11px] transition-colors ${isActive ? "bg-primary/15 font-medium text-primary ring-1 ring-primary/20" : isDone ? "text-foreground" : "text-muted-foreground"}`}>
-                      <span className="mr-1 num text-[0.65rem] opacity-65">{index + 1}</span><span className="truncate">{item.shortLabel}</span>
-                    </li>
-                  );
-                })}
-              </ol>
-
-              <div className="mt-1 flex justify-center sm:hidden">
-                <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-secondary/35 px-2.5 py-1 text-[10px] leading-4 text-muted-foreground"><span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden /><span className="truncate">{activeStageIndex + 1} de {STAGES.length} · {STAGES[activeStageIndex]?.label}</span></div>
-              </div>
-            </>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{activeStageIndex + 1} de {STAGES.length}</span>
+                <span className="hidden sm:inline"> · {STAGES[activeStageIndex]?.label}</span>
+              </span>
+            </div>
           )}
         </div>
       </header>
 
-      <main id="conteudo-principal" tabIndex={-1} className="mx-auto min-w-0 max-w-[1400px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-        {stage === "upload" && <ModelLabNotifications />}
+      <main id="conteudo-principal" tabIndex={-1} className="mx-auto min-w-0 max-w-[1280px] px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8">
+        {stage === "upload" && (
+          <details className="mb-4 rounded-xl border border-border/60 bg-secondary/15 px-3 py-2 text-xs text-muted-foreground">
+            <summary className="touch-target flex min-h-9 cursor-pointer list-none items-center font-medium text-foreground">Atualizações do laboratório</summary>
+            <div className="pb-2"><ModelLabNotifications /></div>
+          </details>
+        )}
         {children}
       </main>
 
-      <footer className="mx-auto hidden max-w-[1400px] px-4 pb-8 sm:block sm:px-6 lg:px-8">
+      <footer className="mx-auto hidden max-w-[1280px] px-4 pb-8 sm:block sm:px-6 lg:px-8">
         <details className="text-xs text-muted-foreground">
-          <summary className="touch-target flex min-h-11 cursor-pointer list-none items-center py-2">Bet365 Brasil · Horário de Brasília · Apostas simples</summary>
-          <p className="max-w-2xl pb-2">O sistema organiza a análise e o histórico; não faz apostas por você. <a href="/privacidade" className="underline underline-offset-4">Privacidade</a></p>
+          <summary className="touch-target flex min-h-11 cursor-pointer list-none items-center py-2">Informações do sistema</summary>
+          <p className="max-w-2xl pb-2">Bet365 Brasil · Horário de Brasília · apostas simples. O sistema organiza a análise e o histórico; não faz apostas por você. <a href="/privacidade" className="underline underline-offset-4">Privacidade</a></p>
         </details>
       </footer>
 
