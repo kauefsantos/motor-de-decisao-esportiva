@@ -16,7 +16,7 @@ describe("background analysis contract", () => {
     expect(upload).not.toContain("enqueueAnalysis");
 
     const finalizeAt = validation.indexOf("await finalizeDraft({");
-    const navigateAt = validation.indexOf('navigate({ to: "/run/$runId/processamento"');
+    const navigateAt = validation.indexOf('navigate({ to: "/run/$runId/processamento"', finalizeAt);
     expect(finalizeAt).toBeGreaterThan(-1);
     expect(navigateAt).toBeGreaterThan(finalizeAt);
     expect(draftFunctions).toContain('db.rpc("enqueue_analysis_job_atomic"');
