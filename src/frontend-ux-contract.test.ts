@@ -6,27 +6,26 @@ function source(path: string) {
 }
 
 describe("frontend UX/UI clarity contract", () => {
-  it("uses four task-oriented macro stages", () => {
+  it("uses four short task-oriented macro stages", () => {
     const shell = source("./components/AppShell.tsx");
-    expect(shell).toContain('label: "Enviar e validar"');
-    expect(shell).toContain('label: "Preparar"');
-    expect(shell).toContain('label: "Conferir e escolher"');
-    expect(shell).toContain('label: "Revisar e registrar"');
+    expect(shell).toContain('label: "Enviar jogos"');
+    expect(shell).toContain('label: "Analisar"');
+    expect(shell).toContain('label: "Escolher"');
+    expect(shell).toContain('label: "Registrar"');
     expect(shell).toContain("{activeStageIndex + 1} de {STAGES.length}");
     expect(shell).not.toContain("chance do modelo <strong");
     expect(shell).not.toContain("EV mínimo de 2%");
   });
 
-  it("turns the home into an owner-scoped action dashboard without hiding new analysis", () => {
+  it("keeps the home focused on the next action and new analysis", () => {
     const home = source("./routes/index.tsx");
     const summary = source("./lib/home-summary.functions.ts");
-    expect(home).toContain("O que precisa da sua atenção?");
-    expect(home).toContain("Continuar análise");
-    expect(home).toContain("Resultados para informar");
-    expect(home).toContain("Sugestões para registrar");
-    expect(home).toContain("Saldo disponível");
-    expect(home).toContain("Análises recentes");
-    expect(home).toContain("VALIDAR PARTIDAS");
+    expect(home).toContain("O que você quer analisar?");
+    expect(home).toContain("Continue de onde parou");
+    expect(home).toContain("Enviar jogos da rodada");
+    expect(home).toContain("Conferir jogos");
+    expect(home).toContain("Histórico e saldo");
+    expect(home).toContain("Avisos no celular");
     expect(summary).toContain('.eq("owner_id", userId)');
     expect(summary).toContain('from "./repositories/runtime-rpc.server"');
     expect(summary).toContain('"get_owner_home_metrics"');
@@ -36,10 +35,9 @@ describe("frontend UX/UI clarity contract", () => {
 
   it("makes ignored CSV rows visible before the main CTA", () => {
     const home = source("./routes/index.tsx");
-    const warningIndex = home.indexOf("linha{parsed.invalid.length === 1");
-    const ctaIndex = home.indexOf("VALIDAR PARTIDAS");
-    expect(home).toContain("não {parsed.invalid.length === 1 ? \"será\" : \"serão\"} analisada");
-    expect(home).toContain("Ver linhas ignoradas");
+    const warningIndex = home.indexOf("Alguns jogos serão ignorados");
+    const ctaIndex = home.indexOf('submitting ? "Preparando jogos…" : "Conferir jogos"');
+    expect(home).toContain("Ver o que foi ignorado");
     expect(warningIndex).toBeGreaterThan(-1);
     expect(ctaIndex).toBeGreaterThan(warningIndex);
   });
@@ -56,15 +54,22 @@ describe("frontend UX/UI clarity contract", () => {
   it("uses plain-language odds and selection copy", () => {
     const route = source("./routes/run.$runId.oportunidades.tsx");
     const flow = source("./components/DecisionQueueFlow.tsx");
-    expect(route).toContain("Conferir as odds e escolher");
-    expect(route).toContain("até 3 para esta rodada");
-    expect(flow).toContain("Odds pendentes");
-    expect(flow).toContain("Confirmar odds e recalcular");
-    expect(flow).toContain("Opções com valor");
-    expect(flow).toContain("Escolha até {dailyLimit} opções para esta rodada");
+    expect(route).toContain("Resultado da análise");
+    expect(route).toContain("zero também é um resultado válido");
+    expect(flow).toContain("Confira as odds que faltam");
+    expect(flow).toContain("Avaliar oportunidades");
+    expect(flow).toContain("Escolha o que quiser acompanhar");
     expect(flow).not.toContain("AVALIAR E ABRIR FILA DE DECISÃO");
-    expect(flow).not.toContain("Escolha até {dailyLimit} opções hoje");
     expect(flow).not.toContain("Cada lote mostra no máximo 10 opções reais");
+  });
+
+  it("treats zero qualified opportunities as a successful result", () => {
+    const gate = source("./components/DecisionQueueGate.tsx");
+    const flow = source("./components/DecisionQueueFlow.tsx");
+    expect(gate).toContain("Nenhuma oportunidade nesta rodada");
+    expect(gate).toContain("Isso não é uma falha");
+    expect(flow).toContain("Nenhuma oportunidade nesta rodada");
+    expect(flow).toContain("Isso não é erro");
   });
 
   it("resumes persisted decisions without repeating preparation or quotes", () => {
@@ -74,6 +79,16 @@ describe("frontend UX/UI clarity contract", () => {
     expect(gate).toContain("decisionQueueEvaluated");
     expect(gate).toContain("sem refazer modelos ou buscar as odds novamente");
     expect(gate).toContain("return <DecisionQueueFlow runId={runId} />");
+  });
+
+  it("keeps technical information available but collapsed by default", () => {
+    const route = source("./routes/run.$runId.oportunidades.tsx");
+    const flow = source("./components/DecisionQueueFlow.tsx");
+    const audit = source("./components/SourceAudit.tsx");
+    expect(route).toContain("Como esta análise funciona?");
+    expect(flow).toContain("Detalhes da conferência");
+    expect(flow).toContain("Ver números da análise");
+    expect(audit).toContain('title="Detalhes técnicos"');
   });
 
   it("keeps the result server-backed and places registration before exit actions", () => {
@@ -86,14 +101,13 @@ describe("frontend UX/UI clarity contract", () => {
     expect(result.indexOf("<BetConfirmationFlow runId={runId} />")).toBeLessThan(result.indexOf("Outras ações"));
   });
 
-  it("uses decision-focused result metrics and short explanations", () => {
+  it("keeps advanced result metrics behind progressive disclosure", () => {
     const result = source("./routes/run.$runId.resultado.tsx");
-    const help = source("./components/MetricHelp.tsx");
-    expect(result).toContain("EV esperado");
-    expect(result).toContain('MetricHelp term="EV"');
-    expect(result).toContain('MetricHelp term="Odd de referência"');
-    expect(result).toContain('MetricHelp term="Vantagem"');
-    expect(help).toContain("Não é lucro garantido");
+    expect(result).toContain("Ver números da análise");
+    expect(result).toContain("Valor esperado");
+    expect(result).toContain("Odd de referência");
+    expect(result).toContain("Vantagem");
+    expect(result).toContain("Odd mínima");
   });
 
   it("makes registration recoverable, explicit and sequential", () => {
@@ -126,10 +140,10 @@ describe("frontend UX/UI clarity contract", () => {
   it("never presents a loading failure as an empty decision result", () => {
     const flow = source("./components/DecisionQueueFlow.tsx");
     const result = source("./routes/run.$runId.resultado.tsx");
-    expect(flow).toContain("Não foi possível carregar as opções");
+    expect(flow).toContain("Não foi possível carregar esta etapa");
     expect(flow).toContain("Sua análise continua salva");
-    expect(result).toContain("Isso é uma falha de carregamento");
-    expect(result).toContain("não significa que a análise terminou sem opções");
+    expect(result).toContain("Não foi possível carregar suas escolhas");
+    expect(result).toContain("A análise continua salva");
   });
 
   it("labels realized performance separately from expected value", () => {
@@ -196,7 +210,7 @@ describe("frontend mobile-first and accessibility contract", () => {
   it("keeps manual odds easy to enter on narrow phone layouts", () => {
     const flow = source("./components/DecisionQueueFlow.tsx");
     const styles = source("./styles.css");
-    expect(flow).toContain('className="num mt-1 w-28"');
+    expect(flow).toContain('className="num mt-1 h-11 w-full sm:w-28"');
     expect(styles).toContain("input.w-28");
     expect(styles).toContain("width: 100%");
   });

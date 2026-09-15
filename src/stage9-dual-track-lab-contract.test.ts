@@ -16,7 +16,7 @@ describe("Stage 9 dual-track entertainment and laboratory contract", () => {
     expect(experimental).toContain("productionStatus: PRODUCTION_STATUS");
     expect(production).toContain('model.validationStatus !== "PRODUCTION_VALIDATED"');
     expect(opportunities).toContain("Modo diversão · experimental ativo");
-    expect(opportunities).toContain("Stage 9 testa calibração em paralelo e não bloqueia esta análise");
+    expect(opportunities).toContain("O modelo experimental e a Stage 9 continuam separados da validação para uso com dinheiro real");
   });
 
   it("stores owner-scoped lab notifications without exposing private validation tables to the browser", () => {

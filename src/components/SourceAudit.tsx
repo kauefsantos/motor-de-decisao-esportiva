@@ -75,10 +75,11 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
   return (
     <CollapsiblePanel
       className="mt-4"
-      title="Conferência das informações"
-      description="Fontes, identificação dos jogos e dados aproveitados"
+      title="Detalhes técnicos"
+      description="Fontes e conferências usadas pela análise"
       meta={`${resolvedEvents}/${audit.matches.length} jogos`}
     >
+      <p className="mb-3 text-xs leading-relaxed text-muted-foreground">Esta área é opcional. Use apenas se quiser conferir a origem dos dados ou investigar algum jogo.</p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Jogos encontrados</p><p className="num mt-1 text-lg">{resolvedEvents}</p></div>
         <div className="metric-tile p-3"><p className="text-[11px] text-muted-foreground">Jogos enviados</p><p className="num mt-1 text-lg">{audit.matches.length}</p></div>
@@ -141,11 +142,8 @@ export function SourceAudit({ runId, refreshKey }: { runId: string; refreshKey: 
       </div>
 
       <div className="mt-4 border-t border-border pt-3">
-        <Link
-          to="/diagnostico"
-          className="flex min-h-11 items-center justify-center rounded-xl bg-secondary/35 px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          Ver funil de decisão
+        <Link to="/diagnostico" className="flex min-h-11 items-center justify-center rounded-xl bg-secondary/35 px-4 text-sm font-medium text-foreground transition-colors hover:bg-secondary">
+          Abrir diagnóstico completo
         </Link>
       </div>
     </CollapsiblePanel>
