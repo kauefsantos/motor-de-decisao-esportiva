@@ -41,9 +41,9 @@ describe("frontend/backend flow synchronization", () => {
     expect(gate).toContain("getDecisionQueueHistory");
     expect(gate).toContain("hasPersistedDecisionState");
     expect(gate).toContain("decisionQueueEvaluated");
-    expect(gate).toContain("Nenhuma opção passou por todos os critérios");
-    expect(gate).toContain("Atualizar ou reabrir a página não repete os modelos nem as cotações desta avaliação");
-    expect(gate).toContain("Suas decisões foram recuperadas sem repetir a análise ou as cotações");
+    expect(gate).toContain("Nenhuma oportunidade nesta rodada");
+    expect(gate).toContain("Atualizar ou reabrir esta página não repete os modelos nem as cotações desta avaliação");
+    expect(gate).toContain("Você pode continuar de onde parou, sem refazer modelos ou buscar as odds novamente");
     expect(queueFunctions).toContain("DECISION_QUEUE_EVALUATED");
     expect(queueFunctions).toContain("decisionQueueEvaluated");
     expect(queue).toContain("buildDecisionOpportunityQueue");
