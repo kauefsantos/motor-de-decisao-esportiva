@@ -16,7 +16,7 @@ describe("background analysis contract", () => {
     expect(upload).not.toContain("enqueueAnalysis");
 
     const finalizeAt = validation.indexOf("await finalizeDraft({");
-    const navigateAt = validation.indexOf('navigate({ to: "/run/$runId/processamento"');
+    const navigateAt = validation.indexOf('navigate({ to: "/run/$runId/processamento"', finalizeAt);
     expect(finalizeAt).toBeGreaterThan(-1);
     expect(navigateAt).toBeGreaterThan(finalizeAt);
     expect(draftFunctions).toContain('db.rpc("enqueue_analysis_job_atomic"');
@@ -79,6 +79,14 @@ describe("iPhone Web Push contract", () => {
     expect(worker).toContain('addEventListener("push"');
     expect(worker).toContain('showNotification("Análise pronta"');
     expect(worker).toContain('addEventListener("notificationclick"');
+  });
+
+  it("expires and clears stale analysis deep links before they can poison later reminders", () => {
+    const worker = source("../public/sw.js");
+    expect(worker).toContain("const MANUAL_TARGET_TTL_MS = 10 * 60 * 1000");
+    expect(worker).toContain("await cache.delete(TARGET_KEY)");
+    expect(worker).toContain('return "/"');
+    expect(worker).toContain("await clearTarget()");
   });
 
   it("keeps signing secrets server-side while durable delivery state stays server-only", () => {

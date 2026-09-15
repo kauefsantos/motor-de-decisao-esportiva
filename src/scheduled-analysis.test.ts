@@ -83,6 +83,8 @@ describe("scheduled D+2 analysis", () => {
     expect(worker).toContain('"enqueue_push_delivery_event"');
     expect(worker).toContain('"ANALYSIS_READY"');
     expect(serviceWorker).toContain("MANUAL_TARGET_TTL_MS");
-    expect(serviceWorker).toContain('return fresh && typeof data?.url === "string"');
+    expect(serviceWorker).toContain('const safePath = typeof data?.url === "string" && data.url.startsWith("/")');
+    expect(serviceWorker).toContain("if (!fresh || !safePath)");
+    expect(serviceWorker).toContain("await cache.delete(TARGET_KEY)");
   });
 });

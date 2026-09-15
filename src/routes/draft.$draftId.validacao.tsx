@@ -110,13 +110,16 @@ function DraftValidationScreen() {
     queryFn: async () => {
       let current = (await loadDraft({ data: { draftId } })).data;
       const status = String(current.draft.status ?? "");
+      if (status === "FINALIZED" || status === "CANCELLED") return current;
       if (status !== "READY" && status !== "NEEDS_CORRECTION") {
         await validateDraft({ data: { draftId } });
         current = (await loadDraft({ data: { draftId } })).data;
       }
       return current;
     },
-    staleTime: Infinity,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
     retry: 1,
   });
 
@@ -125,7 +128,19 @@ function DraftValidationScreen() {
   const ignoredCount = games.length - activeGames.length;
   const invalidGames = activeGames.filter((game) => game.validation_status !== "VALID");
   const validCount = activeGames.length - invalidGames.length;
-  const ready = activeGames.length > 0 && invalidGames.length === 0 && query.data?.draft.status === "READY";
+  const draftStatus = String(query.data?.draft.status ?? "");
+  const terminalDraft = draftStatus === "FINALIZED" || draftStatus === "CANCELLED";
+  const finalRunId = typeof query.data?.draft.final_run_id === "string" ? query.data.draft.final_run_id : null;
+  const ready = activeGames.length > 0 && invalidGames.length === 0 && draftStatus === "READY";
+
+  useEffect(() => {
+    if (!terminalDraft) return;
+    if (draftStatus === "FINALIZED" && finalRunId) {
+      navigate({ to: "/run/$runId/processamento", params: { runId: finalRunId }, replace: true });
+      return;
+    }
+    navigate({ to: "/", replace: true });
+  }, [draftStatus, finalRunId, navigate, terminalDraft]);
 
   useEffect(() => {
     if (games.length === 0) return;
@@ -216,6 +231,24 @@ function DraftValidationScreen() {
       focusFirstInvalid(invalidGames);
       setFinalizing(false);
     }
+  }
+
+  if (!query.isLoading && !query.isError && terminalDraft) {
+    return (
+      <AppShell stage="upload">
+        <div className="mx-auto max-w-3xl">
+          <div className="panel mt-5 flex items-start gap-3 p-5" role="status" aria-live="polite">
+            <Loader2 className="mt-0.5 size-5 shrink-0 animate-spin text-primary" aria-hidden />
+            <div>
+              <p className="font-medium">Esta rodada já foi encerrada</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {finalRunId ? "Abrindo a análise correspondente…" : "Voltando ao início para uma nova análise…"}
+              </p>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
   }
 
   return (

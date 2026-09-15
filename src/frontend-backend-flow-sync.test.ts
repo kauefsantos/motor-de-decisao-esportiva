@@ -24,6 +24,13 @@ describe("frontend/backend flow synchronization", () => {
     expect(validation).toContain("finalizeAnalysisDraft");
   });
 
+  it("never re-enqueues analysis runs that are already terminal", () => {
+    const background = source("./lib/background-analysis.functions.ts");
+    expect(background).toContain('const NON_ENQUEUEABLE_RUN_STATUSES = new Set(["READY_FOR_ODDS", "COMPLETED"])');
+    expect(background).toContain('NON_ENQUEUEABLE_RUN_STATUSES.has(String(run.status ?? ""))');
+    expect(background).toContain('ready: NON_ENQUEUEABLE_RUN_STATUSES.has(String(run.status ?? ""))');
+  });
+
   it("uses the persistent decision queue instead of the legacy experimental result flow", () => {
     const opportunities = source("./routes/run.$runId.oportunidades.tsx");
     const gate = source("./components/DecisionQueueGate.tsx");

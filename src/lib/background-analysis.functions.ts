@@ -4,6 +4,7 @@ import { z } from "zod";
 import { BackendError } from "./backend-contract";
 
 const runSchema = z.object({ runId: z.string().uuid() });
+const NON_ENQUEUEABLE_RUN_STATUSES = new Set(["READY_FOR_ODDS", "COMPLETED"]);
 
 async function db() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -30,7 +31,9 @@ export const enqueueAnalysis = createServerFn({ method: "POST" })
       .eq("owner_id", userId)
       .single();
     if (runError || !run) throw new BackendError("NOT_FOUND", "Análise não encontrada.", 404);
-    if (run.status === "READY_FOR_ODDS") return { status: "DONE" as const, created: false };
+    if (NON_ENQUEUEABLE_RUN_STATUSES.has(String(run.status ?? ""))) {
+      return { status: "DONE" as const, created: false };
+    }
 
     const { data: result, error } = await supabase.rpc("enqueue_analysis_job_atomic", {
       p_run_id: data.runId,
@@ -81,7 +84,12 @@ export const getProcessingStatus = createServerFn({ method: "POST" })
 
     if (runError || !run) throw new BackendError("NOT_FOUND", "Análise não encontrada.", 404);
     if (jobError || logError) throw new BackendError("INTERNAL_ERROR", "Não foi possível atualizar o andamento agora.", 500);
-    return { run, job: job ?? null, logs: logs ?? [], ready: run.status === "READY_FOR_ODDS" };
+    return {
+      run,
+      job: job ?? null,
+      logs: logs ?? [],
+      ready: NON_ENQUEUEABLE_RUN_STATUSES.has(String(run.status ?? "")),
+    };
   });
 
 export const retryBackgroundAnalysis = createServerFn({ method: "POST" })
