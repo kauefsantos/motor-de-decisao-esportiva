@@ -82,7 +82,8 @@ describe("production E2E market funnel contract", () => {
     const queue = source("./lib/decision-queue.functions.ts");
     const gate = source("./components/DecisionQueueGate.tsx");
     expect(queue).toContain("Nenhuma aposta atendeu a todos os requisitos da regra de negócio.");
-    expect(gate).toContain("Nenhuma opção passou por todos os critérios");
-    expect(gate).toContain("Nenhuma aposta artificial foi criada");
+    expect(gate).toContain("Nenhuma oportunidade nesta rodada");
+    expect(gate).toContain("Isso não é uma falha");
+    expect(gate).toContain("não cria recomendações artificiais");
   });
 });
