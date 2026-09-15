@@ -26,8 +26,8 @@ describe("automatic odds orchestration", () => {
     expect(refreshIndex).toBeGreaterThanOrEqual(0);
     expect(buildIndex).toBeGreaterThan(refreshIndex);
     expect(flow).toContain("buildConfirmedQuoteEntries");
-    expect(flow).toContain("Confirmar odds e recalcular");
-    expect(flow).toContain("As probabilidades permanecem congeladas no momento da análise");
+    expect(flow).toContain("Avaliar oportunidades");
+    expect(flow).toContain("As probabilidades da análise não são refeitas");
   });
 
   it("shares one server-side collector between the scheduled pipeline and authenticated UI", () => {
