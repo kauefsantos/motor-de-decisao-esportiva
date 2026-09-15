@@ -79,6 +79,7 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
   const acceptedCount = history.acceptedCount ?? accepted.length;
   const dailyLimit = history.dailySelectionLimit ?? 3;
   const exhausted = Boolean(history.exhausted);
+  const zeroOpportunityResult = history.decisionQueueEvaluated && rows.length === 0;
   const canFinalize = !history.selectionFinalized && acceptedCount > 0 && (acceptedCount >= dailyLimit || exhausted);
 
   if (historyQuery.isError) {
@@ -91,22 +92,7 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
     );
   }
 
-  if (history.selectionFinalized) {
-    return (
-      <section className="panel mt-5 p-5 sm:p-6">
-        <div className="flex items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/10"><Check className="size-5 text-success" aria-hidden /></span>
-          <div>
-            <h2 className="text-lg font-semibold">Escolhas salvas</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Você pode continuar de onde parou, sem refazer modelos ou buscar as odds novamente.</p>
-            <Button className="mt-4 min-h-11" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Revisar escolhas</Button>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  if (history.decisionQueueEvaluated && rows.length === 0) {
+  if (zeroOpportunityResult) {
     return (
       <section className="panel mt-5 overflow-hidden border-success/20">
         <div className="p-5 sm:p-7">
@@ -129,6 +115,21 @@ function PersistedDecisionQueue({ runId, initialHistory }: { runId: string; init
             <p className="mt-2">Atualizar ou reabrir esta página não repete os modelos nem as cotações desta avaliação.</p>
           </div>
         </details>
+      </section>
+    );
+  }
+
+  if (history.selectionFinalized) {
+    return (
+      <section className="panel mt-5 p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/10"><Check className="size-5 text-success" aria-hidden /></span>
+          <div>
+            <h2 className="text-lg font-semibold">Escolhas salvas</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Você pode continuar de onde parou, sem refazer modelos ou buscar as odds novamente.</p>
+            <Button className="mt-4 min-h-11" onClick={() => navigate({ to: "/run/$runId/resultado", params: { runId }, search: { mode: "experimental" } })}>Revisar escolhas</Button>
+          </div>
+        </div>
       </section>
     );
   }
