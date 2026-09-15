@@ -2,24 +2,24 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, Clock3, FileSpreadsheet, UploadCloud, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock3, FileSpreadsheet, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { PushNotificationControl } from "@/components/PushNotificationControl";
 import { Button } from "@/components/ui/button";
-import { parseCsv, type CsvParseResult } from "@/lib/csv";
 import { createAnalysisDraft } from "@/lib/analysis-draft.functions";
+import { parseCsv, type CsvParseResult } from "@/lib/csv";
 import { getHomeSummary } from "@/lib/home-summary.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Analisar jogos · Bet Value Engine V2.1.1" },
+      { title: "Analisar jogos · Bet Value" },
       {
         name: "description",
-        content: "Envie os jogos da rodada, valide as partidas e veja quais opções de aposta merecem ser conferidas antes de olhar as odds.",
+        content: "Envie os jogos, acompanhe a análise e veja apenas as oportunidades que passarem pelos filtros.",
       },
     ],
   }),
@@ -41,19 +41,13 @@ function money(value: number | null | undefined) {
 }
 
 function runStatusLabel(status: string) {
-  if (status === "RUNNING") return "Preparando análise";
-  if (status === "READY_FOR_ODDS") return "Pronta para conferir e escolher";
+  if (status === "RUNNING") return "Analisando";
+  if (status === "READY_FOR_ODDS") return "Pronta para conferir";
   if (status === "COMPLETED") return "Concluída";
   return "Em andamento";
 }
 
-function ResumeRunButton({
-  run,
-  compact = false,
-}: {
-  run: RecentRun | null | undefined;
-  compact?: boolean;
-}) {
+function ResumeRunButton({ run, compact = false }: { run: RecentRun | null | undefined; compact?: boolean }) {
   if (!run) return null;
   const buttonProps = compact
     ? { size: "sm" as const, variant: "outline" as const }
@@ -62,20 +56,20 @@ function ResumeRunButton({
   if (run.selection_finalized_at) {
     return (
       <Button asChild {...buttonProps}>
-        <Link to="/run/$runId/resultado" params={{ runId: run.id }} search={{ mode: "experimental" }}>Abrir resultado</Link>
+        <Link to="/run/$runId/resultado" params={{ runId: run.id }} search={{ mode: "experimental" }}>Ver resultado</Link>
       </Button>
     );
   }
   if (run.status === "RUNNING") {
     return (
       <Button asChild {...buttonProps}>
-        <Link to="/run/$runId/processamento" params={{ runId: run.id }}>Continuar</Link>
+        <Link to="/run/$runId/processamento" params={{ runId: run.id }}>Acompanhar</Link>
       </Button>
     );
   }
   return (
     <Button asChild {...buttonProps}>
-      <Link to="/run/$runId/oportunidades" params={{ runId: run.id }}>Continuar</Link>
+      <Link to="/run/$runId/oportunidades" params={{ runId: run.id }}>Ver análise</Link>
     </Button>
   );
 }
@@ -110,7 +104,7 @@ function UploadScreen() {
     setParsed(result);
     setClientRequestId(crypto.randomUUID());
     if (result.rows.length === 0) {
-      toast.error(result.invalid[0]?.reason ?? "Não encontrei nenhuma partida válida nesse arquivo.");
+      toast.error(result.invalid[0]?.reason ?? "Não encontrei nenhum jogo válido nesse arquivo.");
     }
   }, []);
 
@@ -136,7 +130,7 @@ function UploadScreen() {
       });
       navigate({ to: "/draft/$draftId/validacao", params: { draftId: res.data.draftId } });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível preparar a validação. Tente novamente.");
+      toast.error(error instanceof Error ? error.message : "Não foi possível preparar os jogos. Tente novamente.");
       setSubmitting(false);
     }
   }
@@ -144,73 +138,65 @@ function UploadScreen() {
   const summary = summaryQuery.data;
   const primaryPending = summary?.pendingDraft ?? summary?.resumableRun ?? null;
   const recentRuns = summary?.recentRuns ?? [];
+  const hasSecondaryAction = Boolean(summary && (summary.openBetsCount > 0 || summary.proposedCount > 0));
 
   return (
     <AppShell stage="upload">
-      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="mx-auto max-w-4xl">
-        <p className="label-eyebrow">Etapa 1 de 4 · enviar e validar</p>
-        <h1 className="page-heading mt-1.5">O que precisa da sua atenção?</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:mt-3 sm:text-base">
-          Continue uma análise que já começou, registre resultados pendentes ou envie uma nova rodada.
-        </p>
+      <div data-testid="upload-screen" data-hydrated={ready ? "true" : "false"} className="mx-auto max-w-3xl">
+        <div>
+          <p className="label-eyebrow">Análises</p>
+          <h1 className="page-heading mt-1.5">O que você quer analisar?</h1>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+            Envie os jogos da rodada. O sistema faz a análise e mostra somente o que realmente passar pelos filtros.
+          </p>
+        </div>
 
-        {summary && (
-          <section className="panel mt-5 overflow-hidden" aria-label="Agora">
-            <div className="border-b border-border px-4 py-3 sm:px-5">
-              <p className="label-eyebrow">Agora</p>
-            </div>
-            <div className="divide-y divide-border/60">
-              {primaryPending ? (
-                <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-                  <div>
-                    <p className="text-sm font-medium">Você tem uma análise para continuar</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {summary.pendingDraft
-                        ? `Rodada ${dateLabel(summary.pendingDraft.target_date)} · validação pendente`
-                        : `Rodada ${dateLabel(summary.resumableRun?.target_date)} · ${runStatusLabel(summary.resumableRun?.status ?? "")}`}
-                    </p>
-                  </div>
-                  {summary.pendingDraft ? (
-                    <Button asChild className="min-h-11 w-full sm:w-auto">
-                      <Link to="/draft/$draftId/validacao" params={{ draftId: summary.pendingDraft.id }}>Continuar análise</Link>
-                    </Button>
-                  ) : (
-                    <ResumeRunButton run={summary.resumableRun} />
-                  )}
-                </div>
-              ) : (
-                <div className="p-4 text-sm text-muted-foreground sm:p-5">Nenhuma análise precisa ser retomada agora.</div>
-              )}
-
-              <div className="grid sm:grid-cols-3 sm:divide-x sm:divide-y-0 sm:divide-border/60">
-                <Link to="/open-bets" className="flex min-h-20 items-center justify-between gap-3 p-4 transition-colors hover:bg-secondary/20">
-                  <span><span className="block text-xs text-muted-foreground">Resultados para informar</span><strong className="num mt-1 block text-xl">{summary.openBetsCount}</strong></span>
-                  <Clock3 className="size-5 text-muted-foreground" aria-hidden />
-                </Link>
-                {summary.proposedRunId ? (
-                  <Link
-                    to="/run/$runId/resultado"
-                    params={{ runId: summary.proposedRunId }}
-                    search={{ mode: "experimental" }}
-                    className="flex min-h-20 items-center justify-between gap-3 p-4 transition-colors hover:bg-secondary/20"
-                    data-testid="proposed-run-link"
-                  >
-                    <span><span className="block text-xs text-muted-foreground">Sugestões para registrar</span><strong className="num mt-1 block text-xl">{summary.proposedCount}</strong></span>
-                    <FileSpreadsheet className="size-5 text-muted-foreground" aria-hidden />
-                  </Link>
-                ) : (
-                  <div className="flex min-h-20 items-center justify-between gap-3 p-4">
-                    <span><span className="block text-xs text-muted-foreground">Sugestões para registrar</span><strong className="num mt-1 block text-xl">{summary.proposedCount}</strong></span>
-                    <FileSpreadsheet className="size-5 text-muted-foreground" aria-hidden />
-                  </div>
-                )}
-                <div className="flex min-h-20 items-center justify-between gap-3 p-4">
-                  <span><span className="block text-xs text-muted-foreground">Saldo disponível</span><strong className="num mt-1 block text-lg">{money(summary.availableBankroll)}</strong></span>
-                  <WalletCards className="size-5 text-muted-foreground" aria-hidden />
-                </div>
+        {summary && primaryPending && (
+          <section className="panel mt-5 border-primary/20 bg-primary/[0.035] p-4 sm:p-5" aria-label="Próxima ação">
+            <p className="label-eyebrow">Continue de onde parou</p>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-semibold">
+                  {summary.pendingDraft ? "Jogos aguardando conferência" : `Rodada ${dateLabel(summary.resumableRun?.target_date)}`}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {summary.pendingDraft
+                    ? `Rodada ${dateLabel(summary.pendingDraft.target_date)} · confira os jogos antes de analisar`
+                    : runStatusLabel(summary.resumableRun?.status ?? "")}
+                </p>
               </div>
+              {summary.pendingDraft ? (
+                <Button asChild className="min-h-11 w-full sm:w-auto">
+                  <Link to="/draft/$draftId/validacao" params={{ draftId: summary.pendingDraft.id }}>Conferir jogos</Link>
+                </Button>
+              ) : (
+                <ResumeRunButton run={summary.resumableRun} />
+              )}
             </div>
           </section>
+        )}
+
+        {summary && hasSecondaryAction && (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {summary.openBetsCount > 0 && (
+              <Link to="/open-bets" className="panel flex min-h-20 items-center justify-between gap-3 p-4 transition-colors hover:bg-secondary/20">
+                <span><span className="block text-xs text-muted-foreground">Resultados para informar</span><strong className="num mt-1 block text-xl">{summary.openBetsCount}</strong></span>
+                <Clock3 className="size-5 text-muted-foreground" aria-hidden />
+              </Link>
+            )}
+            {summary.proposedCount > 0 && summary.proposedRunId && (
+              <Link
+                to="/run/$runId/resultado"
+                params={{ runId: summary.proposedRunId }}
+                search={{ mode: "experimental" }}
+                className="panel flex min-h-20 items-center justify-between gap-3 p-4 transition-colors hover:bg-secondary/20"
+                data-testid="proposed-run-link"
+              >
+                <span><span className="block text-xs text-muted-foreground">Escolhas para registrar</span><strong className="num mt-1 block text-xl">{summary.proposedCount}</strong></span>
+                <FileSpreadsheet className="size-5 text-muted-foreground" aria-hidden />
+              </Link>
+            )}
+          </div>
         )}
 
         {summaryQuery.isError && (
@@ -219,84 +205,78 @@ function UploadScreen() {
           </div>
         )}
 
-        <div className="mt-7 flex items-end justify-between gap-3">
+        <section className="mt-7">
           <div>
             <p className="label-eyebrow">Nova análise</p>
-            <h2 className="mt-1 text-xl font-semibold">Enviar os jogos da rodada</h2>
+            <h2 className="mt-1 text-xl font-semibold">Enviar jogos da rodada</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Use um CSV com Data, Partida, Horário e Campeonato.</p>
           </div>
-        </div>
 
-        <PushNotificationControl />
-
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) void handleFile(file);
-          }}
-          className={`panel mt-4 flex min-h-44 flex-col items-center justify-center gap-3 border-primary/15 bg-primary/[0.035] px-4 py-6 text-center transition-all sm:min-h-56 sm:gap-4 sm:px-8 sm:py-8 ${
-            dragging ? "border-primary bg-primary/10 ring-1 ring-primary/30" : ""
-          }`}
-        >
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/12 ring-1 ring-primary/15 sm:size-14">
-            <UploadCloud className="size-6 text-primary sm:size-7" aria-hidden />
-          </div>
-          <div>
-            <p className="font-medium sm:hidden">Escolha o CSV dos jogos</p>
-            <p className="hidden font-medium sm:block">Arraste o CSV aqui</p>
-            <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground sm:text-sm">Data, Partida, Horário e Campeonato · uma data por arquivo</p>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            data-testid="csv-input"
-            disabled={!ready}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const file = e.dataTransfer.files?.[0];
               if (file) void handleFile(file);
             }}
-          />
-          <Button className="min-h-12 w-full sm:w-auto sm:min-w-40" disabled={!ready} onClick={() => inputRef.current?.click()}>
-            Escolher CSV
-          </Button>
-        </div>
+            className={`panel mt-4 flex min-h-44 flex-col items-center justify-center gap-3 border-primary/15 bg-primary/[0.025] px-4 py-6 text-center transition-all sm:min-h-52 sm:px-8 ${
+              dragging ? "border-primary bg-primary/10 ring-1 ring-primary/30" : ""
+            }`}
+          >
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10">
+              <UploadCloud className="size-6 text-primary" aria-hidden />
+            </div>
+            <div>
+              <p className="font-medium">Escolha o CSV dos jogos</p>
+              <p className="mt-1 text-xs text-muted-foreground sm:hidden">Toque abaixo para selecionar</p>
+              <p className="mt-1 hidden text-xs text-muted-foreground sm:block">ou arraste o arquivo para esta área</p>
+            </div>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              data-testid="csv-input"
+              disabled={!ready}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleFile(file);
+              }}
+            />
+            <Button className="min-h-12 w-full sm:w-auto sm:min-w-40" disabled={!ready} onClick={() => inputRef.current?.click()}>
+              Escolher arquivo
+            </Button>
+          </div>
+        </section>
 
         {parsed && (
           <section className="panel mt-4 overflow-hidden">
-            <div className="flex flex-col gap-4 p-4 sm:p-5">
+            <div className="p-4 sm:p-5">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/10">
-                  <FileSpreadsheet className="size-5 text-accent" aria-hidden />
-                </div>
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/10"><FileSpreadsheet className="size-5 text-accent" aria-hidden /></div>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Arquivo pronto para validação</p>
+                  <p className="text-xs text-muted-foreground">Arquivo carregado</p>
                   <span className="block truncate font-medium">{filename}</span>
                 </div>
               </div>
 
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border/60 py-4 sm:grid-cols-4">
-                <div><dt className="text-[11px] text-muted-foreground">Data</dt><dd className="num mt-1 text-lg font-semibold">{dateLabel(parsed.targetDate)}</dd></div>
-                <div><dt className="text-[11px] text-muted-foreground">Partidas</dt><dd className="num mt-1 text-lg font-semibold">{parsed.rows.length}</dd></div>
-                <div><dt className="text-[11px] text-muted-foreground">Campeonatos</dt><dd className="num mt-1 text-lg font-semibold">{parsed.leagues.length}</dd></div>
-                <div><dt className="text-[11px] text-muted-foreground">Ignoradas</dt><dd className={`num mt-1 text-lg font-semibold ${parsed.invalid.length > 0 ? "text-warning" : ""}`}>{parsed.invalid.length}</dd></div>
+              <dl className="mt-4 grid grid-cols-3 gap-2">
+                <div className="rounded-xl bg-secondary/30 p-3"><dt className="text-[11px] text-muted-foreground">Rodada</dt><dd className="num mt-1 font-semibold">{dateLabel(parsed.targetDate)}</dd></div>
+                <div className="rounded-xl bg-secondary/30 p-3"><dt className="text-[11px] text-muted-foreground">Jogos</dt><dd className="num mt-1 font-semibold">{parsed.rows.length}</dd></div>
+                <div className="rounded-xl bg-secondary/30 p-3"><dt className="text-[11px] text-muted-foreground">Ignorados</dt><dd className={`num mt-1 font-semibold ${parsed.invalid.length > 0 ? "text-warning" : ""}`}>{parsed.invalid.length}</dd></div>
               </dl>
 
               {parsed.invalid.length > 0 && (
-                <div className="rounded-xl border border-warning/30 bg-warning/8 p-3" role="alert">
-                  <p className="flex items-center gap-2 text-sm font-medium text-warning">
-                    <AlertTriangle className="size-4" aria-hidden /> {parsed.invalid.length} linha{parsed.invalid.length === 1 ? "" : "s"} não {parsed.invalid.length === 1 ? "será" : "serão"} analisada{parsed.invalid.length === 1 ? "" : "s"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">Confira os motivos antes de continuar. As outras partidas podem seguir normalmente.</p>
+                <div className="mt-4 rounded-xl border border-warning/30 bg-warning/8 p-3" role="alert">
+                  <p className="flex items-center gap-2 text-sm font-medium text-warning"><AlertTriangle className="size-4" aria-hidden /> Alguns jogos serão ignorados</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Os outros {parsed.rows.length} jogos podem seguir normalmente.</p>
                   <details className="mt-2 text-xs">
-                    <summary className="cursor-pointer font-medium text-foreground">Ver linhas ignoradas</summary>
+                    <summary className="cursor-pointer font-medium text-foreground">Ver o que foi ignorado</summary>
                     <ul className="mt-2 space-y-1 text-muted-foreground">
                       {parsed.invalid.slice(0, 12).map((item, index) => <li key={`${item.line}-${index}`}>Linha {item.line}: {item.reason}</li>)}
                     </ul>
@@ -305,55 +285,63 @@ function UploadScreen() {
               )}
 
               {parsed.leagues.length > 0 && (
-                <CollapsiblePanel title="Campeonatos encontrados" description="Confira rapidamente o que foi reconhecido" meta={parsed.leagues.length}>
-                  <div className="flex flex-wrap gap-2">
-                    {parsed.leagues.map((league) => (
-                      <span key={league} className="rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground">{league}</span>
-                    ))}
+                <details className="mt-4 rounded-xl border border-border/60 px-3">
+                  <summary className="touch-target flex min-h-11 cursor-pointer list-none items-center justify-between text-sm font-medium">Campeonatos encontrados <span className="num text-xs text-muted-foreground">{parsed.leagues.length}</span></summary>
+                  <div className="flex flex-wrap gap-2 border-t border-border/60 py-3">
+                    {parsed.leagues.map((league) => <span key={league} className="rounded-md bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground">{league}</span>)}
                   </div>
-                </CollapsiblePanel>
+                </details>
               )}
 
               <Button
-                className="min-h-12 w-full"
+                className="mt-4 min-h-12 w-full"
                 size="lg"
                 data-testid="processar-jogos"
                 disabled={!ready || parsed.rows.length === 0 || !parsed.targetDate || !clientRequestId || submitting}
                 onClick={() => void processar()}
               >
-                {submitting ? "Preparando validação…" : "VALIDAR PARTIDAS"}
+                {submitting ? "Preparando jogos…" : "Conferir jogos"}
                 <ArrowRight className="ml-2 size-4" aria-hidden />
               </Button>
             </div>
           </section>
         )}
 
-        <CollapsiblePanel
-          className="mt-4"
-          title="Como funciona"
-          description="Quatro etapas simples, do CSV ao registro"
-        >
-          <ol className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
-            <li><span className="font-medium text-foreground">1. Enviar e validar.</span> Conferimos os jogos e pedimos correção apenas quando necessário.</li>
-            <li><span className="font-medium text-foreground">2. Preparar.</span> O sistema organiza os dados e calcula as chances.</li>
-            <li><span className="font-medium text-foreground">3. Conferir e escolher.</span> A odd real é comparada com a análise e você escolhe até 3 opções para a rodada.</li>
-            <li><span className="font-medium text-foreground">4. Revisar e registrar.</span> Você revisa as escolhas e registra apenas as apostas que realmente fez.</li>
+        <details className="mt-4 rounded-xl border border-border/60 bg-secondary/10 px-4">
+          <summary className="touch-target flex min-h-12 cursor-pointer list-none items-center text-sm font-medium">Avisos no celular</summary>
+          <div className="border-t border-border/60 pb-4"><PushNotificationControl /></div>
+        </details>
+
+        <CollapsiblePanel className="mt-4" title="Como funciona" description="Do arquivo ao resultado, sem termos técnicos">
+          <ol className="space-y-3 text-sm text-muted-foreground">
+            <li><span className="font-medium text-foreground">1. Confira os jogos.</span> O sistema identifica as partidas e só pede ajuda se algo estiver ambíguo.</li>
+            <li><span className="font-medium text-foreground">2. Aguarde a análise.</span> Os dados são organizados e as chances são calculadas em segundo plano.</li>
+            <li><span className="font-medium text-foreground">3. Veja o resultado.</span> Só aparecem opções que passarem por todos os filtros. Zero opções também é um resultado válido.</li>
+            <li><span className="font-medium text-foreground">4. Registre o que realmente fez.</span> O sistema não aposta por você.</li>
           </ol>
         </CollapsiblePanel>
 
-        {recentRuns.length > 0 && (
-          <CollapsiblePanel className="mt-4" title="Análises recentes" description="Retome ou consulte as últimas rodadas" meta={recentRuns.length}>
-            <ul className="divide-y divide-border">
-              {recentRuns.map((run) => (
-                <li key={run.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Rodada {dateLabel(run.target_date)}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{runStatusLabel(run.status)} · {run.matches_total ?? 0} jogo(s)</p>
-                  </div>
-                  <ResumeRunButton run={run} compact />
-                </li>
-              ))}
-            </ul>
+        {(recentRuns.length > 0 || summary?.availableBankroll !== null) && (
+          <CollapsiblePanel className="mt-4" title="Histórico e saldo" description="Informações que não precisam ocupar a tela principal">
+            {summary?.availableBankroll !== null && (
+              <div className="mb-4 rounded-xl bg-secondary/30 p-3">
+                <p className="text-xs text-muted-foreground">Saldo disponível</p>
+                <p className="num mt-1 text-lg font-semibold">{money(summary?.availableBankroll)}</p>
+              </div>
+            )}
+            {recentRuns.length > 0 && (
+              <ul className="divide-y divide-border">
+                {recentRuns.map((run) => (
+                  <li key={run.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Rodada {dateLabel(run.target_date)}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{runStatusLabel(run.status)} · {run.matches_total ?? 0} jogo(s)</p>
+                    </div>
+                    <ResumeRunButton run={run} compact />
+                  </li>
+                ))}
+              </ul>
+            )}
           </CollapsiblePanel>
         )}
       </div>
