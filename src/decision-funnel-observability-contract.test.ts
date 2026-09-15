@@ -38,6 +38,6 @@ describe("decision funnel observability", () => {
   it("makes the diagnostic reachable from the existing source audit", () => {
     const audit = source("./components/SourceAudit.tsx");
     expect(audit).toContain('to="/diagnostico"');
-    expect(audit).toContain("Ver funil de decisão");
+    expect(audit).toContain("Abrir diagnóstico completo");
   });
 });
