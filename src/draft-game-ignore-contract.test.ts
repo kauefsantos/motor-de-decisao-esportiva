@@ -33,4 +33,20 @@ describe("draft game ignore contract", () => {
     expect(migration).toContain("v_active_count=0");
     expect(migration).toContain("Escolha pelo menos uma partida para analisar");
   });
+
+  it("treats finalized and cancelled drafts as terminal", () => {
+    expect(functions).toContain('const TERMINAL_DRAFT_STATUSES = new Set(["FINALIZED", "CANCELLED"])');
+    expect(functions).toContain("assertDraftMutable(draft)");
+    expect(functions).toContain("Esta rodada já foi encerrada e não pode voltar para validação.");
+    expect(functions).toContain('status === "FINALIZED" && !draft?.final_run_id');
+  });
+
+  it("does not revalidate or cache a terminal draft in the validation route", () => {
+    expect(route).toContain('status === "FINALIZED" || status === "CANCELLED"');
+    expect(route).toContain("staleTime: 0");
+    expect(route).toContain("gcTime: 0");
+    expect(route).toContain('refetchOnMount: "always"');
+    expect(route).toContain("Esta rodada já foi encerrada");
+    expect(route).toContain('to: "/run/$runId/processamento"');
+  });
 });
